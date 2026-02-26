@@ -1,0 +1,13 @@
+.claude
+
+# .NET / Visual Studio
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
+# Build
+publish/
+*.nupkg
