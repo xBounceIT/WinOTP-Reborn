@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="WinOTP.Pages.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="16,8">
+        <ListView x:Name="OtpListView" SelectionMode="None" />
+
+        <!-- Empty state -->
+        <StackPanel
+            x:Name="EmptyStatePanel"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Spacing="8">
+            <FontIcon
+                Glyph="&#xE8D7;"
+                FontSize="48"
+                HorizontalAlignment="Center"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock
+                Text="No OTP entries yet"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                HorizontalAlignment="Center"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock
+                Text="Click the + button below to add your first account"
+                Style="{StaticResource BodyTextBlockStyle}"
+                HorizontalAlignment="Center"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+        </StackPanel>
+    </Grid>
+
+</Page>

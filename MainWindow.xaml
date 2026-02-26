@@ -21,33 +21,8 @@
                 VerticalAlignment="Center" />
         </Grid>
 
-        <!-- OTP List Area -->
-        <Grid Grid.Row="1" Padding="16,8">
-            <ListView x:Name="OtpListView" SelectionMode="None" />
-
-            <!-- Empty state -->
-            <StackPanel
-                x:Name="EmptyStatePanel"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Spacing="8">
-                <FontIcon
-                    Glyph="&#xE8D7;"
-                    FontSize="48"
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock
-                    Text="No OTP entries yet"
-                    Style="{StaticResource SubtitleTextBlockStyle}"
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock
-                    Text="Click the + button below to add your first account"
-                    Style="{StaticResource BodyTextBlockStyle}"
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-            </StackPanel>
-        </Grid>
+        <!-- Navigation Frame -->
+        <Frame x:Name="ContentFrame" Grid.Row="1" />
 
         <!-- Bottom Command Bar -->
         <CommandBar Grid.Row="2" DefaultLabelPosition="Right">

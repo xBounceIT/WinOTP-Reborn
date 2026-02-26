@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="WinOTP.Pages.AddAccountPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="16" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Title with back button -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
+            <Button
+                Click="BackButton_Click"
+                Style="{StaticResource NavigationBackButtonNormalStyle}" />
+            <TextBlock
+                Text="Add Account"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                VerticalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Method selection cards -->
+        <StackPanel Grid.Row="1" Spacing="8">
+
+            <!-- Import QR Code -->
+            <Button
+                Click="ImportQrButton_Click"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Left"
+                Padding="16"
+                CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <FontIcon Glyph="&#xE8B9;" FontSize="24" />
+                    <StackPanel Spacing="2">
+                        <TextBlock
+                            Text="Import QR Code"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Select an image file with a QR code"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Button>
+
+            <!-- Capture Screen Region -->
+            <Button
+                Click="CaptureScreenButton_Click"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Left"
+                Padding="16"
+                CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <FontIcon Glyph="&#xE7A0;" FontSize="24" />
+                    <StackPanel Spacing="2">
+                        <TextBlock
+                            Text="Capture Screen Region"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Select a screen area containing a QR code"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Button>
+
+            <!-- Manual Entry -->
+            <Button
+                Click="ManualEntryButton_Click"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Left"
+                Padding="16"
+                CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <FontIcon Glyph="&#xE70F;" FontSize="24" />
+                    <StackPanel Spacing="2">
+                        <TextBlock
+                            Text="Manual Entry"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Enter account details manually"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Button>
+
+        </StackPanel>
+    </Grid>
+
+</Page>

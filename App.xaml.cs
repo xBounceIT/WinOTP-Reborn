@@ -4,7 +4,8 @@ namespace WinOTP;
 
 public partial class App : Application
 {
-    private Window? m_window;
+    public new static App Current => (App)Application.Current;
+    public MainWindow? MainWindow { get; private set; }
 
     public App()
     {
@@ -13,7 +14,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        m_window = new MainWindow();
-        m_window.Activate();
+        MainWindow = new MainWindow();
+        MainWindow.Activate();
     }
 }
