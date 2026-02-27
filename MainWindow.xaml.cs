@@ -38,10 +38,11 @@ public sealed partial class MainWindow : Window
 
     private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
     {
-        // Update back button visibility
+        // Update back button visibility and enabled state
         NavView.IsBackButtonVisible = ContentFrame.CanGoBack
             ? NavigationViewBackButtonVisible.Visible
             : NavigationViewBackButtonVisible.Collapsed;
+        NavView.IsBackEnabled = ContentFrame.CanGoBack;
 
         // Sync selection to Home when on HomePage
         if (e.SourcePageType == typeof(HomePage))
@@ -62,6 +63,9 @@ public sealed partial class MainWindow : Window
         {
             case "Home":
                 NavigateIfNeeded(typeof(HomePage));
+                break;
+            case "Settings":
+                // Settings page - to be implemented
                 break;
         }
     }

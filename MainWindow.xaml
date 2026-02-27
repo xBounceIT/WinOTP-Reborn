@@ -43,6 +43,16 @@
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem
+                    Content="Settings"
+                    Tag="Settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
             <!-- Content Frame -->
             <Frame x:Name="ContentFrame" />
 

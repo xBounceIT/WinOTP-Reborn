@@ -82,7 +82,12 @@ public sealed partial class HomePage : Page
         if (e.Parameter is OtpAccount newAccount)
         {
             await _credentialManager.SaveAccountAsync(newAccount);
-            Frame.BackStack.Clear();
+            // Remove the AddAccountPage from back stack but keep HomePage
+            var addAccountEntry = Frame.BackStack.LastOrDefault(entry => entry.SourcePageType == typeof(AddAccountPage));
+            if (addAccountEntry != null)
+            {
+                Frame.BackStack.Remove(addAccountEntry);
+            }
         }
 
         await LoadAccountsAsync();
