@@ -18,14 +18,16 @@ public sealed partial class MainWindow : Window
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Window size - fixed at 500x650
+        // Window size - default at 500x650 with resizing enabled
         this.AppWindow.Resize(new Windows.Graphics.SizeInt32(500, 650));
 
-        // Set fixed size constraints
+        // Set minimum window size to fit one TOTP card (440px width, 400px height)
         if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
         {
-            presenter.IsResizable = false;
-            presenter.IsMaximizable = false;
+            presenter.IsResizable = true;
+            presenter.IsMaximizable = true;
+            presenter.PreferredMinimumWidth = 440;
+            presenter.PreferredMinimumHeight = 400;
         }
 
         // Frame navigation tracking

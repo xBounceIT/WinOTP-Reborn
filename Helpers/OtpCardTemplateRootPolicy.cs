@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace WinOTP.Helpers;
 
@@ -9,6 +10,24 @@ internal static class OtpCardTemplateRootPolicy
         if (templateRoot is FrameworkElement frameworkElement)
         {
             searchRoot = frameworkElement;
+            return true;
+        }
+
+        searchRoot = null!;
+        return false;
+    }
+
+    public static bool TryGetSearchRootFromContainer(object? container, out DependencyObject searchRoot)
+    {
+        if (container is GridViewItem gridViewItem && gridViewItem.ContentTemplateRoot is FrameworkElement gElement)
+        {
+            searchRoot = gElement;
+            return true;
+        }
+
+        if (container is ListViewItem listViewItem && listViewItem.ContentTemplateRoot is FrameworkElement lElement)
+        {
+            searchRoot = lElement;
             return true;
         }
 

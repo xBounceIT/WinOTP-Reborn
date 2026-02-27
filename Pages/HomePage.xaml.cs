@@ -12,12 +12,15 @@ namespace WinOTP.Pages;
 
 public sealed partial class HomePage : Page
 {
+    private const double CardWidth = 328; // 320 + 8 for margins
+
     private readonly ICredentialManagerService _credentialManager;
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
 
     private readonly ObservableCollection<OtpAccount> _accounts = new();
     private DispatcherTimer _refreshTimer = null!;
+    private ItemsWrapGrid? _itemsPanel;
 
     public HomePage()
     {
@@ -26,8 +29,57 @@ public sealed partial class HomePage : Page
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
 
-        OtpListView.ItemsSource = _accounts;
+        OtpGridView.ItemsSource = _accounts;
         InitializeRefreshTimer();
+
+        this.SizeChanged += HomePage_SizeChanged;
+        OtpGridView.Loaded += OtpGridView_Loaded;
+    }
+
+    private void OtpGridView_Loaded(object? sender, RoutedEventArgs e)
+    {
+        // Get the ItemsWrapGrid from the visual tree
+        _itemsPanel = FindChild<ItemsWrapGrid>(OtpGridView, "OtpItemsWrapGrid");
+        UpdateGridColumns();
+    }
+
+    private void HomePage_SizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        UpdateGridColumns();
+    }
+
+    private void UpdateGridColumns()
+    {
+        if (_itemsPanel == null)
+        {
+            return;
+        }
+
+        // Calculate how many cards can fit in the available width
+        double availableWidth = OtpGridView.ActualWidth - 32; // Account for padding
+        int columns = Math.Max(1, (int)(availableWidth / CardWidth));
+
+        _itemsPanel.MaximumRowsOrColumns = columns;
+    }
+
+    private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T t && t.Name == name)
+            {
+                return t;
+            }
+
+            var result = FindChild<T>(child, name);
+            if (result != null)
+            {
+                return result;
+            }
+        }
+
+        return null;
     }
 
     private void InitializeRefreshTimer()
@@ -61,15 +113,15 @@ public sealed partial class HomePage : Page
 
         foreach (var account in accountsSnapshot)
         {
-            var container = OtpListView.ContainerFromItem(account) as ListViewItem;
+            var container = OtpGridView.ContainerFromItem(account) as GridViewItem;
             if (!OtpCardTemplateRootPolicy.TryGetSearchRoot(container?.ContentTemplateRoot, out var searchRoot))
             {
                 continue;
             }
 
-            var codeBlock = FindChild<TextBlock>(searchRoot, "CodeTextBlock");
-            var progressBar = FindChild<ProgressBar>(searchRoot, "ProgressBar");
-            var remainingBlock = FindChild<TextBlock>(searchRoot, "RemainingTextBlock");
+            var codeBlock = FindTemplateChild<TextBlock>(searchRoot, "CodeTextBlock");
+            var progressBar = FindTemplateChild<ProgressBar>(searchRoot, "ProgressBar");
+            var remainingBlock = FindTemplateChild<TextBlock>(searchRoot, "RemainingTextBlock");
 
             if (codeBlock != null)
             {
@@ -88,7 +140,7 @@ public sealed partial class HomePage : Page
         }
     }
 
-    private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+    private static T? FindTemplateChild<T>(DependencyObject parent, string name) where T : FrameworkElement
     {
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
         {
@@ -98,7 +150,7 @@ public sealed partial class HomePage : Page
                 return t;
             }
 
-            var result = FindChild<T>(child, name);
+            var result = FindTemplateChild<T>(child, name);
             if (result != null)
             {
                 return result;
@@ -181,7 +233,7 @@ public sealed partial class HomePage : Page
     private void UpdateEmptyState()
     {
         EmptyStatePanel.Visibility = _accounts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        OtpListView.Visibility = _accounts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        OtpGridView.Visibility = _accounts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void SortComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
