@@ -64,8 +64,11 @@
                                        VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <Button Grid.Row="0" Grid.Column="1" 
-                                Style="{StaticResource GhostButtonStyle}"
+                        <Button Grid.Row="0" Grid.Column="1"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                Padding="8,4"
+                                MinWidth="0"
                                 Click="DeleteButton_Click"
                                 Tag="{x:Bind Id}">
                             <FontIcon Glyph="&#xE74D;" FontSize="14"/>
