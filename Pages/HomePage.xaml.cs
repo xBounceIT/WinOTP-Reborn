@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
-using System.Collections.ObjectModel;
 using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Helpers;
 using WinOTP.Models;
@@ -20,7 +19,7 @@ public sealed partial class HomePage : Page
     private readonly IAppLogger _logger;
 
     private readonly List<OtpAccount> _allAccounts = new();
-    private readonly ObservableCollection<OtpAccount> _accounts = new();
+    private List<OtpAccount> _accounts = new();
     private readonly Dictionary<string, CardElementCache> _elementCache = new();
     private DispatcherTimer _refreshTimer = null!;
     private ItemsWrapGrid? _itemsPanel;
@@ -316,12 +315,10 @@ public sealed partial class HomePage : Page
             _ => filtered.OrderByDescending(a => a.CreatedAt)
         };
 
-        var sortedList = sorted.ToList();
-        _accounts.Clear();
-        foreach (var account in sortedList)
-        {
-            _accounts.Add(account);
-        }
+        // Update the list and rebind ItemsSource for a single UI update
+        _accounts = sorted.ToList();
+        _elementCache.Clear();
+        OtpGridView.ItemsSource = _accounts;
 
         UpdateEmptyState();
     }
@@ -411,7 +408,6 @@ public sealed partial class HomePage : Page
         }
 
         _allAccounts.Remove(account);
-        _accounts.Remove(account);
-        UpdateEmptyState();
+        ApplyFilterAndSort();
     }
 }
