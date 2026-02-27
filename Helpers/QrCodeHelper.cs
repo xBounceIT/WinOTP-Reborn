@@ -34,12 +34,19 @@ public static class QrCodeHelper
 
     public static string? DecodeFromPixels(byte[] pixels, int width, int height)
     {
-        var luminanceSource = new RGBLuminanceSource(pixels, width, height, RGBLuminanceSource.BitmapFormat.BGRA32);
-        var reader = new BarcodeReaderGeneric();
-        reader.Options.TryHarder = true;
-        reader.Options.PossibleFormats = [BarcodeFormat.QR_CODE];
+        try
+        {
+            var luminanceSource = new RGBLuminanceSource(pixels, width, height, RGBLuminanceSource.BitmapFormat.BGRA32);
+            var reader = new BarcodeReaderGeneric();
+            reader.Options.TryHarder = true;
+            reader.Options.PossibleFormats = [BarcodeFormat.QR_CODE];
 
-        var result = reader.Decode(luminanceSource);
-        return result?.Text;
+            var result = reader.Decode(luminanceSource);
+            return result?.Text;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

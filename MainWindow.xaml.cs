@@ -7,8 +7,6 @@ namespace WinOTP;
 
 public sealed partial class MainWindow : Window
 {
-    private bool _isNavigating;
-
     public MainWindow()
     {
         this.InitializeComponent();
@@ -20,8 +18,15 @@ public sealed partial class MainWindow : Window
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Window size
-        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(450, 600));
+        // Window size - fixed at 480x650 (fits one TOTP card with padding)
+        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(480, 650));
+
+        // Disable resizing - fixed window size
+        if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        {
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+        }
 
         // Frame navigation tracking
         ContentFrame.Navigated += ContentFrame_Navigated;
@@ -33,23 +38,27 @@ public sealed partial class MainWindow : Window
 
     private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
     {
-        // Update back button visibility
+        // Update back button visibility and enabled state
         NavView.IsBackButtonVisible = ContentFrame.CanGoBack
             ? NavigationViewBackButtonVisible.Visible
             : NavigationViewBackButtonVisible.Collapsed;
+        NavView.IsBackEnabled = ContentFrame.CanGoBack;
 
         // Sync selection to Home when on HomePage
         if (e.SourcePageType == typeof(HomePage))
         {
             NavView.SelectedItem = NavView.MenuItems[0];
         }
+        // Sync selection to Settings when on SettingsPage
+        else if (e.SourcePageType == typeof(SettingsPage))
+        {
+            NavView.SelectedItem = NavView.FooterMenuItems[0];
+        }
     }
 
     private void NavView_ItemInvoked(NavigationView sender,
         NavigationViewItemInvokedEventArgs args)
     {
-        if (_isNavigating) return;
-
         var invokedItem = args.InvokedItemContainer as NavigationViewItem;
         if (invokedItem is null) return;
 
@@ -60,9 +69,8 @@ public sealed partial class MainWindow : Window
             case "Home":
                 NavigateIfNeeded(typeof(HomePage));
                 break;
-
-            case "AddAccount":
-                NavigateToAddAccount();
+            case "Settings":
+                NavigateIfNeeded(typeof(SettingsPage));
                 break;
         }
     }
@@ -82,21 +90,5 @@ public sealed partial class MainWindow : Window
         {
             ContentFrame.Navigate(pageType);
         }
-    }
-
-    private void NavigateToAddAccount()
-    {
-        if (_isNavigating) return;
-        if (ContentFrame.CurrentSourcePageType == typeof(AddAccountPage)) return;
-
-        _isNavigating = true;
-
-        if (!ContentFrame.Navigate(typeof(AddAccountPage)))
-        {
-            _isNavigating = false;
-            return;
-        }
-
-        _isNavigating = false;
     }
 }

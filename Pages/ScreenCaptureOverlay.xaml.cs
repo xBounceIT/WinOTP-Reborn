@@ -156,8 +156,15 @@ public sealed partial class ScreenCaptureOverlay : Window
         }
 
         // Decode QR code from cropped region
-        var qrText = QrCodeHelper.DecodeFromPixels(croppedPixels, width, height);
-        _resultTcs.TrySetResult(qrText);
+        try
+        {
+            var qrText = QrCodeHelper.DecodeFromPixels(croppedPixels, width, height);
+            _resultTcs.TrySetResult(qrText);
+        }
+        catch
+        {
+            _resultTcs.TrySetResult(null);
+        }
         this.Close();
     }
 

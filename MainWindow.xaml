@@ -28,7 +28,7 @@
             Grid.Row="1"
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
-            PaneDisplayMode="LeftMinimal"
+            PaneDisplayMode="LeftCompact"
             ItemInvoked="NavView_ItemInvoked"
             BackRequested="NavView_BackRequested"
             OpenPaneLength="200">
@@ -45,12 +45,10 @@
 
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem
-                    x:Name="AddAccountNavItem"
-                    Content="Add Account"
-                    Tag="AddAccount"
-                    SelectsOnInvoked="False">
+                    Content="Settings"
+                    Tag="Settings">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE710;" />
+                        <FontIcon Glyph="&#xE713;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
