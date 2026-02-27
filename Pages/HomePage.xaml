@@ -75,6 +75,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <!-- Account label and delete button -->
@@ -107,24 +108,41 @@
                                 </Button>
                             </StackPanel>
 
-                            <!-- TOTP code and progress -->
-                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                        Orientation="Horizontal" Spacing="16" Margin="0,8,0,0">
-                                <TextBlock x:Name="CodeTextBlock"
-                                           Style="{StaticResource TitleTextBlockStyle}"
-                                           FontSize="28"
-                                           FontFamily="Consolas"
-                                           VerticalAlignment="Center"/>
-                                <ProgressBar x:Name="ProgressBar"
-                                             Width="100"
-                                             Height="4"
-                                             VerticalAlignment="Center"
-                                             Maximum="1"/>
-                                <TextBlock x:Name="RemainingTextBlock"
+                            <!-- TOTP code -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                       x:Name="CodeTextBlock"
+                                       Style="{StaticResource TitleTextBlockStyle}"
+                                       FontSize="28"
+                                       FontFamily="Consolas"
+                                       VerticalAlignment="Center"
+                                       Margin="0,8,0,0"/>
+
+                            <!-- Progress bar and timer -->
+                            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                  ColumnSpacing="8" Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- Custom progress bar (avoids WinUI3 animation bug) -->
+                                <Grid Grid.Column="0" Height="4" VerticalAlignment="Center">
+                                    <Rectangle Fill="{ThemeResource SystemControlBackgroundBaseLowBrush}"
+                                               HorizontalAlignment="Stretch"
+                                               VerticalAlignment="Stretch"
+                                               RadiusX="2" RadiusY="2"/>
+                                    <Rectangle x:Name="ProgressBarFill"
+                                               Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Stretch"
+                                               RadiusX="2" RadiusY="2"
+                                               Width="0"/>
+                                </Grid>
+                                <TextBlock Grid.Column="1"
+                                           x:Name="RemainingTextBlock"
                                            Style="{StaticResource BodyTextBlockStyle}"
                                            VerticalAlignment="Center"
                                            Opacity="0.7"/>
-                            </StackPanel>
+                            </Grid>
                         </Grid>
                     </Border>
                 </DataTemplate>

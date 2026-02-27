@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Shapes;
 using System.Collections.ObjectModel;
 using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Helpers;
@@ -19,8 +20,14 @@ public sealed partial class HomePage : Page
     private readonly IAppLogger _logger;
 
     private readonly ObservableCollection<OtpAccount> _accounts = new();
+    private readonly Dictionary<string, CardElementCache> _elementCache = new();
     private DispatcherTimer _refreshTimer = null!;
     private ItemsWrapGrid? _itemsPanel;
+
+    private record CardElementCache(
+        TextBlock CodeTextBlock,
+        Rectangle ProgressBarFill,
+        TextBlock RemainingTextBlock);
 
     public HomePage()
     {
@@ -34,6 +41,47 @@ public sealed partial class HomePage : Page
 
         this.SizeChanged += HomePage_SizeChanged;
         OtpGridView.Loaded += OtpGridView_Loaded;
+        OtpGridView.ContainerContentChanging += OtpGridView_ContainerContentChanging;
+    }
+
+    private void OtpGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is not OtpAccount account)
+        {
+            return;
+        }
+
+        if (args.InRecycleQueue)
+        {
+            // Container is being recycled, remove from cache
+            _elementCache.Remove(account.Id);
+            return;
+        }
+
+        // Container is being realized, cache the UI elements
+        if (args.ItemContainer is GridViewItem container &&
+            OtpCardTemplateRootPolicy.TryGetSearchRoot(container.ContentTemplateRoot, out var searchRoot))
+        {
+            var codeBlock = FindTemplateChild<TextBlock>(searchRoot, "CodeTextBlock");
+            var progressBarFill = FindTemplateChild<Rectangle>(searchRoot, "ProgressBarFill");
+            var remainingBlock = FindTemplateChild<TextBlock>(searchRoot, "RemainingTextBlock");
+
+            if (codeBlock != null && progressBarFill != null && remainingBlock != null)
+            {
+                _elementCache[account.Id] = new CardElementCache(codeBlock, progressBarFill, remainingBlock);
+
+                // Initial update
+                codeBlock.Text = _totpGenerator.GenerateCode(account);
+                remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
+
+                var progress = _totpGenerator.GetProgressPercentage(account);
+                var parentGrid = progressBarFill.Parent as FrameworkElement;
+                if (parentGrid != null)
+                {
+                    progressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
+                }
+            }
+        }
     }
 
     private void OtpGridView_Loaded(object? sender, RoutedEventArgs e)
@@ -86,7 +134,7 @@ public sealed partial class HomePage : Page
     {
         _refreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(100)
+            Interval = TimeSpan.FromMilliseconds(16) // ~60fps for smooth updates
         };
 
         _refreshTimer.Tick += RefreshTimer_Tick;
@@ -109,33 +157,23 @@ public sealed partial class HomePage : Page
 
     private void UpdateAllCodes()
     {
-        var accountsSnapshot = _accounts.ToArray();
-
-        foreach (var account in accountsSnapshot)
+        foreach (var (accountId, cache) in _elementCache)
         {
-            var container = OtpGridView.ContainerFromItem(account) as GridViewItem;
-            if (!OtpCardTemplateRootPolicy.TryGetSearchRoot(container?.ContentTemplateRoot, out var searchRoot))
+            var account = _accounts.FirstOrDefault(a => a.Id == accountId);
+            if (account == null)
             {
                 continue;
             }
 
-            var codeBlock = FindTemplateChild<TextBlock>(searchRoot, "CodeTextBlock");
-            var progressBar = FindTemplateChild<ProgressBar>(searchRoot, "ProgressBar");
-            var remainingBlock = FindTemplateChild<TextBlock>(searchRoot, "RemainingTextBlock");
+            cache.CodeTextBlock.Text = _totpGenerator.GenerateCode(account);
+            cache.RemainingTextBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
 
-            if (codeBlock != null)
+            // Calculate progress bar fill width based on parent Grid's actual width
+            var progress = _totpGenerator.GetProgressPercentage(account);
+            var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
+            if (parentGrid != null)
             {
-                codeBlock.Text = _totpGenerator.GenerateCode(account);
-            }
-
-            if (progressBar != null)
-            {
-                progressBar.Value = _totpGenerator.GetProgressPercentage(account);
-            }
-
-            if (remainingBlock != null)
-            {
-                remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
+                cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
             }
         }
     }

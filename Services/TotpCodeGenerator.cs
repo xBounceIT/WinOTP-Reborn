@@ -50,8 +50,14 @@ public class TotpCodeGenerator : ITotpCodeGenerator
     public double GetProgressPercentage(OtpAccount account)
     {
         if (account.Period <= 0) return 0;
-        var remaining = GetRemainingSeconds(account);
-        return (double)remaining / account.Period;
+
+        // Use millisecond precision for smooth progress animation
+        var unixTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var periodMs = (long)account.Period * 1000;
+        var elapsedInPeriod = unixTimeMs % periodMs;
+        var remainingMs = periodMs - elapsedInPeriod;
+
+        return (double)remainingMs / periodMs;
     }
 
     private static OtpHashMode GetHashMode(OtpAlgorithm algorithm)
