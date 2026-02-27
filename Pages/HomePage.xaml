@@ -74,15 +74,26 @@
                                            VerticalAlignment="Center"/>
                             </StackPanel>
 
-                            <Button Grid.Row="0" Grid.Column="1"
-                                    Background="Transparent"
-                                    BorderBrush="Transparent"
-                                    Padding="8,4"
-                                    MinWidth="0"
-                                    Click="DeleteButton_Click"
-                                    Tag="{x:Bind Id}">
-                                <FontIcon Glyph="&#xE74D;" FontSize="14"/>
-                            </Button>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                <Button Background="Transparent"
+                                        BorderBrush="Transparent"
+                                        Padding="8,4"
+                                        MinWidth="0"
+                                        Click="CopyButton_Click"
+                                        Tag="{x:Bind Id}"
+                                        ToolTipService.ToolTip="Copy TOTP code">
+                                    <FontIcon x:Name="CopyButtonIcon" Glyph="&#xE8C8;" FontSize="14"/>
+                                </Button>
+                                <Button Background="Transparent"
+                                        BorderBrush="Transparent"
+                                        Padding="8,4"
+                                        MinWidth="0"
+                                        Click="DeleteButton_Click"
+                                        Tag="{x:Bind Id}"
+                                        ToolTipService.ToolTip="Delete account">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                </Button>
+                            </StackPanel>
 
                             <!-- TOTP code and progress -->
                             <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"

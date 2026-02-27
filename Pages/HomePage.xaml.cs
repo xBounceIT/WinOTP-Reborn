@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using System.Collections.ObjectModel;
+using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Helpers;
 using WinOTP.Models;
 using WinOTP.Services;
@@ -210,6 +211,48 @@ public sealed partial class HomePage : Page
     private void AddButton_Click(object sender, RoutedEventArgs e)
     {
         Frame.Navigate(typeof(AddAccountPage));
+    }
+
+    private async void CopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string id)
+        {
+            return;
+        }
+
+        var account = _accounts.FirstOrDefault(a => a.Id == id);
+        if (account == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var totpCode = _totpGenerator.GenerateCode(account);
+            var dataPackage = new DataPackage();
+            dataPackage.SetText(totpCode);
+            Clipboard.SetContent(dataPackage);
+            Clipboard.Flush();
+
+            // Visual feedback: change button icon to checkmark
+            var copyIcon = FindChild<FontIcon>(button, "CopyButtonIcon");
+            if (copyIcon != null)
+            {
+                copyIcon.Glyph = "\uE73E"; // Checkmark icon
+            }
+
+            // Reset icon after 2 seconds
+            await Task.Delay(2000);
+            if (copyIcon != null)
+            {
+                copyIcon.Glyph = "\uE8C8"; // Copy icon
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Failed to copy TOTP code to clipboard", ex);
+            ShowOperationError("Failed to copy the TOTP code to clipboard");
+        }
     }
 
     private async void DeleteButton_Click(object sender, RoutedEventArgs e)
