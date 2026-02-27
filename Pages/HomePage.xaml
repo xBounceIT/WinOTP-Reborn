@@ -104,6 +104,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <!-- Account label and delete button -->
@@ -145,8 +146,17 @@
                                        VerticalAlignment="Center"
                                        Margin="0,8,0,0"/>
 
+                            <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                       x:Name="NextCodeTextBlock"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       FontFamily="Consolas"
+                                       VerticalAlignment="Center"
+                                       Margin="0,2,0,0"
+                                       Opacity="0.8"
+                                       Visibility="Collapsed"/>
+
                             <!-- Progress bar and timer -->
-                            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                            <Grid Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
                                   ColumnSpacing="8" Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>

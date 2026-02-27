@@ -6,8 +6,26 @@
 
     <Grid Padding="16,8">
         <StackPanel Spacing="8">
-
-
+            <!-- Display Settings -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        Text="Display"
+                        Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch
+                        x:Name="ShowNextCodeToggle"
+                        Header="Show next TOTP code when 5 seconds remain"
+                        Toggled="ShowNextCodeToggle_Toggled" />
+                    <TextBlock
+                        Text="Keeps the current code visible and shows the upcoming code as a hint in the last 5 seconds."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+            </Border>
 
             <!-- About Card -->
             <Expander

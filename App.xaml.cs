@@ -9,12 +9,14 @@ public partial class App : Application
     public MainWindow? MainWindow { get; private set; }
     public IAppLogger Logger { get; } = new AppLogger();
     public ICredentialManagerService CredentialManager { get; }
+    public IAppSettingsService AppSettings { get; }
     public ITotpCodeGenerator TotpGenerator { get; } = new TotpCodeGenerator();
 
     public App()
     {
         this.InitializeComponent();
         CredentialManager = new CredentialManagerService(Logger);
+        AppSettings = new AppSettingsService();
         UnhandledException += OnUnhandledException;
     }
 

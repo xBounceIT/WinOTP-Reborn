@@ -13,9 +13,11 @@ namespace WinOTP.Pages;
 public sealed partial class HomePage : Page
 {
     private const double CardWidth = 368; // 360 + 8 for margins
+    private const int NextCodePreviewThresholdSeconds = 5;
     private const string VaultLoadFailureMessage = "Unable to access Windows Credential Manager. Saved accounts could not be loaded.";
 
     private readonly ICredentialManagerService _credentialManager;
+    private readonly IAppSettingsService _appSettings;
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
 
@@ -31,12 +33,14 @@ public sealed partial class HomePage : Page
     private record CardElementCache(
         TextBlock CodeTextBlock,
         Rectangle ProgressBarFill,
-        TextBlock RemainingTextBlock);
+        TextBlock RemainingTextBlock,
+        TextBlock NextCodeTextBlock);
 
     public HomePage()
     {
         this.InitializeComponent();
         _credentialManager = App.Current.CredentialManager;
+        _appSettings = App.Current.AppSettings;
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
 
@@ -69,21 +73,15 @@ public sealed partial class HomePage : Page
             var codeBlock = FindTemplateChild<TextBlock>(searchRoot, "CodeTextBlock");
             var progressBarFill = FindTemplateChild<Rectangle>(searchRoot, "ProgressBarFill");
             var remainingBlock = FindTemplateChild<TextBlock>(searchRoot, "RemainingTextBlock");
+            var nextCodeBlock = FindTemplateChild<TextBlock>(searchRoot, "NextCodeTextBlock");
 
-            if (codeBlock != null && progressBarFill != null && remainingBlock != null)
+            if (codeBlock != null && progressBarFill != null && remainingBlock != null && nextCodeBlock != null)
             {
-                _elementCache[account.Id] = new CardElementCache(codeBlock, progressBarFill, remainingBlock);
+                var cache = new CardElementCache(codeBlock, progressBarFill, remainingBlock, nextCodeBlock);
+                _elementCache[account.Id] = cache;
 
                 // Initial update
-                codeBlock.Text = _totpGenerator.GenerateCode(account);
-                remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
-
-                var progress = _totpGenerator.GetProgressPercentage(account);
-                var parentGrid = progressBarFill.Parent as FrameworkElement;
-                if (parentGrid != null)
-                {
-                    progressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
-                }
+                UpdateCardValues(account, cache, _appSettings.ShowNextCodeWhenFiveSecondsRemain);
             }
         }
     }
@@ -178,6 +176,8 @@ public sealed partial class HomePage : Page
 
     private void UpdateAllCodes()
     {
+        var showNextCodeHint = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
+
         foreach (var (accountId, cache) in _elementCache)
         {
             var account = _accounts.FirstOrDefault(a => a.Id == accountId);
@@ -186,16 +186,39 @@ public sealed partial class HomePage : Page
                 continue;
             }
 
-            cache.CodeTextBlock.Text = _totpGenerator.GenerateCode(account);
-            cache.RemainingTextBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
+            UpdateCardValues(account, cache, showNextCodeHint);
+        }
+    }
 
-            // Calculate progress bar fill width based on parent Grid's actual width
-            var progress = _totpGenerator.GetProgressPercentage(account);
-            var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
-            if (parentGrid != null)
-            {
-                cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
-            }
+    private void UpdateCardValues(OtpAccount account, CardElementCache cache, bool showNextCodeHint)
+    {
+        cache.CodeTextBlock.Text = _totpGenerator.GenerateCode(account);
+
+        var remainingSeconds = _totpGenerator.GetRemainingSeconds(account);
+        cache.RemainingTextBlock.Text = $"{remainingSeconds}s";
+
+        var shouldShowNextCode = showNextCodeHint &&
+            remainingSeconds > 0 &&
+            remainingSeconds <= NextCodePreviewThresholdSeconds;
+
+        if (shouldShowNextCode)
+        {
+            var nextCodeTimestamp = DateTime.UtcNow.AddSeconds(remainingSeconds);
+            cache.NextCodeTextBlock.Text = $"Next: {_totpGenerator.GenerateCodeAt(account, nextCodeTimestamp)}";
+            cache.NextCodeTextBlock.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            cache.NextCodeTextBlock.Text = string.Empty;
+            cache.NextCodeTextBlock.Visibility = Visibility.Collapsed;
+        }
+
+        // Calculate progress bar fill width based on parent Grid's actual width
+        var progress = _totpGenerator.GetProgressPercentage(account);
+        var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
+        if (parentGrid != null)
+        {
+            cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
         }
     }
 
