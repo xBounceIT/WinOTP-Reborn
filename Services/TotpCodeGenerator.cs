@@ -34,6 +34,7 @@ public class TotpCodeGenerator : ITotpCodeGenerator
     {
         try
         {
+            if (account.Period <= 0) return 0;
             var unixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var timeStep = unixTime / account.Period;
             var nextTimeStep = (timeStep + 1) * account.Period;
@@ -48,6 +49,7 @@ public class TotpCodeGenerator : ITotpCodeGenerator
 
     public double GetProgressPercentage(OtpAccount account)
     {
+        if (account.Period <= 0) return 0;
         var remaining = GetRemainingSeconds(account);
         return (double)remaining / account.Period;
     }

@@ -39,24 +39,23 @@ public sealed partial class HomePage : Page
 
     private void UpdateAllCodes()
     {
-        foreach (var item in OtpListView.Items)
-        {
-            if (item is OtpAccount account)
-            {
-                var container = OtpListView.ContainerFromItem(item) as ListViewItem;
-                if (container?.ContentTemplateRoot is Grid grid)
-                {
-                    var codeBlock = FindChild<TextBlock>(grid, "CodeTextBlock");
-                    var progressBar = FindChild<ProgressBar>(grid, "ProgressBar");
-                    var remainingBlock = FindChild<TextBlock>(grid, "RemainingTextBlock");
+        var accountsSnapshot = _accounts.ToArray();
 
-                    if (codeBlock != null)
-                        codeBlock.Text = _totpGenerator.GenerateCode(account);
-                    if (progressBar != null)
-                        progressBar.Value = _totpGenerator.GetProgressPercentage(account);
-                    if (remainingBlock != null)
-                        remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
-                }
+        foreach (var account in accountsSnapshot)
+        {
+            var container = OtpListView.ContainerFromItem(account) as ListViewItem;
+            if (container?.ContentTemplateRoot is Grid grid)
+            {
+                var codeBlock = FindChild<TextBlock>(grid, "CodeTextBlock");
+                var progressBar = FindChild<ProgressBar>(grid, "ProgressBar");
+                var remainingBlock = FindChild<TextBlock>(grid, "RemainingTextBlock");
+
+                if (codeBlock != null)
+                    codeBlock.Text = _totpGenerator.GenerateCode(account);
+                if (progressBar != null)
+                    progressBar.Value = _totpGenerator.GetProgressPercentage(account);
+                if (remainingBlock != null)
+                    remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
             }
         }
     }
