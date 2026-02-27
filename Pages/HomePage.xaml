@@ -45,54 +45,65 @@
 
         <!-- Account list -->
         <ListView x:Name="OtpListView" Grid.Row="2" SelectionMode="None">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Margin" Value="0,4"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                </Style>
+            </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="local:OtpAccount">
-                    <Grid Padding="12,8" ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8"
+                            Padding="16">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                        <!-- Account label and delete button -->
-                        <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="{x:Bind DisplayLabel}" 
-                                       Style="{StaticResource BodyStrongTextBlockStyle}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
+                            <!-- Account label and delete button -->
+                            <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{x:Bind DisplayLabel}"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
 
-                        <Button Grid.Row="0" Grid.Column="1"
-                                Background="Transparent"
-                                BorderBrush="Transparent"
-                                Padding="8,4"
-                                MinWidth="0"
-                                Click="DeleteButton_Click"
-                                Tag="{x:Bind Id}">
-                            <FontIcon Glyph="&#xE74D;" FontSize="14"/>
-                        </Button>
+                            <Button Grid.Row="0" Grid.Column="1"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    Padding="8,4"
+                                    MinWidth="0"
+                                    Click="DeleteButton_Click"
+                                    Tag="{x:Bind Id}">
+                                <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                            </Button>
 
-                        <!-- TOTP code and progress -->
-                        <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" 
-                                    Orientation="Horizontal" Spacing="16" Margin="0,8,0,0">
-                            <TextBlock x:Name="CodeTextBlock"
-                                       Style="{StaticResource TitleTextBlockStyle}"
-                                       FontSize="28"
-                                       FontFamily="Consolas"
-                                       VerticalAlignment="Center"/>
-                            <ProgressBar x:Name="ProgressBar"
-                                         Width="100"
-                                         Height="4"
-                                         VerticalAlignment="Center"
-                                         Maximum="1"/>
-                            <TextBlock x:Name="RemainingTextBlock"
-                                       Style="{StaticResource BodyTextBlockStyle}"
-                                       VerticalAlignment="Center"
-                                       Opacity="0.7"/>
-                        </StackPanel>
-                    </Grid>
+                            <!-- TOTP code and progress -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                        Orientation="Horizontal" Spacing="16" Margin="0,8,0,0">
+                                <TextBlock x:Name="CodeTextBlock"
+                                           Style="{StaticResource TitleTextBlockStyle}"
+                                           FontSize="28"
+                                           FontFamily="Consolas"
+                                           VerticalAlignment="Center"/>
+                                <ProgressBar x:Name="ProgressBar"
+                                             Width="100"
+                                             Height="4"
+                                             VerticalAlignment="Center"
+                                             Maximum="1"/>
+                                <TextBlock x:Name="RemainingTextBlock"
+                                           Style="{StaticResource BodyTextBlockStyle}"
+                                           VerticalAlignment="Center"
+                                           Opacity="0.7"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
