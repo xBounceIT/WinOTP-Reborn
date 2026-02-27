@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using System.Collections.ObjectModel;
+using WinOTP.Helpers;
 using WinOTP.Models;
 using WinOTP.Services;
 
@@ -60,14 +61,14 @@ public sealed partial class HomePage : Page
         foreach (var account in accountsSnapshot)
         {
             var container = OtpListView.ContainerFromItem(account) as ListViewItem;
-            if (container?.ContentTemplateRoot is not Grid grid)
+            if (!OtpCardTemplateRootPolicy.TryGetSearchRoot(container?.ContentTemplateRoot, out var searchRoot))
             {
                 continue;
             }
 
-            var codeBlock = FindChild<TextBlock>(grid, "CodeTextBlock");
-            var progressBar = FindChild<ProgressBar>(grid, "ProgressBar");
-            var remainingBlock = FindChild<TextBlock>(grid, "RemainingTextBlock");
+            var codeBlock = FindChild<TextBlock>(searchRoot, "CodeTextBlock");
+            var progressBar = FindChild<ProgressBar>(searchRoot, "ProgressBar");
+            var remainingBlock = FindChild<TextBlock>(searchRoot, "RemainingTextBlock");
 
             if (codeBlock != null)
             {
