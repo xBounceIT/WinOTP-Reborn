@@ -13,6 +13,7 @@ namespace WinOTP.Pages;
 public sealed partial class HomePage : Page
 {
     private const double CardWidth = 368; // 360 + 8 for margins
+    private const string VaultLoadFailureMessage = "Unable to access Windows Credential Manager. Saved accounts could not be loaded.";
 
     private readonly ICredentialManagerService _credentialManager;
     private readonly ITotpCodeGenerator _totpGenerator;
@@ -24,6 +25,8 @@ public sealed partial class HomePage : Page
     private ItemsWrapGrid? _itemsPanel;
     private int _currentSortIndex = 0;
     private string _searchText = string.Empty;
+    private bool _isRefreshSubscribed;
+    private bool _isShowingVaultLoadError;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -43,9 +46,6 @@ public sealed partial class HomePage : Page
         this.Unloaded += HomePage_Unloaded;
         OtpGridView.Loaded += OtpGridView_Loaded;
         OtpGridView.ContainerContentChanging += OtpGridView_ContainerContentChanging;
-
-        // Subscribe to rendering event for monitor refresh rate synchronized updates
-        CompositionTarget.Rendering += CompositionTarget_Rendering;
     }
 
     private void OtpGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
@@ -142,7 +142,7 @@ public sealed partial class HomePage : Page
         }
         catch (Exception ex)
         {
-            CompositionTarget.Rendering -= CompositionTarget_Rendering;
+            StopRefreshUpdates();
             _logger.Error("Unhandled exception while refreshing TOTP codes.", ex);
             ShowOperationError("Code refresh stopped due to an unexpected error. Reopen the app to retry.");
         }
@@ -150,8 +150,30 @@ public sealed partial class HomePage : Page
 
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
-        // Unsubscribe from rendering event to prevent memory leaks
+        // Ensure refresh loop is stopped when page leaves visual tree.
+        StopRefreshUpdates();
+    }
+
+    private void StartRefreshUpdates()
+    {
+        if (_isRefreshSubscribed)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering += CompositionTarget_Rendering;
+        _isRefreshSubscribed = true;
+    }
+
+    private void StopRefreshUpdates()
+    {
+        if (!_isRefreshSubscribed)
+        {
+            return;
+        }
+
         CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        _isRefreshSubscribed = false;
     }
 
     private void UpdateAllCodes()
@@ -200,6 +222,7 @@ public sealed partial class HomePage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        StartRefreshUpdates();
 
         try
         {
@@ -211,12 +234,9 @@ public sealed partial class HomePage : Page
                     ShowOperationError(saveResult.Message);
                     _logger.Warn($"Save account failed on navigation: {saveResult.ErrorCode} - {saveResult.Message}");
                 }
-
-                // Remove the AddAccountPage from back stack but keep HomePage
-                var addAccountEntry = Frame.BackStack.LastOrDefault(entry => entry.SourcePageType == typeof(AddAccountPage));
-                if (addAccountEntry != null)
+                else
                 {
-                    Frame.BackStack.Remove(addAccountEntry);
+                    RemoveCompletedAddFlowEntriesFromBackStack();
                 }
             }
 
@@ -226,6 +246,31 @@ public sealed partial class HomePage : Page
         {
             _logger.Error("Unhandled exception while navigating to HomePage.", ex);
             ShowOperationError("Unable to load accounts due to an unexpected error.");
+        }
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        StopRefreshUpdates();
+        base.OnNavigatedFrom(e);
+    }
+
+    private void RemoveCompletedAddFlowEntriesFromBackStack()
+    {
+        var frame = Frame;
+        if (frame == null || frame.BackStack.Count == 0)
+        {
+            return;
+        }
+
+        for (int index = frame.BackStack.Count - 1; index >= 0; index--)
+        {
+            var entry = frame.BackStack[index];
+            if (entry.SourcePageType == typeof(AddAccountPage) ||
+                entry.SourcePageType == typeof(ManualEntryPage))
+            {
+                frame.BackStack.RemoveAt(index);
+            }
         }
     }
 
@@ -242,25 +287,61 @@ public sealed partial class HomePage : Page
 
     private void UpdateLoadIssuesState(IReadOnlyList<CredentialIssue> issues)
     {
-        if (issues.Count == 0)
+        var vaultIssues = issues
+            .Where(i => i.Code == CredentialIssueCode.VaultAccessFailed)
+            .ToList();
+        var credentialIssues = issues
+            .Where(i => i.Code != CredentialIssueCode.VaultAccessFailed)
+            .ToList();
+
+        if (vaultIssues.Count > 0)
+        {
+            ShowVaultLoadError();
+        }
+        else
+        {
+            ClearVaultLoadError();
+        }
+
+        if (credentialIssues.Count == 0)
         {
             LoadIssuesInfoBar.IsOpen = false;
             LoadIssuesInfoBar.Message = string.Empty;
             return;
         }
 
-        var issueSummary = string.Join(", ", issues
+        var issueSummary = string.Join(", ", credentialIssues
             .GroupBy(i => i.Code)
             .Select(g => $"{g.Key}: {g.Count()}"));
 
-        LoadIssuesInfoBar.Message = $"{issues.Count} stored credential(s) were skipped ({issueSummary}). See local log for details.";
+        LoadIssuesInfoBar.Message = $"{credentialIssues.Count} stored credential(s) were skipped ({issueSummary}). See local log for details.";
         LoadIssuesInfoBar.IsOpen = true;
     }
 
     private void ShowOperationError(string message)
     {
+        _isShowingVaultLoadError = false;
         OperationInfoBar.Message = message;
         OperationInfoBar.IsOpen = true;
+    }
+
+    private void ShowVaultLoadError()
+    {
+        OperationInfoBar.Message = VaultLoadFailureMessage;
+        OperationInfoBar.IsOpen = true;
+        _isShowingVaultLoadError = true;
+    }
+
+    private void ClearVaultLoadError()
+    {
+        if (!_isShowingVaultLoadError)
+        {
+            return;
+        }
+
+        OperationInfoBar.IsOpen = false;
+        OperationInfoBar.Message = string.Empty;
+        _isShowingVaultLoadError = false;
     }
 
     private void UpdateEmptyState()

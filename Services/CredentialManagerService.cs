@@ -14,6 +14,7 @@ public interface ICredentialManagerService
 public class CredentialManagerService : ICredentialManagerService
 {
     private const string AppResource = "WinOTP";
+    private const int HResultElementNotFound = unchecked((int)0x80070490);
 
     private readonly PasswordVault _vault;
     private readonly IAppLogger _logger;
@@ -36,8 +37,27 @@ public class CredentialManagerService : ICredentialManagerService
         }
         catch (Exception ex)
         {
-            // Missing resource is a normal "first run" condition.
-            _logger.Info($"Credential lookup returned no entries or access was denied: {ex.GetType().Name}");
+            if (IsNoCredentialEntryException(ex))
+            {
+                // Missing resource is a normal "first run" condition.
+                _logger.Info($"Credential lookup returned no entries: {ex.GetType().Name}");
+                return Task.FromResult(new LoadAccountsResult
+                {
+                    Accounts = accounts,
+                    Issues = issues
+                });
+            }
+
+            var vaultIssue = new CredentialIssue
+            {
+                Code = CredentialIssueCode.VaultAccessFailed,
+                CredentialId = "(vault)",
+                Message = "Unable to access Windows Credential Manager while loading accounts."
+            };
+
+            issues.Add(vaultIssue);
+            _logger.Error("Credential lookup failed due to vault access error.", ex);
+
             return Task.FromResult(new LoadAccountsResult
             {
                 Accounts = accounts,
@@ -90,6 +110,11 @@ public class CredentialManagerService : ICredentialManagerService
             Accounts = accounts,
             Issues = issues
         });
+    }
+
+    private static bool IsNoCredentialEntryException(Exception ex)
+    {
+        return ex.HResult == HResultElementNotFound;
     }
 
     public Task<VaultOperationResult> SaveAccountAsync(OtpAccount account)
