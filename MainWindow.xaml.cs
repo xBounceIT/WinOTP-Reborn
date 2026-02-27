@@ -18,8 +18,8 @@ public sealed partial class MainWindow : Window
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Window size - fixed at 450x600
-        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(450, 600));
+        // Window size - fixed at 500x650
+        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(500, 650));
 
         // Set fixed size constraints
         if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
