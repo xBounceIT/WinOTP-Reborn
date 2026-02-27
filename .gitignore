@@ -1,13 +1,36 @@
 .claude
 
 # .NET / Visual Studio
-bin/
-obj/
+**/[Bb]in/
+**/[Oo]bj/
+**/[Dd]ebug/
+**/[Rr]elease/
+artifacts/
+TestResults/
+AppPackages/
+BundleArtifacts/
+Generated Files/
 *.user
 *.suo
+*.userprefs
+*.rsuser
 .vs/
 *.DotSettings.user
+*.binlog
+*.log
 
 # Build
 publish/
 *.nupkg
+*.snupkg
+
+# NuGet
+packages/
+
+# IDEs/editors
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

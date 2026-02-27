@@ -4,59 +4,61 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:WinOTP"
-    Title="WinOTP - Reborn">
+    Title="WinOTP">
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Grid Grid.Row="0" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+        <!-- Custom Title Bar -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="32"
+              Background="Transparent">
             <TextBlock
-                Text="WinOTP - Reborn"
-                Style="{StaticResource TitleTextBlockStyle}"
-                VerticalAlignment="Center" />
-        </Grid>
-
-        <!-- OTP List Area -->
-        <Grid Grid.Row="1" Padding="16,8">
-            <ListView x:Name="OtpListView" SelectionMode="None" />
-
-            <!-- Empty state -->
-            <StackPanel
-                x:Name="EmptyStatePanel"
-                HorizontalAlignment="Center"
+                Text="WinOTP"
+                Style="{StaticResource CaptionTextBlockStyle}"
                 VerticalAlignment="Center"
-                Spacing="8">
-                <FontIcon
-                    Glyph="&#xE8D7;"
-                    FontSize="48"
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock
-                    Text="No OTP entries yet"
-                    Style="{StaticResource SubtitleTextBlockStyle}"
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock
-                    Text="Click the + button below to add your first account"
-                    Style="{StaticResource BodyTextBlockStyle}"
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-            </StackPanel>
+                Margin="16,0,0,0" />
         </Grid>
 
-        <!-- Bottom Command Bar -->
-        <CommandBar Grid.Row="2" DefaultLabelPosition="Right">
-            <AppBarButton
-                x:Name="AddButton"
-                Icon="Add"
-                Label="Add Account"
-                Click="AddButton_Click" />
-        </CommandBar>
+        <!-- NavigationView -->
+        <NavigationView
+            x:Name="NavView"
+            Grid.Row="1"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            PaneDisplayMode="LeftMinimal"
+            ItemInvoked="NavView_ItemInvoked"
+            BackRequested="NavView_BackRequested"
+            OpenPaneLength="200">
+
+            <NavigationView.MenuItems>
+                <NavigationViewItem
+                    Content="Home"
+                    Tag="Home">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem
+                    x:Name="AddAccountNavItem"
+                    Content="Add Account"
+                    Tag="AddAccount"
+                    SelectsOnInvoked="False">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE710;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <!-- Content Frame -->
+            <Frame x:Name="ContentFrame" />
+
+        </NavigationView>
     </Grid>
 
 </Window>
