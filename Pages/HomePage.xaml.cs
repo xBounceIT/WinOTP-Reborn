@@ -12,7 +12,7 @@ namespace WinOTP.Pages;
 
 public sealed partial class HomePage : Page
 {
-    private const double CardWidth = 328; // 320 + 8 for margins
+    private const double CardWidth = 368; // 360 + 8 for margins
 
     private readonly ICredentialManagerService _credentialManager;
     private readonly ITotpCodeGenerator _totpGenerator;
