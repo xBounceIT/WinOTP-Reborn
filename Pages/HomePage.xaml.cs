@@ -19,10 +19,13 @@ public sealed partial class HomePage : Page
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
 
+    private readonly List<OtpAccount> _allAccounts = new();
     private readonly ObservableCollection<OtpAccount> _accounts = new();
     private readonly Dictionary<string, CardElementCache> _elementCache = new();
     private DispatcherTimer _refreshTimer = null!;
     private ItemsWrapGrid? _itemsPanel;
+    private int _currentSortIndex = 0;
+    private string _searchText = string.Empty;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -234,14 +237,10 @@ public sealed partial class HomePage : Page
     {
         var loadResult = await _credentialManager.LoadAccountsAsync();
 
-        _accounts.Clear();
-        foreach (var account in loadResult.Accounts)
-        {
-            _accounts.Add(account);
-        }
+        _allAccounts.Clear();
+        _allAccounts.AddRange(loadResult.Accounts);
 
-        UpdateEmptyState();
-        SortAccounts();
+        ApplyFilterAndSort();
         UpdateLoadIssuesState(loadResult.Issues);
     }
 
@@ -274,20 +273,47 @@ public sealed partial class HomePage : Page
         OtpGridView.Visibility = _accounts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private void SortComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SortMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        SortAccounts();
+        if (sender is not RadioMenuFlyoutItem menuItem || menuItem.Tag is not string tag)
+        {
+            return;
+        }
+
+        _currentSortIndex = int.Parse(tag);
+        ApplyFilterAndSort();
     }
 
-    private void SortAccounts()
+    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        var sorted = SortComboBox.SelectedIndex switch
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
         {
-            0 => _accounts.OrderByDescending(a => a.CreatedAt),
-            1 => _accounts.OrderBy(a => a.CreatedAt),
-            2 => _accounts.OrderBy(a => a.DisplayLabel),
-            3 => _accounts.OrderByDescending(a => a.DisplayLabel),
-            _ => _accounts.OrderByDescending(a => a.CreatedAt)
+            _searchText = sender.Text.Trim();
+            ApplyFilterAndSort();
+        }
+    }
+
+    private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        _searchText = args.QueryText.Trim();
+        ApplyFilterAndSort();
+    }
+
+    private void ApplyFilterAndSort()
+    {
+        // Filter accounts based on search text
+        var filtered = string.IsNullOrWhiteSpace(_searchText)
+            ? _allAccounts.AsEnumerable()
+            : _allAccounts.Where(a => a.DisplayLabel.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+
+        // Apply sorting
+        var sorted = _currentSortIndex switch
+        {
+            0 => filtered.OrderByDescending(a => a.CreatedAt),
+            1 => filtered.OrderBy(a => a.CreatedAt),
+            2 => filtered.OrderBy(a => a.DisplayLabel),
+            3 => filtered.OrderByDescending(a => a.DisplayLabel),
+            _ => filtered.OrderByDescending(a => a.CreatedAt)
         };
 
         var sortedList = sorted.ToList();
@@ -296,6 +322,8 @@ public sealed partial class HomePage : Page
         {
             _accounts.Add(account);
         }
+
+        UpdateEmptyState();
     }
 
     private void AddButton_Click(object sender, RoutedEventArgs e)
@@ -382,6 +410,7 @@ public sealed partial class HomePage : Page
             return;
         }
 
+        _allAccounts.Remove(account);
         _accounts.Remove(account);
         UpdateEmptyState();
     }

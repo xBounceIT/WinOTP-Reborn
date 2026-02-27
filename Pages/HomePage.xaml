@@ -12,21 +12,42 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Sort and Add controls -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,0,0,8">
-            <ComboBox x:Name="SortComboBox" SelectedIndex="0" SelectionChanged="SortComboBox_SelectionChanged">
-                <ComboBoxItem>Date Added (Newest)</ComboBoxItem>
-                <ComboBoxItem>Date Added (Oldest)</ComboBoxItem>
-                <ComboBoxItem>Name (A → Z)</ComboBoxItem>
-                <ComboBoxItem>Name (Z → A)</ComboBoxItem>
-            </ComboBox>
-            <Button x:Name="AddButton" Click="AddButton_Click">
-                <StackPanel Orientation="Horizontal" Spacing="8">
+        <!-- Search, Sort and Add controls -->
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Search bar -->
+            <AutoSuggestBox x:Name="SearchBox"
+                            Grid.Column="0"
+                            PlaceholderText="Search accounts..."
+                            QueryIcon="Find"
+                            TextChanged="SearchBox_TextChanged"
+                            QuerySubmitted="SearchBox_QuerySubmitted"
+                            MaxWidth="400"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"/>
+
+            <!-- Sort and Add buttons -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <DropDownButton ToolTipService.ToolTip="Sort accounts">
+                    <FontIcon Glyph="&#xE8CB;" FontSize="14"/>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <RadioMenuFlyoutItem x:Name="SortNewestFirst" Text="Date Added (Newest)" GroupName="SortGroup" IsChecked="True" Click="SortMenuItem_Click" Tag="0"/>
+                            <RadioMenuFlyoutItem x:Name="SortOldestFirst" Text="Date Added (Oldest)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="1"/>
+                            <RadioMenuFlyoutItem x:Name="SortNameAsc" Text="Name (A → Z)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="2"/>
+                            <RadioMenuFlyoutItem x:Name="SortNameDesc" Text="Name (Z → A)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="3"/>
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+                <Button x:Name="AddButton" Click="AddButton_Click" ToolTipService.ToolTip="Add account">
                     <FontIcon Glyph="&#xE710;" FontSize="14"/>
-                    <TextBlock Text="Add Account"/>
-                </StackPanel>
-            </Button>
-        </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
 
         <StackPanel Grid.Row="1" Spacing="8" Margin="0,0,0,8">
             <InfoBar
@@ -44,7 +65,7 @@
         </StackPanel>
 
         <!-- Account list -->
-        <GridView x:Name="OtpGridView" Grid.Row="2" SelectionMode="None">
+        <GridView x:Name="OtpGridView" Grid.Row="2" SelectionMode="None" HorizontalContentAlignment="Center">
             <GridView.ItemContainerStyle>
                 <Style TargetType="GridViewItem">
                     <Setter Property="Padding" Value="0"/>
