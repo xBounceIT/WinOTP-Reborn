@@ -8,6 +8,7 @@
     <Grid Padding="16,8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -27,8 +28,23 @@
             </Button>
         </StackPanel>
 
+        <StackPanel Grid.Row="1" Spacing="8" Margin="0,0,0,8">
+            <InfoBar
+                x:Name="LoadIssuesInfoBar"
+                IsOpen="False"
+                IsClosable="True"
+                Severity="Warning"
+                Title="Some accounts were skipped" />
+            <InfoBar
+                x:Name="OperationInfoBar"
+                IsOpen="False"
+                IsClosable="True"
+                Severity="Error"
+                Title="Operation failed" />
+        </StackPanel>
+
         <!-- Account list -->
-        <ListView x:Name="OtpListView" Grid.Row="1" SelectionMode="None">
+        <ListView x:Name="OtpListView" Grid.Row="2" SelectionMode="None">
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="local:OtpAccount">
                     <Grid Padding="12,8" ColumnSpacing="12">
@@ -81,7 +97,7 @@
         <!-- Empty state -->
         <StackPanel
             x:Name="EmptyStatePanel"
-            Grid.Row="1"
+            Grid.Row="2"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
             Spacing="8">

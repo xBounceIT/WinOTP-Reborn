@@ -12,7 +12,9 @@ public sealed partial class HomePage : Page
 {
     private readonly ICredentialManagerService _credentialManager;
     private readonly ITotpCodeGenerator _totpGenerator;
-    private ObservableCollection<OtpAccount> _accounts = new();
+    private readonly IAppLogger _logger;
+
+    private readonly ObservableCollection<OtpAccount> _accounts = new();
     private DispatcherTimer _refreshTimer = null!;
 
     public HomePage()
@@ -20,21 +22,35 @@ public sealed partial class HomePage : Page
         this.InitializeComponent();
         _credentialManager = App.Current.CredentialManager;
         _totpGenerator = App.Current.TotpGenerator;
+        _logger = App.Current.Logger;
+
         OtpListView.ItemsSource = _accounts;
         InitializeRefreshTimer();
     }
 
     private void InitializeRefreshTimer()
     {
-        _refreshTimer = new DispatcherTimer();
-        _refreshTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _refreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+
         _refreshTimer.Tick += RefreshTimer_Tick;
         _refreshTimer.Start();
     }
 
     private void RefreshTimer_Tick(object? sender, object e)
     {
-        UpdateAllCodes();
+        try
+        {
+            UpdateAllCodes();
+        }
+        catch (Exception ex)
+        {
+            _refreshTimer.Stop();
+            _logger.Error("Unhandled exception while refreshing TOTP codes.", ex);
+            ShowOperationError("Code refresh stopped due to an unexpected error. Reopen the app to retry.");
+        }
     }
 
     private void UpdateAllCodes()
@@ -44,18 +60,28 @@ public sealed partial class HomePage : Page
         foreach (var account in accountsSnapshot)
         {
             var container = OtpListView.ContainerFromItem(account) as ListViewItem;
-            if (container?.ContentTemplateRoot is Grid grid)
+            if (container?.ContentTemplateRoot is not Grid grid)
             {
-                var codeBlock = FindChild<TextBlock>(grid, "CodeTextBlock");
-                var progressBar = FindChild<ProgressBar>(grid, "ProgressBar");
-                var remainingBlock = FindChild<TextBlock>(grid, "RemainingTextBlock");
+                continue;
+            }
 
-                if (codeBlock != null)
-                    codeBlock.Text = _totpGenerator.GenerateCode(account);
-                if (progressBar != null)
-                    progressBar.Value = _totpGenerator.GetProgressPercentage(account);
-                if (remainingBlock != null)
-                    remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
+            var codeBlock = FindChild<TextBlock>(grid, "CodeTextBlock");
+            var progressBar = FindChild<ProgressBar>(grid, "ProgressBar");
+            var remainingBlock = FindChild<TextBlock>(grid, "RemainingTextBlock");
+
+            if (codeBlock != null)
+            {
+                codeBlock.Text = _totpGenerator.GenerateCode(account);
+            }
+
+            if (progressBar != null)
+            {
+                progressBar.Value = _totpGenerator.GetProgressPercentage(account);
+            }
+
+            if (remainingBlock != null)
+            {
+                remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
             }
         }
     }
@@ -66,11 +92,17 @@ public sealed partial class HomePage : Page
         {
             var child = VisualTreeHelper.GetChild(parent, i);
             if (child is T t && t.Name == name)
+            {
                 return t;
+            }
+
             var result = FindChild<T>(child, name);
             if (result != null)
+            {
                 return result;
+            }
         }
+
         return null;
     }
 
@@ -78,30 +110,70 @@ public sealed partial class HomePage : Page
     {
         base.OnNavigatedTo(e);
 
-        if (e.Parameter is OtpAccount newAccount)
+        try
         {
-            await _credentialManager.SaveAccountAsync(newAccount);
-            // Remove the AddAccountPage from back stack but keep HomePage
-            var addAccountEntry = Frame.BackStack.LastOrDefault(entry => entry.SourcePageType == typeof(AddAccountPage));
-            if (addAccountEntry != null)
+            if (e.Parameter is OtpAccount newAccount)
             {
-                Frame.BackStack.Remove(addAccountEntry);
-            }
-        }
+                var saveResult = await _credentialManager.SaveAccountAsync(newAccount);
+                if (!saveResult.Success)
+                {
+                    ShowOperationError(saveResult.Message);
+                    _logger.Warn($"Save account failed on navigation: {saveResult.ErrorCode} - {saveResult.Message}");
+                }
 
-        await LoadAccountsAsync();
+                // Remove the AddAccountPage from back stack but keep HomePage
+                var addAccountEntry = Frame.BackStack.LastOrDefault(entry => entry.SourcePageType == typeof(AddAccountPage));
+                if (addAccountEntry != null)
+                {
+                    Frame.BackStack.Remove(addAccountEntry);
+                }
+            }
+
+            await LoadAccountsAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Unhandled exception while navigating to HomePage.", ex);
+            ShowOperationError("Unable to load accounts due to an unexpected error.");
+        }
     }
 
     private async Task LoadAccountsAsync()
     {
-        var accounts = await _credentialManager.LoadAccountsAsync();
+        var loadResult = await _credentialManager.LoadAccountsAsync();
+
         _accounts.Clear();
-        foreach (var account in accounts)
+        foreach (var account in loadResult.Accounts)
         {
             _accounts.Add(account);
         }
+
         UpdateEmptyState();
         SortAccounts();
+        UpdateLoadIssuesState(loadResult.Issues);
+    }
+
+    private void UpdateLoadIssuesState(IReadOnlyList<CredentialIssue> issues)
+    {
+        if (issues.Count == 0)
+        {
+            LoadIssuesInfoBar.IsOpen = false;
+            LoadIssuesInfoBar.Message = string.Empty;
+            return;
+        }
+
+        var issueSummary = string.Join(", ", issues
+            .GroupBy(i => i.Code)
+            .Select(g => $"{g.Key}: {g.Count()}"));
+
+        LoadIssuesInfoBar.Message = $"{issues.Count} stored credential(s) were skipped ({issueSummary}). See local log for details.";
+        LoadIssuesInfoBar.IsOpen = true;
+    }
+
+    private void ShowOperationError(string message)
+    {
+        OperationInfoBar.Message = message;
+        OperationInfoBar.IsOpen = true;
     }
 
     private void UpdateEmptyState()
@@ -141,28 +213,42 @@ public sealed partial class HomePage : Page
 
     private async void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button && button.Tag is string id)
+        if (sender is not Button button || button.Tag is not string id)
         {
-            var account = _accounts.FirstOrDefault(a => a.Id == id);
-            if (account == null) return;
-
-            var dialog = new ContentDialog
-            {
-                Title = "Delete Account?",
-                Content = $"Are you sure you want to delete '{account.DisplayLabel}'?",
-                PrimaryButtonText = "Delete",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = this.XamlRoot
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                await _credentialManager.DeleteAccountAsync(id);
-                _accounts.Remove(account);
-                UpdateEmptyState();
-            }
+            return;
         }
+
+        var account = _accounts.FirstOrDefault(a => a.Id == id);
+        if (account == null)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Delete Account?",
+            Content = $"Are you sure you want to delete '{account.DisplayLabel}'?",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = this.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var deleteResult = await _credentialManager.DeleteAccountAsync(id);
+        if (!deleteResult.Success)
+        {
+            ShowOperationError(deleteResult.Message);
+            _logger.Warn($"Delete account failed: {deleteResult.ErrorCode} - {deleteResult.Message}");
+            return;
+        }
+
+        _accounts.Remove(account);
+        UpdateEmptyState();
     }
 }

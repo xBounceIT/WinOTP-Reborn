@@ -1,88 +1,151 @@
-using System.Text.Json;
 using Windows.Security.Credentials;
+using WinOTP.Helpers;
 using WinOTP.Models;
 
 namespace WinOTP.Services;
 
 public interface ICredentialManagerService
 {
-    Task<List<OtpAccount>> LoadAccountsAsync();
-    Task SaveAccountAsync(OtpAccount account);
-    Task DeleteAccountAsync(string id);
+    Task<LoadAccountsResult> LoadAccountsAsync();
+    Task<VaultOperationResult> SaveAccountAsync(OtpAccount account);
+    Task<VaultOperationResult> DeleteAccountAsync(string id);
 }
 
 public class CredentialManagerService : ICredentialManagerService
 {
     private const string AppResource = "WinOTP";
-    private readonly PasswordVault _vault;
 
-    public CredentialManagerService()
+    private readonly PasswordVault _vault;
+    private readonly IAppLogger _logger;
+
+    public CredentialManagerService(IAppLogger? logger = null)
     {
         _vault = new PasswordVault();
+        _logger = logger ?? new AppLogger();
     }
 
-    public Task<List<OtpAccount>> LoadAccountsAsync()
+    public Task<LoadAccountsResult> LoadAccountsAsync()
     {
+        var accounts = new List<OtpAccount>();
+        var issues = new List<CredentialIssue>();
+
+        IReadOnlyList<PasswordCredential> credentials;
         try
         {
-            var accounts = new List<OtpAccount>();
-            var credentials = _vault.FindAllByResource(AppResource);
-
-            foreach (var cred in credentials)
+            credentials = _vault.FindAllByResource(AppResource);
+        }
+        catch (Exception ex)
+        {
+            // Missing resource is a normal "first run" condition.
+            _logger.Info($"Credential lookup returned no entries or access was denied: {ex.GetType().Name}");
+            return Task.FromResult(new LoadAccountsResult
             {
-                try
+                Accounts = accounts,
+                Issues = issues
+            });
+        }
+
+        foreach (var credential in credentials)
+        {
+            var credentialId = string.IsNullOrWhiteSpace(credential.UserName) ? "(unknown)" : credential.UserName;
+
+            string? payload;
+            try
+            {
+                credential.RetrievePassword();
+                payload = credential.Password;
+            }
+            catch (Exception ex)
+            {
+                var issue = new CredentialIssue
                 {
-                    cred.RetrievePassword();
-                    var account = JsonSerializer.Deserialize<OtpAccount>(cred.Password);
-                    if (account != null)
-                    {
-                        accounts.Add(account);
-                    }
-                }
-                catch
-                {
-                    // Skip invalid entries
-                }
+                    Code = CredentialIssueCode.RetrieveFailed,
+                    CredentialId = credentialId,
+                    Message = "Failed to retrieve credential payload from Windows Credential Manager."
+                };
+
+                issues.Add(issue);
+                _logger.Warn($"Credential '{credentialId}' could not be retrieved: {ex.GetType().Name}: {ex.Message}");
+                continue;
             }
 
-            return Task.FromResult(accounts);
+            if (!OtpAccountStorageMapper.TryParseStoredJson(payload, credentialId, out var account, out var issueFromPayload))
+            {
+                if (issueFromPayload != null)
+                {
+                    issues.Add(issueFromPayload);
+                    _logger.Warn($"Credential '{credentialId}' was skipped: {issueFromPayload.Code} - {issueFromPayload.Message}");
+                }
+                continue;
+            }
+
+            if (account != null)
+            {
+                accounts.Add(account);
+            }
         }
-        catch
+
+        return Task.FromResult(new LoadAccountsResult
         {
-            // No credentials found or vault error
-            return Task.FromResult(new List<OtpAccount>());
-        }
+            Accounts = accounts,
+            Issues = issues
+        });
     }
 
-    public Task SaveAccountAsync(OtpAccount account)
+    public Task<VaultOperationResult> SaveAccountAsync(OtpAccount account)
     {
-        var json = JsonSerializer.Serialize(account);
+        if (!OtpAccountStorageMapper.TrySanitizeForStorage(account, account.Id, out var sanitized, out var validationError))
+        {
+            return Task.FromResult(VaultOperationResult.Fail(
+                VaultOperationErrorCode.ValidationFailed,
+                validationError));
+        }
+
+        var json = System.Text.Json.JsonSerializer.Serialize(sanitized);
         var credential = new PasswordCredential(
             AppResource,
-            account.Id,
+            sanitized.Id,
             json);
 
         try
         {
-            // Remove existing credential if present
-            var existing = _vault.FindAllByResource(AppResource)
-                .FirstOrDefault(c => c.UserName == account.Id);
-            if (existing != null)
+            try
             {
-                _vault.Remove(existing);
-            }
-        }
-        catch
-        {
-            // Credential doesn't exist, that's fine
-        }
+                var existing = _vault.FindAllByResource(AppResource)
+                    .FirstOrDefault(c => c.UserName == sanitized.Id);
 
-        _vault.Add(credential);
-        return Task.CompletedTask;
+                if (existing != null)
+                {
+                    _vault.Remove(existing);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Missing existing credential is expected for first save.
+                _logger.Info($"No existing credential to replace for '{sanitized.Id}': {ex.GetType().Name}");
+            }
+
+            _vault.Add(credential);
+            return Task.FromResult(VaultOperationResult.Ok());
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to save credential '{sanitized.Id}'.", ex);
+            return Task.FromResult(VaultOperationResult.Fail(
+                VaultOperationErrorCode.VaultAccessFailed,
+                "Failed to save account to Windows Credential Manager."));
+        }
     }
 
-    public Task DeleteAccountAsync(string id)
+    public Task<VaultOperationResult> DeleteAccountAsync(string id)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return Task.FromResult(VaultOperationResult.Fail(
+                VaultOperationErrorCode.ValidationFailed,
+                "Account id is required for deletion."));
+        }
+
         try
         {
             var credentials = _vault.FindAllByResource(AppResource);
@@ -91,12 +154,15 @@ public class CredentialManagerService : ICredentialManagerService
             {
                 _vault.Remove(credential);
             }
-        }
-        catch
-        {
-            // Credential doesn't exist
-        }
 
-        return Task.CompletedTask;
+            return Task.FromResult(VaultOperationResult.Ok());
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to delete credential '{id}'.", ex);
+            return Task.FromResult(VaultOperationResult.Fail(
+                VaultOperationErrorCode.VaultAccessFailed,
+                "Failed to delete account from Windows Credential Manager."));
+        }
     }
 }
