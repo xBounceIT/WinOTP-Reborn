@@ -51,6 +51,11 @@ public sealed partial class MainWindow : Window
         {
             NavView.SelectedItem = NavView.MenuItems[0];
         }
+        // Sync selection to Settings when on SettingsPage
+        else if (e.SourcePageType == typeof(SettingsPage))
+        {
+            NavView.SelectedItem = NavView.FooterMenuItems[0];
+        }
     }
 
     private void NavView_ItemInvoked(NavigationView sender,
@@ -67,7 +72,7 @@ public sealed partial class MainWindow : Window
                 NavigateIfNeeded(typeof(HomePage));
                 break;
             case "Settings":
-                // Settings page - to be implemented
+                NavigateIfNeeded(typeof(SettingsPage));
                 break;
         }
     }
