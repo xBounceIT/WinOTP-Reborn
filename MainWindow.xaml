@@ -4,34 +4,61 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:WinOTP"
-    Title="WinOTP - Reborn">
+    Title="WinOTP">
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Grid Grid.Row="0" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+        <!-- Custom Title Bar -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="32"
+              Background="Transparent">
             <TextBlock
-                Text="WinOTP - Reborn"
-                Style="{StaticResource TitleTextBlockStyle}"
-                VerticalAlignment="Center" />
+                Text="WinOTP"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                VerticalAlignment="Center"
+                Margin="16,0,0,0" />
         </Grid>
 
-        <!-- Navigation Frame -->
-        <Frame x:Name="ContentFrame" Grid.Row="1" />
+        <!-- NavigationView -->
+        <NavigationView
+            x:Name="NavView"
+            Grid.Row="1"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            PaneDisplayMode="LeftMinimal"
+            ItemInvoked="NavView_ItemInvoked"
+            BackRequested="NavView_BackRequested"
+            OpenPaneLength="200">
 
-        <!-- Bottom Command Bar -->
-        <CommandBar Grid.Row="2" DefaultLabelPosition="Right">
-            <AppBarButton
-                x:Name="AddButton"
-                Icon="Add"
-                Label="Add Account"
-                Click="AddButton_Click" />
-        </CommandBar>
+            <NavigationView.MenuItems>
+                <NavigationViewItem
+                    Content="Home"
+                    Tag="Home">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem
+                    x:Name="AddAccountNavItem"
+                    Content="Add Account"
+                    Tag="AddAccount"
+                    SelectsOnInvoked="False">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE710;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <!-- Content Frame -->
+            <Frame x:Name="ContentFrame" />
+
+        </NavigationView>
     </Grid>
 
 </Window>

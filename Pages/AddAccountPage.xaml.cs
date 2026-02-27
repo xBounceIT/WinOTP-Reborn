@@ -12,12 +12,6 @@ public sealed partial class AddAccountPage : Page
         this.InitializeComponent();
     }
 
-    private void BackButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (Frame.CanGoBack)
-            Frame.GoBack();
-    }
-
     private async void ImportQrButton_Click(object sender, RoutedEventArgs e)
     {
         var window = App.Current.MainWindow!;

@@ -11,12 +11,6 @@ public sealed partial class ManualEntryPage : Page
         this.InitializeComponent();
     }
 
-    private void BackButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (Frame.CanGoBack)
-            Frame.GoBack();
-    }
-
     private void AddAccountButton_Click(object sender, RoutedEventArgs e)
     {
         ErrorInfoBar.IsOpen = false;

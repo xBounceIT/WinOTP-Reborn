@@ -10,16 +10,12 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Title with back button -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
-            <Button
-                Click="BackButton_Click"
-                Style="{StaticResource NavigationBackButtonNormalStyle}" />
-            <TextBlock
-                Text="Add Account"
-                Style="{StaticResource SubtitleTextBlockStyle}"
-                VerticalAlignment="Center" />
-        </StackPanel>
+        <!-- Title -->
+        <TextBlock
+            Grid.Row="0"
+            Text="Add Account"
+            Style="{StaticResource SubtitleTextBlockStyle}"
+            VerticalAlignment="Center" />
 
         <!-- Method selection cards -->
         <StackPanel Grid.Row="1" Spacing="8">

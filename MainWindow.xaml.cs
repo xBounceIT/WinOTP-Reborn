@@ -7,50 +7,96 @@ namespace WinOTP;
 
 public sealed partial class MainWindow : Window
 {
-    private bool _isAddFlowOpening;
+    private bool _isNavigating;
 
     public MainWindow()
     {
         this.InitializeComponent();
 
-        var appWindow = this.AppWindow;
-        appWindow.Resize(new Windows.Graphics.SizeInt32(400, 600));
+        // Custom title bar
+        this.ExtendsContentIntoTitleBar = true;
+        this.SetTitleBar(AppTitleBar);
 
+        // Acrylic backdrop
+        this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
+
+        // Window size
+        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(450, 600));
+
+        // Frame navigation tracking
         ContentFrame.Navigated += ContentFrame_Navigated;
+
+        // Navigate to Home and select the Home item
         ContentFrame.Navigate(typeof(HomePage));
+        NavView.SelectedItem = NavView.MenuItems[0];
     }
 
     private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
     {
-        UpdateAddButtonState(e.SourcePageType);
-    }
+        // Update back button visibility
+        NavView.IsBackButtonVisible = ContentFrame.CanGoBack
+            ? NavigationViewBackButtonVisible.Visible
+            : NavigationViewBackButtonVisible.Collapsed;
 
-    private void UpdateAddButtonState(Type? pageType)
-    {
-        var isHomePage = pageType == typeof(HomePage);
-        AddButton.Visibility = isHomePage ? Visibility.Visible : Visibility.Collapsed;
-        AddButton.IsEnabled = isHomePage;
-
-        if (isHomePage)
+        // Sync selection to Home when on HomePage
+        if (e.SourcePageType == typeof(HomePage))
         {
-            _isAddFlowOpening = false;
+            NavView.SelectedItem = NavView.MenuItems[0];
         }
     }
 
-    private void AddButton_Click(object sender, RoutedEventArgs e)
+    private void NavView_ItemInvoked(NavigationView sender,
+        NavigationViewItemInvokedEventArgs args)
     {
-        if (_isAddFlowOpening)
-        {
-            return;
-        }
+        if (_isNavigating) return;
 
-        _isAddFlowOpening = true;
-        AddButton.IsEnabled = false;
+        var invokedItem = args.InvokedItemContainer as NavigationViewItem;
+        if (invokedItem is null) return;
+
+        var tag = invokedItem.Tag as string;
+
+        switch (tag)
+        {
+            case "Home":
+                NavigateIfNeeded(typeof(HomePage));
+                break;
+
+            case "AddAccount":
+                NavigateToAddAccount();
+                break;
+        }
+    }
+
+    private void NavView_BackRequested(NavigationView sender,
+        NavigationViewBackRequestedEventArgs args)
+    {
+        if (ContentFrame.CanGoBack)
+        {
+            ContentFrame.GoBack();
+        }
+    }
+
+    private void NavigateIfNeeded(Type pageType)
+    {
+        if (ContentFrame.CurrentSourcePageType != pageType)
+        {
+            ContentFrame.Navigate(pageType);
+        }
+    }
+
+    private void NavigateToAddAccount()
+    {
+        if (_isNavigating) return;
+        if (ContentFrame.CurrentSourcePageType == typeof(AddAccountPage)) return;
+
+        _isNavigating = true;
 
         if (!ContentFrame.Navigate(typeof(AddAccountPage)))
         {
-            _isAddFlowOpening = false;
-            UpdateAddButtonState(ContentFrame.CurrentSourcePageType);
+            _isNavigating = false;
+            return;
         }
+
+        _isNavigating = false;
     }
 }

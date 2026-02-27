@@ -24,7 +24,7 @@
                 HorizontalAlignment="Center"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <TextBlock
-                Text="Click the + button below to add your first account"
+                Text="Open the menu and click Add Account to get started"
                 Style="{StaticResource BodyTextBlockStyle}"
                 HorizontalAlignment="Center"
                 Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
