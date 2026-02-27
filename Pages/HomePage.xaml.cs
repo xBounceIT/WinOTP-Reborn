@@ -21,7 +21,6 @@ public sealed partial class HomePage : Page
     private readonly List<OtpAccount> _allAccounts = new();
     private List<OtpAccount> _accounts = new();
     private readonly Dictionary<string, CardElementCache> _elementCache = new();
-    private DispatcherTimer _refreshTimer = null!;
     private ItemsWrapGrid? _itemsPanel;
     private int _currentSortIndex = 0;
     private string _searchText = string.Empty;
@@ -39,11 +38,14 @@ public sealed partial class HomePage : Page
         _logger = App.Current.Logger;
 
         OtpGridView.ItemsSource = _accounts;
-        InitializeRefreshTimer();
 
         this.SizeChanged += HomePage_SizeChanged;
+        this.Unloaded += HomePage_Unloaded;
         OtpGridView.Loaded += OtpGridView_Loaded;
         OtpGridView.ContainerContentChanging += OtpGridView_ContainerContentChanging;
+
+        // Subscribe to rendering event for monitor refresh rate synchronized updates
+        CompositionTarget.Rendering += CompositionTarget_Rendering;
     }
 
     private void OtpGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
@@ -132,18 +134,7 @@ public sealed partial class HomePage : Page
         return null;
     }
 
-    private void InitializeRefreshTimer()
-    {
-        _refreshTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(16) // ~60fps for smooth updates
-        };
-
-        _refreshTimer.Tick += RefreshTimer_Tick;
-        _refreshTimer.Start();
-    }
-
-    private void RefreshTimer_Tick(object? sender, object e)
+    private void CompositionTarget_Rendering(object? sender, object e)
     {
         try
         {
@@ -151,10 +142,16 @@ public sealed partial class HomePage : Page
         }
         catch (Exception ex)
         {
-            _refreshTimer.Stop();
+            CompositionTarget.Rendering -= CompositionTarget_Rendering;
             _logger.Error("Unhandled exception while refreshing TOTP codes.", ex);
             ShowOperationError("Code refresh stopped due to an unexpected error. Reopen the app to retry.");
         }
+    }
+
+    private void HomePage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        // Unsubscribe from rendering event to prevent memory leaks
+        CompositionTarget.Rendering -= CompositionTarget_Rendering;
     }
 
     private void UpdateAllCodes()

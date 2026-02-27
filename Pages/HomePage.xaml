@@ -150,7 +150,7 @@
                                   ColumnSpacing="8" Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="40"/>
                                 </Grid.ColumnDefinitions>
                                 <!-- Custom progress bar (avoids WinUI3 animation bug) -->
                                 <Grid Grid.Column="0" Height="4" VerticalAlignment="Center">
@@ -168,6 +168,7 @@
                                 <TextBlock Grid.Column="1"
                                            x:Name="RemainingTextBlock"
                                            Style="{StaticResource BodyTextBlockStyle}"
+                                           HorizontalAlignment="Right"
                                            VerticalAlignment="Center"
                                            Opacity="0.7"/>
                             </Grid>
