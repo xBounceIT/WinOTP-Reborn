@@ -6,6 +6,31 @@
 
     <Grid Padding="16">
         <StackPanel Spacing="8">
+            <!-- Security Settings -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        Text="Security"
+                        Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch
+                        x:Name="PinProtectionToggle"
+                        Header="Protect app with PIN"
+                        Toggled="PinProtectionToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="PasswordProtectionToggle"
+                        Header="Protect app with password"
+                        Toggled="PasswordProtectionToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="WindowsHelloToggle"
+                        Header="Protect app with Windows Hello"
+                        IsEnabled="False"
+                        Toggled="WindowsHelloToggle_Toggled" />
+                </StackPanel>
+            </Border>
+
             <!-- Display Settings -->
             <Border
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

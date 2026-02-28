@@ -11,6 +11,7 @@ public partial class App : Application
     public ICredentialManagerService CredentialManager { get; }
     public IAppSettingsService AppSettings { get; }
     public ITotpCodeGenerator TotpGenerator { get; } = new TotpCodeGenerator();
+    public IAppLockService AppLock { get; } = new AppLockService();
 
     public App()
     {
