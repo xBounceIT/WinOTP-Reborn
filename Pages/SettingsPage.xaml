@@ -28,117 +28,101 @@
             </Border>
 
             <!-- About Card -->
-            <Expander
-                x:Name="AboutExpander"
-                IsExpanded="False"
-                HorizontalAlignment="Stretch">
-                <Expander.Header>
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="12">
+                    <!-- Title -->
+                    <TextBlock
+                        Text="About"
+                        Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <!-- Version Row -->
                     <Grid HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-
-                        <!-- App Icon -->
-                        <FontIcon
-                            Grid.Column="0"
-                            Glyph="&#xE7BF;"
-                            FontSize="24"
-                            Margin="0,0,12,0"
-                            VerticalAlignment="Center"/>
-
-                        <!-- App Name and Copyright -->
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock
-                                Text="WinOTP"
-                                Style="{StaticResource BodyStrongTextBlockStyle}"/>
-                            <TextBlock
-                                Text="&#xA9; 2025 xBounceIT. All rights reserved."
-                                Style="{StaticResource CaptionTextBlockStyle}"
-                                Opacity="0.7"/>
-                        </StackPanel>
-
-                        <!-- Version Number -->
                         <TextBlock
-                            Grid.Column="2"
+                            Grid.Column="0"
+                            Text="Version"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center"/>
+                        <TextBlock
+                            Grid.Column="1"
                             x:Name="VersionTextBlock"
                             Text="0.1.0"
                             Style="{StaticResource BodyTextBlockStyle}"
+                            HorizontalAlignment="Right"
                             VerticalAlignment="Center"
-                            Margin="16,0,0,0"
-                            MinWidth="35"
                             Opacity="0.8"/>
                     </Grid>
-                </Expander.Header>
 
-                <Expander.Content>
-                    <StackPanel Spacing="12" Padding="12,12">
-                        <!-- GitHub Repository Row -->
-                        <Grid HorizontalAlignment="Stretch">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Grid.Column="0"
-                                Text="GitHub Repository"
-                                Style="{StaticResource BodyTextBlockStyle}"
-                                VerticalAlignment="Center"/>
-                            <Button
-                                Grid.Column="1"
-                                x:Name="GoToRepositoryButton"
-                                Click="GoToRepositoryButton_Click"
-                                HorizontalAlignment="Right">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
-                                    <TextBlock Text="Go to repository"/>
-                                </StackPanel>
-                            </Button>
-                        </Grid>
+                    <!-- GitHub Repository Row -->
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="GitHub Repository"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center"/>
+                        <Button
+                            Grid.Column="1"
+                            x:Name="GoToRepositoryButton"
+                            Click="GoToRepositoryButton_Click"
+                            HorizontalAlignment="Right">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
+                                <TextBlock Text="Go to repository"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
 
-                        <!-- Owner Row -->
-                        <Grid HorizontalAlignment="Stretch">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Grid.Column="0"
-                                Text="Owner"
-                                Style="{StaticResource BodyTextBlockStyle}"
-                                VerticalAlignment="Center"/>
-                            <TextBlock
-                                Grid.Column="1"
-                                Text="Daniel D'Angeli"
-                                Style="{StaticResource BodyTextBlockStyle}"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center"
-                                Opacity="0.8"/>
-                        </Grid>
+                    <!-- Owner Row -->
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="Owner"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center"/>
+                        <TextBlock
+                            Grid.Column="1"
+                            Text="Daniel D'Angeli"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Opacity="0.8"/>
+                    </Grid>
 
-                        <!-- License Row -->
-                        <Grid HorizontalAlignment="Stretch">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Grid.Column="0"
-                                Text="License"
-                                Style="{StaticResource BodyTextBlockStyle}"
-                                VerticalAlignment="Center"/>
-                            <TextBlock
-                                Grid.Column="1"
-                                Text="MIT"
-                                Style="{StaticResource BodyTextBlockStyle}"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center"
-                                Opacity="0.8"/>
-                        </Grid>
-                    </StackPanel>
-                </Expander.Content>
-            </Expander>
+                    <!-- License Row -->
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="License"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center"/>
+                        <TextBlock
+                            Grid.Column="1"
+                            Text="MIT"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Opacity="0.8"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
         </StackPanel>
     </Grid>
