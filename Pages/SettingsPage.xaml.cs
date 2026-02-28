@@ -36,6 +36,19 @@ public sealed partial class SettingsPage : Page
         PinProtectionToggle.IsOn = _appSettings.IsPinProtectionEnabled;
         PasswordProtectionToggle.IsOn = _appSettings.IsPasswordProtectionEnabled;
         WindowsHelloToggle.IsOn = _appSettings.IsWindowsHelloEnabled;
+
+        // Load auto-lock timeout setting
+        var timeout = _appSettings.AutoLockTimeoutMinutes;
+        for (int i = 0; i < AutoLockComboBox.Items.Count; i++)
+        {
+            var item = AutoLockComboBox.Items[i] as ComboBoxItem;
+            if (item != null && int.TryParse(item.Tag?.ToString(), out var tagValue) && tagValue == timeout)
+            {
+                AutoLockComboBox.SelectedIndex = i;
+                break;
+            }
+        }
+
         _isInitializingToggle = false;
     }
 
@@ -205,6 +218,23 @@ public sealed partial class SettingsPage : Page
             else
             {
                 _appSettings.IsWindowsHelloEnabled = false;
+            }
+        }
+    }
+
+    private void AutoLockComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        var selectedItem = AutoLockComboBox.SelectedItem as ComboBoxItem;
+        if (selectedItem != null && selectedItem.Tag != null)
+        {
+            if (int.TryParse(selectedItem.Tag.ToString(), out var minutes))
+            {
+                _appSettings.AutoLockTimeoutMinutes = minutes;
             }
         }
     }

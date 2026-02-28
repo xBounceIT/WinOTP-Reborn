@@ -11,6 +11,9 @@ public sealed partial class MainWindow : Window
 {
     private readonly IAppSettingsService _appSettings;
     private readonly IAppLockService _appLock;
+    private readonly IAutoLockService _autoLock;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
+    private bool _autoLockHandlersSetUp;
 
     public MainWindow()
     {
@@ -18,6 +21,13 @@ public sealed partial class MainWindow : Window
 
         _appSettings = App.Current.AppSettings;
         _appLock = App.Current.AppLock;
+        _dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+
+        // Initialize auto-lock service
+        App.Current.InitializeAutoLockService();
+        _autoLock = App.Current.AutoLock!;
+        _autoLock.SetDispatcherQueue(_dispatcherQueue);
+        _autoLock.LockRequested += OnAutoLockRequested;
 
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
@@ -49,7 +59,42 @@ public sealed partial class MainWindow : Window
             // Navigate to Home and select the Home item
             ContentFrame.Navigate(typeof(HomePage));
             NavView.SelectedItem = NavView.MenuItems[0];
+
+            // Start auto-lock monitoring since we're not showing lock screen
+            SetupAutoLockMonitoring();
         }
+    }
+
+    private void SetupAutoLockMonitoring()
+    {
+        // Only set up handlers once to avoid duplicates
+        if (_autoLockHandlersSetUp)
+        {
+            _autoLock.StartMonitoring();
+            return;
+        }
+
+        // Set up global input handlers for auto-lock activity detection
+        // Attach to multiple elements to ensure we catch all activity
+        var rootGrid = this.Content as UIElement;
+        if (rootGrid != null)
+        {
+            rootGrid.PointerMoved += OnGlobalPointerActivity;
+            rootGrid.PointerPressed += OnGlobalPointerActivity;
+            rootGrid.KeyDown += OnGlobalKeyActivity;
+        }
+
+        ContentFrame.PointerMoved += OnGlobalPointerActivity;
+        ContentFrame.PointerPressed += OnGlobalPointerActivity;
+        ContentFrame.KeyDown += OnGlobalKeyActivity;
+
+        NavView.PointerMoved += OnGlobalPointerActivity;
+        NavView.PointerPressed += OnGlobalPointerActivity;
+
+        _autoLockHandlersSetUp = true;
+
+        // Start the monitoring
+        _autoLock.StartMonitoring();
     }
 
     private bool ShouldShowLockScreen()
@@ -61,6 +106,9 @@ public sealed partial class MainWindow : Window
 
     private async void ShowLockScreen()
     {
+        // Stop auto-lock monitoring while locked
+        _autoLock.StopMonitoring();
+
         LockOverlay.Visibility = Visibility.Visible;
         UnlockErrorText.Visibility = Visibility.Collapsed;
 
@@ -194,6 +242,9 @@ public sealed partial class MainWindow : Window
         PinInput.Text = "";
         PasswordInput.Password = "";
 
+        // Setup and start auto-lock monitoring
+        SetupAutoLockMonitoring();
+
         ContentFrame.Navigate(typeof(HomePage));
         NavView.SelectedItem = NavView.MenuItems[0];
     }
@@ -251,6 +302,36 @@ public sealed partial class MainWindow : Window
         if (ContentFrame.CurrentSourcePageType != pageType)
         {
             ContentFrame.Navigate(pageType);
+        }
+    }
+
+    private void OnAutoLockRequested(object? sender, EventArgs e)
+    {
+        // Lock the app when auto-lock requests it
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            if (LockOverlay.Visibility == Visibility.Collapsed)
+            {
+                ShowLockScreen();
+            }
+        });
+    }
+
+    private void OnGlobalPointerActivity(object sender, PointerRoutedEventArgs e)
+    {
+        // Only reset if we're not currently locked
+        if (LockOverlay.Visibility == Visibility.Collapsed)
+        {
+            _autoLock.ResetTimer();
+        }
+    }
+
+    private void OnGlobalKeyActivity(object sender, KeyRoutedEventArgs e)
+    {
+        // Only reset if we're not currently locked
+        if (LockOverlay.Visibility == Visibility.Collapsed)
+        {
+            _autoLock.ResetTimer();
         }
     }
 }

@@ -8,6 +8,7 @@ public interface IAppSettingsService
     bool IsPinProtectionEnabled { get; set; }
     bool IsPasswordProtectionEnabled { get; set; }
     bool IsWindowsHelloEnabled { get; set; }
+    int AutoLockTimeoutMinutes { get; set; }
 }
 
 public sealed class AppSettingsService : IAppSettingsService
@@ -19,6 +20,7 @@ public sealed class AppSettingsService : IAppSettingsService
     private bool _isPinProtectionEnabled;
     private bool _isPasswordProtectionEnabled;
     private bool _isWindowsHelloEnabled;
+    private int _autoLockTimeoutMinutes;
 
     public AppSettingsService()
     {
@@ -34,6 +36,7 @@ public sealed class AppSettingsService : IAppSettingsService
         _isPinProtectionEnabled = loadedSettings.IsPinProtectionEnabled;
         _isPasswordProtectionEnabled = loadedSettings.IsPasswordProtectionEnabled;
         _isWindowsHelloEnabled = loadedSettings.IsWindowsHelloEnabled;
+        _autoLockTimeoutMinutes = loadedSettings.AutoLockTimeoutMinutes;
     }
 
     public bool ShowNextCodeWhenFiveSecondsRemain
@@ -49,7 +52,8 @@ public sealed class AppSettingsService : IAppSettingsService
                     ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
                     IsPinProtectionEnabled = _isPinProtectionEnabled,
                     IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled
+                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
                 });
             }
         }
@@ -68,7 +72,8 @@ public sealed class AppSettingsService : IAppSettingsService
                     ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
                     IsPinProtectionEnabled = _isPinProtectionEnabled,
                     IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled
+                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
                 });
             }
         }
@@ -87,7 +92,8 @@ public sealed class AppSettingsService : IAppSettingsService
                     ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
                     IsPinProtectionEnabled = _isPinProtectionEnabled,
                     IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled
+                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
                 });
             }
         }
@@ -106,7 +112,28 @@ public sealed class AppSettingsService : IAppSettingsService
                     ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
                     IsPinProtectionEnabled = _isPinProtectionEnabled,
                     IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled
+                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
+                });
+            }
+        }
+    }
+
+    public int AutoLockTimeoutMinutes
+    {
+        get => _autoLockTimeoutMinutes;
+        set
+        {
+            lock (Sync)
+            {
+                _autoLockTimeoutMinutes = value;
+                SaveSettings(new AppSettingsData
+                {
+                    ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
+                    IsPinProtectionEnabled = _isPinProtectionEnabled,
+                    IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
+                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
                 });
             }
         }
@@ -152,5 +179,6 @@ public sealed class AppSettingsService : IAppSettingsService
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
+        public int AutoLockTimeoutMinutes { get; set; }
     }
 }
