@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260209005" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="Otp.NET" Version="1.4.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
@@ -23,6 +24,7 @@
     <Compile Include="..\Models\CredentialResults.cs" Link="Models\CredentialResults.cs" />
     <Compile Include="..\Helpers\OtpAccountStorageMapper.cs" Link="Helpers\OtpAccountStorageMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
+    <Compile Include="..\Services\TotpCodeGenerator.cs" Link="Services\TotpCodeGenerator.cs" />
   </ItemGroup>
 
 </Project>

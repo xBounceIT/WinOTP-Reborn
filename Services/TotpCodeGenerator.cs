@@ -6,6 +6,7 @@ namespace WinOTP.Services;
 public interface ITotpCodeGenerator
 {
     string GenerateCode(OtpAccount account);
+    string GenerateCodeAt(OtpAccount account, DateTime utcTimestamp);
     int GetRemainingSeconds(OtpAccount account);
     double GetProgressPercentage(OtpAccount account);
 }
@@ -14,6 +15,11 @@ public class TotpCodeGenerator : ITotpCodeGenerator
 {
     public string GenerateCode(OtpAccount account)
     {
+        return GenerateCodeAt(account, DateTime.UtcNow);
+    }
+
+    public string GenerateCodeAt(OtpAccount account, DateTime utcTimestamp)
+    {
         try
         {
             var secret = Base32Encoding.ToBytes(account.Secret);
@@ -21,8 +27,15 @@ public class TotpCodeGenerator : ITotpCodeGenerator
                 step: account.Period,
                 totpSize: account.Digits,
                 mode: GetHashMode(account.Algorithm));
-            
-            return totp.ComputeTotp(DateTime.UtcNow);
+
+            var normalizedTimestamp = utcTimestamp.Kind switch
+            {
+                DateTimeKind.Utc => utcTimestamp,
+                DateTimeKind.Local => utcTimestamp.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(utcTimestamp, DateTimeKind.Utc)
+            };
+
+            return totp.ComputeTotp(normalizedTimestamp);
         }
         catch
         {

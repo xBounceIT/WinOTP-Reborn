@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel.DataTransfer;
@@ -13,35 +14,44 @@ namespace WinOTP.Pages;
 public sealed partial class HomePage : Page
 {
     private const double CardWidth = 368; // 360 + 8 for margins
+    private const int NextCodePreviewThresholdSeconds = 5;
+    private const string VaultLoadFailureMessage = "Unable to access Windows Credential Manager. Saved accounts could not be loaded.";
 
     private readonly ICredentialManagerService _credentialManager;
+    private readonly IAppSettingsService _appSettings;
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
 
     private readonly List<OtpAccount> _allAccounts = new();
     private List<OtpAccount> _accounts = new();
     private readonly Dictionary<string, CardElementCache> _elementCache = new();
-    private DispatcherTimer _refreshTimer = null!;
     private ItemsWrapGrid? _itemsPanel;
     private int _currentSortIndex = 0;
     private string _searchText = string.Empty;
+    private bool _isRefreshSubscribed;
+    private bool _isShowingVaultLoadError;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
         Rectangle ProgressBarFill,
-        TextBlock RemainingTextBlock);
+        TextBlock RemainingTextBlock,
+        TextBlock NextCodeTextBlock)
+    {
+        public bool IsNextCodeVisible { get; set; }
+    }
 
     public HomePage()
     {
         this.InitializeComponent();
         _credentialManager = App.Current.CredentialManager;
+        _appSettings = App.Current.AppSettings;
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
 
         OtpGridView.ItemsSource = _accounts;
-        InitializeRefreshTimer();
 
         this.SizeChanged += HomePage_SizeChanged;
+        this.Unloaded += HomePage_Unloaded;
         OtpGridView.Loaded += OtpGridView_Loaded;
         OtpGridView.ContainerContentChanging += OtpGridView_ContainerContentChanging;
     }
@@ -67,21 +77,15 @@ public sealed partial class HomePage : Page
             var codeBlock = FindTemplateChild<TextBlock>(searchRoot, "CodeTextBlock");
             var progressBarFill = FindTemplateChild<Rectangle>(searchRoot, "ProgressBarFill");
             var remainingBlock = FindTemplateChild<TextBlock>(searchRoot, "RemainingTextBlock");
+            var nextCodeBlock = FindTemplateChild<TextBlock>(searchRoot, "NextCodeTextBlock");
 
-            if (codeBlock != null && progressBarFill != null && remainingBlock != null)
+            if (codeBlock != null && progressBarFill != null && remainingBlock != null && nextCodeBlock != null)
             {
-                _elementCache[account.Id] = new CardElementCache(codeBlock, progressBarFill, remainingBlock);
+                var cache = new CardElementCache(codeBlock, progressBarFill, remainingBlock, nextCodeBlock);
+                _elementCache[account.Id] = cache;
 
                 // Initial update
-                codeBlock.Text = _totpGenerator.GenerateCode(account);
-                remainingBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
-
-                var progress = _totpGenerator.GetProgressPercentage(account);
-                var parentGrid = progressBarFill.Parent as FrameworkElement;
-                if (parentGrid != null)
-                {
-                    progressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
-                }
+                UpdateCardValues(account, cache, _appSettings.ShowNextCodeWhenFiveSecondsRemain);
             }
         }
     }
@@ -132,18 +136,7 @@ public sealed partial class HomePage : Page
         return null;
     }
 
-    private void InitializeRefreshTimer()
-    {
-        _refreshTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(16) // ~60fps for smooth updates
-        };
-
-        _refreshTimer.Tick += RefreshTimer_Tick;
-        _refreshTimer.Start();
-    }
-
-    private void RefreshTimer_Tick(object? sender, object e)
+    private void CompositionTarget_Rendering(object? sender, object e)
     {
         try
         {
@@ -151,14 +144,44 @@ public sealed partial class HomePage : Page
         }
         catch (Exception ex)
         {
-            _refreshTimer.Stop();
+            StopRefreshUpdates();
             _logger.Error("Unhandled exception while refreshing TOTP codes.", ex);
             ShowOperationError("Code refresh stopped due to an unexpected error. Reopen the app to retry.");
         }
     }
 
+    private void HomePage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        // Ensure refresh loop is stopped when page leaves visual tree.
+        StopRefreshUpdates();
+    }
+
+    private void StartRefreshUpdates()
+    {
+        if (_isRefreshSubscribed)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering += CompositionTarget_Rendering;
+        _isRefreshSubscribed = true;
+    }
+
+    private void StopRefreshUpdates()
+    {
+        if (!_isRefreshSubscribed)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        _isRefreshSubscribed = false;
+    }
+
     private void UpdateAllCodes()
     {
+        var showNextCodeHint = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
+
         foreach (var (accountId, cache) in _elementCache)
         {
             var account = _accounts.FirstOrDefault(a => a.Id == accountId);
@@ -167,17 +190,66 @@ public sealed partial class HomePage : Page
                 continue;
             }
 
-            cache.CodeTextBlock.Text = _totpGenerator.GenerateCode(account);
-            cache.RemainingTextBlock.Text = $"{_totpGenerator.GetRemainingSeconds(account)}s";
+            UpdateCardValues(account, cache, showNextCodeHint);
+        }
+    }
 
-            // Calculate progress bar fill width based on parent Grid's actual width
-            var progress = _totpGenerator.GetProgressPercentage(account);
-            var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
-            if (parentGrid != null)
+    private void UpdateCardValues(OtpAccount account, CardElementCache cache, bool showNextCodeHint)
+    {
+        cache.CodeTextBlock.Text = _totpGenerator.GenerateCode(account);
+
+        var remainingSeconds = _totpGenerator.GetRemainingSeconds(account);
+        cache.RemainingTextBlock.Text = $"{remainingSeconds}s";
+
+        var shouldShowNextCode = showNextCodeHint &&
+            remainingSeconds > 0 &&
+            remainingSeconds <= NextCodePreviewThresholdSeconds;
+
+        if (shouldShowNextCode)
+        {
+            var nextCodeTimestamp = DateTime.UtcNow.AddSeconds(remainingSeconds);
+            cache.NextCodeTextBlock.Text = _totpGenerator.GenerateCodeAt(account, nextCodeTimestamp);
+
+            if (!cache.IsNextCodeVisible)
             {
-                cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
+                AnimateNextCodeOpacity(cache, 1);
+                cache.IsNextCodeVisible = true;
             }
         }
+        else
+        {
+            if (cache.IsNextCodeVisible)
+            {
+                AnimateNextCodeOpacity(cache, 0);
+                cache.IsNextCodeVisible = false;
+            }
+        }
+
+        // Calculate progress bar fill width based on parent Grid's actual width
+        var progress = _totpGenerator.GetProgressPercentage(account);
+        var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
+        if (parentGrid != null)
+        {
+            cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
+        }
+    }
+
+    private void AnimateNextCodeOpacity(CardElementCache cache, double targetOpacity)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = cache.NextCodeTextBlock.Opacity,
+            To = targetOpacity,
+            Duration = TimeSpan.FromMilliseconds(200),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        Storyboard.SetTarget(animation, cache.NextCodeTextBlock);
+        Storyboard.SetTargetProperty(animation, "Opacity");
+
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        storyboard.Begin();
     }
 
     private static T? FindTemplateChild<T>(DependencyObject parent, string name) where T : FrameworkElement
@@ -203,6 +275,7 @@ public sealed partial class HomePage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        StartRefreshUpdates();
 
         try
         {
@@ -214,12 +287,9 @@ public sealed partial class HomePage : Page
                     ShowOperationError(saveResult.Message);
                     _logger.Warn($"Save account failed on navigation: {saveResult.ErrorCode} - {saveResult.Message}");
                 }
-
-                // Remove the AddAccountPage from back stack but keep HomePage
-                var addAccountEntry = Frame.BackStack.LastOrDefault(entry => entry.SourcePageType == typeof(AddAccountPage));
-                if (addAccountEntry != null)
+                else
                 {
-                    Frame.BackStack.Remove(addAccountEntry);
+                    RemoveCompletedAddFlowEntriesFromBackStack();
                 }
             }
 
@@ -229,6 +299,31 @@ public sealed partial class HomePage : Page
         {
             _logger.Error("Unhandled exception while navigating to HomePage.", ex);
             ShowOperationError("Unable to load accounts due to an unexpected error.");
+        }
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        StopRefreshUpdates();
+        base.OnNavigatedFrom(e);
+    }
+
+    private void RemoveCompletedAddFlowEntriesFromBackStack()
+    {
+        var frame = Frame;
+        if (frame == null || frame.BackStack.Count == 0)
+        {
+            return;
+        }
+
+        for (int index = frame.BackStack.Count - 1; index >= 0; index--)
+        {
+            var entry = frame.BackStack[index];
+            if (entry.SourcePageType == typeof(AddAccountPage) ||
+                entry.SourcePageType == typeof(ManualEntryPage))
+            {
+                frame.BackStack.RemoveAt(index);
+            }
         }
     }
 
@@ -245,25 +340,61 @@ public sealed partial class HomePage : Page
 
     private void UpdateLoadIssuesState(IReadOnlyList<CredentialIssue> issues)
     {
-        if (issues.Count == 0)
+        var vaultIssues = issues
+            .Where(i => i.Code == CredentialIssueCode.VaultAccessFailed)
+            .ToList();
+        var credentialIssues = issues
+            .Where(i => i.Code != CredentialIssueCode.VaultAccessFailed)
+            .ToList();
+
+        if (vaultIssues.Count > 0)
+        {
+            ShowVaultLoadError();
+        }
+        else
+        {
+            ClearVaultLoadError();
+        }
+
+        if (credentialIssues.Count == 0)
         {
             LoadIssuesInfoBar.IsOpen = false;
             LoadIssuesInfoBar.Message = string.Empty;
             return;
         }
 
-        var issueSummary = string.Join(", ", issues
+        var issueSummary = string.Join(", ", credentialIssues
             .GroupBy(i => i.Code)
             .Select(g => $"{g.Key}: {g.Count()}"));
 
-        LoadIssuesInfoBar.Message = $"{issues.Count} stored credential(s) were skipped ({issueSummary}). See local log for details.";
+        LoadIssuesInfoBar.Message = $"{credentialIssues.Count} stored credential(s) were skipped ({issueSummary}). See local log for details.";
         LoadIssuesInfoBar.IsOpen = true;
     }
 
     private void ShowOperationError(string message)
     {
+        _isShowingVaultLoadError = false;
         OperationInfoBar.Message = message;
         OperationInfoBar.IsOpen = true;
+    }
+
+    private void ShowVaultLoadError()
+    {
+        OperationInfoBar.Message = VaultLoadFailureMessage;
+        OperationInfoBar.IsOpen = true;
+        _isShowingVaultLoadError = true;
+    }
+
+    private void ClearVaultLoadError()
+    {
+        if (!_isShowingVaultLoadError)
+        {
+            return;
+        }
+
+        OperationInfoBar.IsOpen = false;
+        OperationInfoBar.Message = string.Empty;
+        _isShowingVaultLoadError = false;
     }
 
     private void UpdateEmptyState()
