@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="WinOTP.Pages.ImportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="16" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock
+            Grid.Row="0"
+            Text="Import Accounts"
+            Style="{StaticResource SubtitleTextBlockStyle}"
+            VerticalAlignment="Center" />
+
+        <!-- Import source cards -->
+        <StackPanel Grid.Row="1" Spacing="8">
+
+            <!-- Import from WinOTP (old) -->
+            <Button
+                Click="ImportFromWinOTPOldButton_Click"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Left"
+                Padding="16"
+                CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <FontIcon Glyph="&#xE8C8;" FontSize="24" />
+                    <StackPanel Spacing="2">
+                        <TextBlock
+                            Text="Import from WinOTP (old)"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Import tokens from legacy WinOTP JSON backup file"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Button>
+
+        </StackPanel>
+    </Grid>
+
+</Page>
