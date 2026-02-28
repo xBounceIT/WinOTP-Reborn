@@ -4,8 +4,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid Padding="16">
-        <StackPanel Spacing="8">
+    <ScrollViewer>
+        <StackPanel Padding="16" Spacing="8">
             <!-- Security Settings -->
             <Border
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -169,6 +169,6 @@
             </Border>
 
         </StackPanel>
-    </Grid>
+    </ScrollViewer>
 
 </Page>
