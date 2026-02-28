@@ -49,7 +49,40 @@ public sealed partial class SettingsPage : Page
             }
         }
 
+        UpdateProtectionControlsState();
         _isInitializingToggle = false;
+    }
+
+    private void UpdateProtectionControlsState()
+    {
+        var isAnyProtectionEnabled = PinProtectionToggle.IsOn || PasswordProtectionToggle.IsOn || WindowsHelloToggle.IsOn;
+        
+        // Enable auto-lock dropdown only when protection is enabled
+        AutoLockComboBox.IsEnabled = isAnyProtectionEnabled;
+        
+        // Disable other protection toggles when one is enabled
+        if (PinProtectionToggle.IsOn)
+        {
+            PasswordProtectionToggle.IsEnabled = false;
+            WindowsHelloToggle.IsEnabled = false;
+        }
+        else if (PasswordProtectionToggle.IsOn)
+        {
+            PinProtectionToggle.IsEnabled = false;
+            WindowsHelloToggle.IsEnabled = false;
+        }
+        else if (WindowsHelloToggle.IsOn)
+        {
+            PinProtectionToggle.IsEnabled = false;
+            PasswordProtectionToggle.IsEnabled = false;
+        }
+        else
+        {
+            // No protection enabled, enable all toggles
+            PinProtectionToggle.IsEnabled = true;
+            PasswordProtectionToggle.IsEnabled = true;
+            WindowsHelloToggle.IsEnabled = true;
+        }
     }
 
     private void ShowNextCodeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -111,6 +144,8 @@ public sealed partial class SettingsPage : Page
                 _appSettings.IsPinProtectionEnabled = false;
             }
         }
+        
+        UpdateProtectionControlsState();
     }
 
     private async void PasswordProtectionToggle_Toggled(object sender, RoutedEventArgs e)
@@ -162,6 +197,8 @@ public sealed partial class SettingsPage : Page
                 _appSettings.IsPasswordProtectionEnabled = false;
             }
         }
+        
+        UpdateProtectionControlsState();
     }
 
     private async void WindowsHelloToggle_Toggled(object sender, RoutedEventArgs e)
@@ -220,6 +257,8 @@ public sealed partial class SettingsPage : Page
                 _appSettings.IsWindowsHelloEnabled = false;
             }
         }
+        
+        UpdateProtectionControlsState();
     }
 
     private void AutoLockComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
