@@ -7,6 +7,28 @@
 
     <Page.Resources>
         <x:Double x:Key="CardColumnWidth">360</x:Double>
+
+        <Storyboard x:Name="NextCodeFadeInAnimation">
+            <DoubleAnimation Storyboard.TargetName="NextCodeTextBlock"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0" To="1"
+                             Duration="0:0:0.2">
+                <DoubleAnimation.EasingFunction>
+                    <QuadraticEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+
+        <Storyboard x:Name="NextCodeFadeOutAnimation">
+            <DoubleAnimation Storyboard.TargetName="NextCodeTextBlock"
+                             Storyboard.TargetProperty="Opacity"
+                             From="1" To="0"
+                             Duration="0:0:0.2">
+                <DoubleAnimation.EasingFunction>
+                    <QuadraticEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
     </Page.Resources>
 
     <Grid Padding="16,8">
@@ -104,7 +126,6 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <!-- Account label and delete button -->
@@ -137,26 +158,27 @@
                                 </Button>
                             </StackPanel>
 
-                            <!-- TOTP code -->
-                            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                       x:Name="CodeTextBlock"
-                                       Style="{StaticResource TitleTextBlockStyle}"
-                                       FontSize="28"
-                                       FontFamily="Consolas"
-                                       VerticalAlignment="Center"
-                                       Margin="0,8,0,0"/>
+                            <!-- TOTP code and next code -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                        Orientation="Horizontal"
+                                        Spacing="8"
+                                        Margin="0,8,0,0">
+                                <TextBlock x:Name="CodeTextBlock"
+                                           Style="{StaticResource TitleTextBlockStyle}"
+                                           FontSize="28"
+                                           FontFamily="Consolas"
+                                           VerticalAlignment="Center"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                                       x:Name="NextCodeTextBlock"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       FontFamily="Consolas"
-                                       VerticalAlignment="Center"
-                                       Margin="0,2,0,0"
-                                       Opacity="0.8"
-                                       Visibility="Collapsed"/>
+                                <TextBlock x:Name="NextCodeTextBlock"
+                                           FontSize="16"
+                                           FontFamily="Consolas"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center"
+                                           Opacity="0"/>
+                            </StackPanel>
 
                             <!-- Progress bar and timer -->
-                            <Grid Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
                                   ColumnSpacing="8" Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>

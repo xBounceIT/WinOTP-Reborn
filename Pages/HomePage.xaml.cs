@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel.DataTransfer;
@@ -34,7 +35,10 @@ public sealed partial class HomePage : Page
         TextBlock CodeTextBlock,
         Rectangle ProgressBarFill,
         TextBlock RemainingTextBlock,
-        TextBlock NextCodeTextBlock);
+        TextBlock NextCodeTextBlock)
+    {
+        public bool IsNextCodeVisible { get; set; }
+    }
 
     public HomePage()
     {
@@ -204,13 +208,21 @@ public sealed partial class HomePage : Page
         if (shouldShowNextCode)
         {
             var nextCodeTimestamp = DateTime.UtcNow.AddSeconds(remainingSeconds);
-            cache.NextCodeTextBlock.Text = $"Next: {_totpGenerator.GenerateCodeAt(account, nextCodeTimestamp)}";
-            cache.NextCodeTextBlock.Visibility = Visibility.Visible;
+            cache.NextCodeTextBlock.Text = _totpGenerator.GenerateCodeAt(account, nextCodeTimestamp);
+
+            if (!cache.IsNextCodeVisible)
+            {
+                AnimateNextCodeOpacity(cache, 1);
+                cache.IsNextCodeVisible = true;
+            }
         }
         else
         {
-            cache.NextCodeTextBlock.Text = string.Empty;
-            cache.NextCodeTextBlock.Visibility = Visibility.Collapsed;
+            if (cache.IsNextCodeVisible)
+            {
+                AnimateNextCodeOpacity(cache, 0);
+                cache.IsNextCodeVisible = false;
+            }
         }
 
         // Calculate progress bar fill width based on parent Grid's actual width
@@ -220,6 +232,24 @@ public sealed partial class HomePage : Page
         {
             cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
         }
+    }
+
+    private void AnimateNextCodeOpacity(CardElementCache cache, double targetOpacity)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = cache.NextCodeTextBlock.Opacity,
+            To = targetOpacity,
+            Duration = TimeSpan.FromMilliseconds(200),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        Storyboard.SetTarget(animation, cache.NextCodeTextBlock);
+        Storyboard.SetTargetProperty(animation, "Opacity");
+
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        storyboard.Begin();
     }
 
     private static T? FindTemplateChild<T>(DependencyObject parent, string name) where T : FrameworkElement
