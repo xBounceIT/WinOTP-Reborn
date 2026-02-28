@@ -31,7 +31,7 @@
         </Storyboard>
     </Page.Resources>
 
-    <Grid Padding="16,8">
+    <Grid Padding="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
