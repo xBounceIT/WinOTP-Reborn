@@ -55,10 +55,11 @@ public sealed partial class MainWindow : Window
     private bool ShouldShowLockScreen()
     {
         return (_appSettings.IsPinProtectionEnabled && _appLock.IsPinSet()) ||
-               (_appSettings.IsPasswordProtectionEnabled && _appLock.IsPasswordSet());
+               (_appSettings.IsPasswordProtectionEnabled && _appLock.IsPasswordSet()) ||
+               (_appSettings.IsWindowsHelloEnabled);
     }
 
-    private void ShowLockScreen()
+    private async void ShowLockScreen()
     {
         LockOverlay.Visibility = Visibility.Visible;
         UnlockErrorText.Visibility = Visibility.Collapsed;
@@ -67,6 +68,8 @@ public sealed partial class MainWindow : Window
         {
             PinInput.Visibility = Visibility.Visible;
             PasswordInput.Visibility = Visibility.Collapsed;
+            WindowsHelloButton.Visibility = Visibility.Collapsed;
+            UnlockButton.Visibility = Visibility.Visible;
             LockSubtitleText.Text = "Enter your PIN to unlock";
             PinInput.Focus(FocusState.Programmatic);
         }
@@ -74,14 +77,31 @@ public sealed partial class MainWindow : Window
         {
             PinInput.Visibility = Visibility.Collapsed;
             PasswordInput.Visibility = Visibility.Visible;
+            WindowsHelloButton.Visibility = Visibility.Collapsed;
+            UnlockButton.Visibility = Visibility.Visible;
             LockSubtitleText.Text = "Enter your password to unlock";
             PasswordInput.Focus(FocusState.Programmatic);
+        }
+        else if (_appSettings.IsWindowsHelloEnabled)
+        {
+            PinInput.Visibility = Visibility.Collapsed;
+            PasswordInput.Visibility = Visibility.Collapsed;
+            UnlockButton.Visibility = Visibility.Collapsed;
+            WindowsHelloButton.Visibility = Visibility.Visible;
+            LockSubtitleText.Text = "Use Windows Hello to unlock";
+            // Auto-trigger Windows Hello authentication
+            await AttemptWindowsHelloUnlockAsync();
         }
     }
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
         await AttemptUnlockAsync();
+    }
+
+    private async void WindowsHelloButton_Click(object sender, RoutedEventArgs e)
+    {
+        await AttemptWindowsHelloUnlockAsync();
     }
 
     private void PinInput_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -123,13 +143,7 @@ public sealed partial class MainWindow : Window
 
         if (isValid)
         {
-            // Hide lock overlay and navigate to home
-            LockOverlay.Visibility = Visibility.Collapsed;
-            PinInput.Text = "";
-            PasswordInput.Password = "";
-
-            ContentFrame.Navigate(typeof(HomePage));
-            NavView.SelectedItem = NavView.MenuItems[0];
+            UnlockSuccess();
         }
         else
         {
@@ -147,6 +161,41 @@ public sealed partial class MainWindow : Window
                 PasswordInput.Focus(FocusState.Programmatic);
             }
         }
+    }
+
+    private async Task AttemptWindowsHelloUnlockAsync()
+    {
+        var result = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP");
+
+        if (result == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+        {
+            UnlockSuccess();
+        }
+        else
+        {
+            string errorMessage = result switch
+            {
+                Windows.Security.Credentials.UI.UserConsentVerificationResult.DeviceNotPresent => "Windows Hello is not available on this device.",
+                Windows.Security.Credentials.UI.UserConsentVerificationResult.NotConfiguredForUser => "Windows Hello is not set up. Please configure it in Windows Settings.",
+                Windows.Security.Credentials.UI.UserConsentVerificationResult.DisabledByPolicy => "Windows Hello has been disabled by policy.",
+                Windows.Security.Credentials.UI.UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
+                _ => "Windows Hello verification failed. Please try again."
+            };
+
+            UnlockErrorText.Text = errorMessage;
+            UnlockErrorText.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void UnlockSuccess()
+    {
+        // Hide lock overlay and navigate to home
+        LockOverlay.Visibility = Visibility.Collapsed;
+        PinInput.Text = "";
+        PasswordInput.Password = "";
+
+        ContentFrame.Navigate(typeof(HomePage));
+        NavView.SelectedItem = NavView.MenuItems[0];
     }
 
     private void ContentFrame_Navigated(object sender, NavigationEventArgs e)

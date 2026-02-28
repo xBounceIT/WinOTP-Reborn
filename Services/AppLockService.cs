@@ -1,4 +1,5 @@
 using Windows.Security.Credentials;
+using Windows.Security.Credentials.UI;
 
 namespace WinOTP.Services;
 
@@ -12,6 +13,8 @@ public interface IAppLockService
     Task<bool> VerifyPasswordAsync(string password);
     Task<bool> RemovePinAsync();
     Task<bool> RemovePasswordAsync();
+    Task<bool> IsWindowsHelloAvailableAsync();
+    Task<UserConsentVerificationResult> VerifyWindowsHelloAsync(string message);
 }
 
 public class AppLockService : IAppLockService
@@ -149,6 +152,31 @@ public class AppLockService : IAppLockService
         catch
         {
             return false;
+        }
+    }
+
+    public async Task<bool> IsWindowsHelloAvailableAsync()
+    {
+        try
+        {
+            var availability = await UserConsentVerifier.CheckAvailabilityAsync();
+            return availability == UserConsentVerifierAvailability.Available;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<UserConsentVerificationResult> VerifyWindowsHelloAsync(string message)
+    {
+        try
+        {
+            return await UserConsentVerifier.RequestVerificationAsync(message);
+        }
+        catch
+        {
+            return UserConsentVerificationResult.DeviceNotPresent;
         }
     }
 }

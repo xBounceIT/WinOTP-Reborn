@@ -158,12 +158,93 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        // Placeholder for Windows Hello implementation
-        _isInitializingToggle = true;
-        WindowsHelloToggle.IsOn = false;
-        _isInitializingToggle = false;
+        if (WindowsHelloToggle.IsOn)
+        {
+            // User wants to enable Windows Hello - check availability and verify
+            var success = await EnableWindowsHelloAsync();
+            if (!success)
+            {
+                // User cancelled, verification failed, or not available - revert toggle
+                _isInitializingToggle = true;
+                WindowsHelloToggle.IsOn = false;
+                _isInitializingToggle = false;
+            }
+            else
+            {
+                _appSettings.IsWindowsHelloEnabled = true;
+                // Disable other protection methods
+                if (PinProtectionToggle.IsOn)
+                {
+                    _isInitializingToggle = true;
+                    PinProtectionToggle.IsOn = false;
+                    _isInitializingToggle = false;
+                    _appSettings.IsPinProtectionEnabled = false;
+                    await _appLock.RemovePinAsync();
+                }
+                if (PasswordProtectionToggle.IsOn)
+                {
+                    _isInitializingToggle = true;
+                    PasswordProtectionToggle.IsOn = false;
+                    _isInitializingToggle = false;
+                    _appSettings.IsPasswordProtectionEnabled = false;
+                    await _appLock.RemovePasswordAsync();
+                }
+            }
+        }
+        else
+        {
+            // User wants to disable Windows Hello - verify first
+            var verified = await VerifyWindowsHelloAsync("Verify your identity to disable Windows Hello");
+            if (!verified)
+            {
+                // Verification failed - revert toggle
+                _isInitializingToggle = true;
+                WindowsHelloToggle.IsOn = true;
+                _isInitializingToggle = false;
+            }
+            else
+            {
+                _appSettings.IsWindowsHelloEnabled = false;
+            }
+        }
+    }
 
-        await ShowInfoDialog("Windows Hello protection is not yet implemented.");
+    private async Task<bool> EnableWindowsHelloAsync()
+    {
+        // Check if Windows Hello is available
+        var isAvailable = await _appLock.IsWindowsHelloAvailableAsync();
+        if (!isAvailable)
+        {
+            await ShowErrorDialog("Windows Hello is not available on this device or is not configured. Please set up Windows Hello in Windows Settings first.");
+            return false;
+        }
+
+        // Request verification to confirm user identity
+        var result = await _appLock.VerifyWindowsHelloAsync("Set up Windows Hello protection for WinOTP");
+
+        if (result == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+        {
+            return true;
+        }
+
+        // Handle specific error cases
+        string errorMessage = result switch
+        {
+            Windows.Security.Credentials.UI.UserConsentVerificationResult.DeviceNotPresent => "Windows Hello is not available on this device.",
+            Windows.Security.Credentials.UI.UserConsentVerificationResult.NotConfiguredForUser => "Windows Hello is not set up. Please configure it in Windows Settings.",
+            Windows.Security.Credentials.UI.UserConsentVerificationResult.DisabledByPolicy => "Windows Hello has been disabled by policy.",
+            Windows.Security.Credentials.UI.UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
+            _ => "Windows Hello verification was cancelled or failed."
+        };
+
+        await ShowErrorDialog(errorMessage);
+        return false;
+    }
+
+    private async Task<bool> VerifyWindowsHelloAsync(string message)
+    {
+        var result = await _appLock.VerifyWindowsHelloAsync(message);
+        return result == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified;
     }
 
     private async Task<bool> ShowPinSetupDialogAsync()
