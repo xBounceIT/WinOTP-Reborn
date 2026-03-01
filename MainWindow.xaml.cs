@@ -16,6 +16,8 @@ public sealed partial class MainWindow : Window
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
     private bool _autoLockHandlersSetUp;
     private bool _isApplyingProtectionRecovery;
+    private bool _hasStartedStartupInitialization;
+    private bool _hasEffectiveProtection;
     private AppLockMode _currentLockMode;
 
     private readonly record struct ResolvedProtectionState(AppLockResolution Resolution, bool ShowRecoveryDialog);
@@ -34,6 +36,7 @@ public sealed partial class MainWindow : Window
         _autoLock.SetDispatcherQueue(_dispatcherQueue);
         _autoLock.LockRequested += OnAutoLockRequested;
         _appSettings.SettingsChanged += OnAppSettingsChanged;
+        Activated += MainWindow_Activated;
 
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
@@ -54,8 +57,18 @@ public sealed partial class MainWindow : Window
 
         // Frame navigation tracking
         ContentFrame.Navigated += ContentFrame_Navigated;
+    }
 
-        _ = InitializeAsync();
+    private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == WindowActivationState.Deactivated || _hasStartedStartupInitialization)
+        {
+            return;
+        }
+
+        _hasStartedStartupInitialization = true;
+        Activated -= MainWindow_Activated;
+        await InitializeAsync();
     }
 
     private void SetupAutoLockMonitoring()
@@ -92,8 +105,11 @@ public sealed partial class MainWindow : Window
     private async Task EvaluateProtectionStateAsync()
     {
         var state = await ResolveProtectionStateAsync();
+        _hasEffectiveProtection = state.Resolution.Mode != AppLockMode.None;
+
         if (state.ShowRecoveryDialog)
         {
+            _hasEffectiveProtection = false;
             await ShowProtectionRecoveryAsync();
             return;
         }
@@ -122,6 +138,8 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowLockScreenAsync(AppLockResolution resolution)
     {
+        _hasEffectiveProtection = resolution.Mode != AppLockMode.None;
+
         if (resolution.Mode == AppLockMode.None)
         {
             LockOverlay.Visibility = Visibility.Collapsed;
@@ -382,7 +400,25 @@ public sealed partial class MainWindow : Window
 
             if (state.ShowRecoveryDialog)
             {
+                _hasEffectiveProtection = false;
                 await ShowProtectionRecoveryAsync();
+                return;
+            }
+
+            var isProtectedNow = state.Resolution.Mode != AppLockMode.None;
+            var shouldLockImmediately = !_hasEffectiveProtection && isProtectedNow;
+            _hasEffectiveProtection = isProtectedNow;
+
+            if (shouldLockImmediately)
+            {
+                await ShowLockScreenAsync(state.Resolution);
+                return;
+            }
+
+            if (!isProtectedNow)
+            {
+                EnsureInitialPage();
+                SetupAutoLockMonitoring();
                 return;
             }
 
@@ -494,6 +530,7 @@ public sealed partial class MainWindow : Window
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
         _currentLockMode = AppLockMode.None;
+        _hasEffectiveProtection = false;
         ClearUnlockInputs();
 
         NavigateIfNeeded(typeof(SettingsPage));
@@ -504,12 +541,15 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowProtectionRecoveryDialogAsync()
     {
+        var rootElement = Content as FrameworkElement
+            ?? throw new InvalidOperationException("Main window content is not ready for dialog hosting.");
+
         var dialog = new ContentDialog
         {
             Title = "App protection unavailable",
             Content = "One or more configured protection methods are no longer available and were turned off. Choose a PIN, password, or Windows Hello in Settings to keep the app protected.",
             CloseButtonText = "OK",
-            XamlRoot = LockOverlay.XamlRoot
+            XamlRoot = rootElement.XamlRoot
         };
 
         await dialog.ShowAsync();

@@ -149,12 +149,12 @@
 
                             <!-- Account label -->
                             <StackPanel Grid.Row="0" Orientation="Vertical" Spacing="2" Margin="0,0,80,0">
-                                <TextBlock Text="{x:Bind Issuer}"
+                                <TextBlock Text="{x:Bind IssuerOrAccountName}"
                                            Style="{StaticResource BodyStrongTextBlockStyle}"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis"
                                            TextWrapping="NoWrap"/>
-                                <TextBlock Text="{x:Bind AccountName}"
+                                <TextBlock Text="{x:Bind SecondaryLabel}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            VerticalAlignment="Center"
