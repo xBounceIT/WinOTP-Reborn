@@ -40,12 +40,12 @@ public sealed partial class SettingsPage : Page
         _isInitializingToggle = true;
         try
         {
-            var resolution = await ResolveProtectionStateAsync();
+            var viewState = await SettingsProtectionViewStateService.ResolveAsync(_appSettings, _appLock);
 
             ShowNextCodeToggle.IsOn = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
-            PinProtectionToggle.IsOn = resolution.IsPinEffective;
-            PasswordProtectionToggle.IsOn = resolution.IsPasswordEffective;
-            WindowsHelloToggle.IsOn = resolution.IsWindowsHelloEffective;
+            PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
+            PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
+            WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
 
             // Load auto-lock timeout setting
             var timeout = _appSettings.AutoLockTimeoutMinutes;
@@ -362,32 +362,6 @@ public sealed partial class SettingsPage : Page
     private Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message)
     {
         return _appLock.VerifyWindowsHelloAsync(message);
-    }
-
-    private async Task<AppLockResolution> ResolveProtectionStateAsync()
-    {
-        var resolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
-        if (!resolution.HasUnavailableConfiguredProtection)
-        {
-            return resolution;
-        }
-
-        if (resolution.DisableUnavailablePin)
-        {
-            _appSettings.IsPinProtectionEnabled = false;
-        }
-
-        if (resolution.DisableUnavailablePassword)
-        {
-            _appSettings.IsPasswordProtectionEnabled = false;
-        }
-
-        if (resolution.DisableUnavailableWindowsHello)
-        {
-            _appSettings.IsWindowsHelloEnabled = false;
-        }
-
-        return await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
     }
 
     private static string GetWindowsHelloVerificationFailureMessage(WindowsHelloVerificationOutcome outcome)

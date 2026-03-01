@@ -54,14 +54,12 @@ public sealed partial class ImportPage : Page
         }
 
         // Parse the WinOTP old format: {"uuid": {"issuer": "...", "name": "...", "secret": "...", "created": "..."}, ...}
-        Dictionary<string, WinOTPOldAccount>? oldAccounts;
+        Dictionary<string, WinOTPLegacyAccount?>? oldAccounts;
         try
         {
-            var jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-            oldAccounts = JsonSerializer.Deserialize<Dictionary<string, WinOTPOldAccount>>(jsonContent, jsonOptions);
+            oldAccounts = JsonSerializer.Deserialize<Dictionary<string, WinOTPLegacyAccount?>>(
+                jsonContent,
+                WinOTPLegacyImportMapper.JsonOptions);
             _logger.Info($"Parsed {oldAccounts?.Count ?? 0} accounts from JSON");
         }
         catch (Exception ex)
@@ -81,45 +79,21 @@ public sealed partial class ImportPage : Page
         int successCount = 0;
         int failCount = 0;
         int skippedCount = 0;
-        var failedAccounts = new List<string>();
-
         foreach (var kvp in oldAccounts)
         {
             var uuid = kvp.Key;
-            var oldAccount = kvp.Value;
-
-            // Skip entries with null/empty values that would fail validation
-            if (string.IsNullOrWhiteSpace(oldAccount.Secret))
+            if (!WinOTPLegacyImportMapper.TryCreateDraftAccount(
+                uuid,
+                kvp.Value,
+                out var newAccount,
+                out var failureReason))
             {
-                _logger.Warn($"Skipping account {uuid}: secret is empty");
+                _logger.Warn($"Skipping account {uuid}: {failureReason}");
                 skippedCount++;
-                failedAccounts.Add($"{oldAccount.Issuer} ({oldAccount.Name}) - empty secret");
                 continue;
             }
 
-            _logger.Info($"Processing account: {oldAccount.Issuer} ({oldAccount.Name})");
-
-            // Create new OtpAccount from old format
-            var newAccount = new OtpAccount
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Issuer = oldAccount.Issuer ?? string.Empty,
-                AccountName = oldAccount.Name ?? string.Empty,
-                Secret = oldAccount.Secret ?? string.Empty,
-                Algorithm = OtpAlgorithm.SHA1,
-                Digits = 6,
-                Period = 30,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            // Try to parse the created date if present
-            if (!string.IsNullOrEmpty(oldAccount.Created))
-            {
-                if (DateTime.TryParse(oldAccount.Created, out var createdDate))
-                {
-                    newAccount.CreatedAt = createdDate;
-                }
-            }
+            _logger.Info($"Processing account: {newAccount.Issuer} ({newAccount.AccountName})");
 
             // Validate and save
             if (OtpAccountStorageMapper.TrySanitizeForStorage(newAccount, newAccount.Id, out var sanitized, out var validationError))
@@ -135,14 +109,12 @@ public sealed partial class ImportPage : Page
                 {
                     _logger.Error($"Failed to save account: {sanitized.DisplayLabel} - {result.Message}");
                     failCount++;
-                    failedAccounts.Add($"{oldAccount.Issuer} ({oldAccount.Name})");
                 }
             }
             else
             {
-                _logger.Error($"Failed to sanitize account: {oldAccount.Issuer} ({oldAccount.Name}) - {validationError}");
+                _logger.Error($"Failed to sanitize account: {newAccount.Issuer} ({newAccount.AccountName}) - {validationError}");
                 failCount++;
-                failedAccounts.Add($"{oldAccount.Issuer} ({oldAccount.Name}) - validation failed");
             }
         }
 
@@ -185,14 +157,5 @@ public sealed partial class ImportPage : Page
             XamlRoot = this.XamlRoot
         };
         await dialog.ShowAsync();
-    }
-
-    // Model for WinOTP old format JSON structure
-    private class WinOTPOldAccount
-    {
-        public string? Issuer { get; set; }
-        public string? Name { get; set; }
-        public string? Secret { get; set; }
-        public string? Created { get; set; }
     }
 }
