@@ -24,7 +24,9 @@
     <Compile Include="..\Models\CredentialResults.cs" Link="Models\CredentialResults.cs" />
     <Compile Include="..\Helpers\OtpAccountStorageMapper.cs" Link="Helpers\OtpAccountStorageMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
+    <Compile Include="..\Services\AppLockOperationResults.cs" Link="Services\AppLockOperationResults.cs" />
     <Compile Include="..\Services\AppLockDecisionResolver.cs" Link="Services\AppLockDecisionResolver.cs" />
+    <Compile Include="..\Services\AppLockService.cs" Link="Services\AppLockService.cs" />
     <Compile Include="..\Services\TotpCodeGenerator.cs" Link="Services\TotpCodeGenerator.cs" />
   </ItemGroup>
 

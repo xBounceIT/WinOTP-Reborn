@@ -14,27 +14,32 @@ internal static class AppLockDecisionResolver
 {
     public static AppLockDecision Resolve(
         bool isPinProtectionEnabled,
-        bool isPinSet,
+        AppLockCredentialStatus pinStatus,
         bool isPasswordProtectionEnabled,
-        bool isPasswordSet,
+        AppLockCredentialStatus passwordStatus,
         bool isWindowsHelloEnabled,
-        bool isWindowsHelloAvailable)
+        WindowsHelloAvailabilityStatus windowsHelloAvailability)
     {
-        if (isPinProtectionEnabled && isPinSet)
+        if (isPinProtectionEnabled && pinStatus is AppLockCredentialStatus.Set or AppLockCredentialStatus.Error)
         {
             return new AppLockDecision(AppLockMode.Pin, false);
         }
 
-        if (isPasswordProtectionEnabled && isPasswordSet)
+        if (isPasswordProtectionEnabled && passwordStatus is AppLockCredentialStatus.Set or AppLockCredentialStatus.Error)
         {
             return new AppLockDecision(AppLockMode.Password, false);
         }
 
         if (isWindowsHelloEnabled)
         {
-            return isWindowsHelloAvailable
-                ? new AppLockDecision(AppLockMode.WindowsHello, false)
-                : new AppLockDecision(AppLockMode.None, true);
+            return windowsHelloAvailability switch
+            {
+                WindowsHelloAvailabilityStatus.Available or WindowsHelloAvailabilityStatus.Error
+                    => new AppLockDecision(AppLockMode.WindowsHello, false),
+                WindowsHelloAvailabilityStatus.Unavailable
+                    => new AppLockDecision(AppLockMode.None, true),
+                _ => new AppLockDecision(AppLockMode.None, false)
+            };
         }
 
         return new AppLockDecision(AppLockMode.None, false);

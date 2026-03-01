@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Security.Credentials.UI;
 using Windows.System;
 using WinOTP.Helpers;
 using WinOTP.Services;
@@ -244,17 +245,35 @@ public sealed partial class SettingsPage : Page
         else
         {
             // User wants to disable Windows Hello - verify first
-            var verified = await VerifyWindowsHelloAsync("Verify your identity to disable Windows Hello");
-            if (!verified)
+            var outcome = await VerifyWindowsHelloAsync("Verify your identity to disable Windows Hello");
+            if (outcome.Status == WindowsHelloVerificationStatus.Verified)
             {
-                // Verification failed - revert toggle
+                _appSettings.IsWindowsHelloEnabled = false;
+            }
+            else if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
+            {
+                _appSettings.IsWindowsHelloEnabled = false;
+                await ShowInfoDialog("Windows Hello is no longer available. Choose a PIN or password now to keep the app protected.");
+            }
+            else if (outcome.Status == WindowsHelloVerificationStatus.Error)
+            {
                 _isInitializingToggle = true;
                 WindowsHelloToggle.IsOn = true;
                 _isInitializingToggle = false;
+                await ShowErrorDialog("Windows Hello is temporarily unavailable. Please try again.");
+            }
+            else if (outcome.Result == UserConsentVerificationResult.RetriesExhausted)
+            {
+                _isInitializingToggle = true;
+                WindowsHelloToggle.IsOn = true;
+                _isInitializingToggle = false;
+                await ShowErrorDialog("Too many failed attempts. Please try again later.");
             }
             else
             {
-                _appSettings.IsWindowsHelloEnabled = false;
+                _isInitializingToggle = true;
+                WindowsHelloToggle.IsOn = true;
+                _isInitializingToggle = false;
             }
         }
         
@@ -281,39 +300,51 @@ public sealed partial class SettingsPage : Page
     private async Task<bool> EnableWindowsHelloAsync()
     {
         // Check if Windows Hello is available
-        var isAvailable = await _appLock.IsWindowsHelloAvailableAsync();
-        if (!isAvailable)
+        var availability = await _appLock.GetWindowsHelloAvailabilityAsync();
+        if (availability == WindowsHelloAvailabilityStatus.Unavailable)
         {
             await ShowErrorDialog("Windows Hello is not available on this device or is not configured. Please set up Windows Hello in Windows Settings first.");
             return false;
         }
+        if (availability == WindowsHelloAvailabilityStatus.Error)
+        {
+            await ShowErrorDialog("Windows Hello is temporarily unavailable. Please try again.");
+            return false;
+        }
 
         // Request verification to confirm user identity
-        var result = await _appLock.VerifyWindowsHelloAsync("Set up Windows Hello protection for WinOTP");
+        var outcome = await _appLock.VerifyWindowsHelloAsync("Set up Windows Hello protection for WinOTP");
 
-        if (result == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+        if (outcome.Status == WindowsHelloVerificationStatus.Verified)
         {
             return true;
         }
 
-        // Handle specific error cases
-        string errorMessage = result switch
+        if (outcome.Status == WindowsHelloVerificationStatus.Error)
         {
-            Windows.Security.Credentials.UI.UserConsentVerificationResult.DeviceNotPresent => "Windows Hello is not available on this device.",
-            Windows.Security.Credentials.UI.UserConsentVerificationResult.NotConfiguredForUser => "Windows Hello is not set up. Please configure it in Windows Settings.",
-            Windows.Security.Credentials.UI.UserConsentVerificationResult.DisabledByPolicy => "Windows Hello has been disabled by policy.",
-            Windows.Security.Credentials.UI.UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
-            _ => "Windows Hello verification was cancelled or failed."
-        };
+            await ShowErrorDialog("Windows Hello is temporarily unavailable. Please try again.");
+            return false;
+        }
 
-        await ShowErrorDialog(errorMessage);
+        await ShowErrorDialog(GetWindowsHelloVerificationFailureMessage(outcome));
         return false;
     }
 
-    private async Task<bool> VerifyWindowsHelloAsync(string message)
+    private Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message)
     {
-        var result = await _appLock.VerifyWindowsHelloAsync(message);
-        return result == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified;
+        return _appLock.VerifyWindowsHelloAsync(message);
+    }
+
+    private static string GetWindowsHelloVerificationFailureMessage(WindowsHelloVerificationOutcome outcome)
+    {
+        return outcome.Result switch
+        {
+            UserConsentVerificationResult.DeviceNotPresent => "Windows Hello is not available on this device.",
+            UserConsentVerificationResult.NotConfiguredForUser => "Windows Hello is not set up. Please configure it in Windows Settings.",
+            UserConsentVerificationResult.DisabledByPolicy => "Windows Hello has been disabled by policy.",
+            UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
+            _ => "Windows Hello verification was cancelled or failed."
+        };
     }
 
     private async Task<bool> ShowPinSetupDialogAsync()

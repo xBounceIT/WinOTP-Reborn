@@ -5,16 +5,16 @@ namespace WinOTP.Services;
 
 public interface IAppLockService
 {
-    bool IsPinSet();
-    bool IsPasswordSet();
+    AppLockCredentialStatus GetPinStatus();
+    AppLockCredentialStatus GetPasswordStatus();
     Task<bool> SetPinAsync(string pin);
     Task<bool> SetPasswordAsync(string password);
     Task<bool> VerifyPinAsync(string pin);
     Task<bool> VerifyPasswordAsync(string password);
     Task<bool> RemovePinAsync();
     Task<bool> RemovePasswordAsync();
-    Task<bool> IsWindowsHelloAvailableAsync();
-    Task<UserConsentVerificationResult> VerifyWindowsHelloAsync(string message);
+    Task<WindowsHelloAvailabilityStatus> GetWindowsHelloAvailabilityAsync();
+    Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message);
 }
 
 public class AppLockService : IAppLockService
@@ -22,37 +22,29 @@ public class AppLockService : IAppLockService
     private const string AppLockResource = "WinOTP_AppLock";
     private const string PinKey = "AppPin";
     private const string PasswordKey = "AppPassword";
-    private readonly PasswordVault _vault;
+    private const int ElementNotFoundHResult = unchecked((int)0x80070490);
+    private readonly IPasswordVaultAdapter _vault;
+    private readonly IWindowsHelloAdapter _windowsHello;
 
     public AppLockService()
+        : this(new PasswordVaultAdapter(new PasswordVault()), new WindowsHelloAdapter())
     {
-        _vault = new PasswordVault();
     }
 
-    public bool IsPinSet()
+    internal AppLockService(IPasswordVaultAdapter vault, IWindowsHelloAdapter windowsHello)
     {
-        try
-        {
-            var credentials = _vault.FindAllByResource(AppLockResource);
-            return credentials.Any(c => c.UserName == PinKey);
-        }
-        catch
-        {
-            return false;
-        }
+        _vault = vault;
+        _windowsHello = windowsHello;
     }
 
-    public bool IsPasswordSet()
+    public AppLockCredentialStatus GetPinStatus()
     {
-        try
-        {
-            var credentials = _vault.FindAllByResource(AppLockResource);
-            return credentials.Any(c => c.UserName == PasswordKey);
-        }
-        catch
-        {
-            return false;
-        }
+        return GetCredentialStatus(PinKey);
+    }
+
+    public AppLockCredentialStatus GetPasswordStatus()
+    {
+        return GetCredentialStatus(PasswordKey);
     }
 
     public Task<bool> SetPinAsync(string pin)
@@ -149,18 +141,9 @@ public class AppLockService : IAppLockService
             }
             return true;
         }
-        catch
+        catch (Exception ex) when (ex.HResult == ElementNotFoundHResult)
         {
-            return false;
-        }
-    }
-
-    public async Task<bool> IsWindowsHelloAvailableAsync()
-    {
-        try
-        {
-            var availability = await UserConsentVerifier.CheckAvailabilityAsync();
-            return availability == UserConsentVerifierAvailability.Available;
+            return true;
         }
         catch
         {
@@ -168,15 +151,117 @@ public class AppLockService : IAppLockService
         }
     }
 
-    public async Task<UserConsentVerificationResult> VerifyWindowsHelloAsync(string message)
+    public async Task<WindowsHelloAvailabilityStatus> GetWindowsHelloAvailabilityAsync()
     {
         try
         {
-            return await UserConsentVerifier.RequestVerificationAsync(message);
+            var availability = await _windowsHello.CheckAvailabilityAsync();
+            return availability switch
+            {
+                UserConsentVerifierAvailability.Available => WindowsHelloAvailabilityStatus.Available,
+                UserConsentVerifierAvailability.DeviceNotPresent
+                    or UserConsentVerifierAvailability.NotConfiguredForUser
+                    or UserConsentVerifierAvailability.DisabledByPolicy => WindowsHelloAvailabilityStatus.Unavailable,
+                _ => WindowsHelloAvailabilityStatus.Error
+            };
         }
         catch
         {
-            return UserConsentVerificationResult.DeviceNotPresent;
+            return WindowsHelloAvailabilityStatus.Error;
+        }
+    }
+
+    public async Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message)
+    {
+        try
+        {
+            var result = await _windowsHello.RequestVerificationAsync(message);
+            return result switch
+            {
+                UserConsentVerificationResult.Verified => new WindowsHelloVerificationOutcome(
+                    WindowsHelloVerificationStatus.Verified,
+                    result),
+                UserConsentVerificationResult.DeviceNotPresent
+                    or UserConsentVerificationResult.NotConfiguredForUser
+                    or UserConsentVerificationResult.DisabledByPolicy => new WindowsHelloVerificationOutcome(
+                        WindowsHelloVerificationStatus.Unavailable,
+                        result),
+                _ => new WindowsHelloVerificationOutcome(WindowsHelloVerificationStatus.Failed, result)
+            };
+        }
+        catch
+        {
+            return new WindowsHelloVerificationOutcome(WindowsHelloVerificationStatus.Error);
+        }
+    }
+
+    private AppLockCredentialStatus GetCredentialStatus(string key)
+    {
+        try
+        {
+            var credentials = _vault.FindAllByResource(AppLockResource);
+            return credentials.Any(c => c.UserName == key)
+                ? AppLockCredentialStatus.Set
+                : AppLockCredentialStatus.NotSet;
+        }
+        catch (Exception ex) when (ex.HResult == ElementNotFoundHResult)
+        {
+            return AppLockCredentialStatus.NotSet;
+        }
+        catch
+        {
+            return AppLockCredentialStatus.Error;
+        }
+    }
+
+    internal interface IPasswordVaultAdapter
+    {
+        IReadOnlyList<PasswordCredential> FindAllByResource(string resource);
+        void Add(PasswordCredential credential);
+        void Remove(PasswordCredential credential);
+    }
+
+    internal interface IWindowsHelloAdapter
+    {
+        Task<UserConsentVerifierAvailability> CheckAvailabilityAsync();
+        Task<UserConsentVerificationResult> RequestVerificationAsync(string message);
+    }
+
+    internal sealed class PasswordVaultAdapter : IPasswordVaultAdapter
+    {
+        private readonly PasswordVault _vault;
+
+        public PasswordVaultAdapter(PasswordVault vault)
+        {
+            _vault = vault;
+        }
+
+        public IReadOnlyList<PasswordCredential> FindAllByResource(string resource)
+        {
+            return _vault.FindAllByResource(resource);
+        }
+
+        public void Add(PasswordCredential credential)
+        {
+            _vault.Add(credential);
+        }
+
+        public void Remove(PasswordCredential credential)
+        {
+            _vault.Remove(credential);
+        }
+    }
+
+    internal sealed class WindowsHelloAdapter : IWindowsHelloAdapter
+    {
+        public Task<UserConsentVerifierAvailability> CheckAvailabilityAsync()
+        {
+            return UserConsentVerifier.CheckAvailabilityAsync().AsTask();
+        }
+
+        public Task<UserConsentVerificationResult> RequestVerificationAsync(string message)
+        {
+            return UserConsentVerifier.RequestVerificationAsync(message).AsTask();
         }
     }
 }

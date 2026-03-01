@@ -245,25 +245,25 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var result = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP");
+        var outcome = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP");
 
-        if (result == UserConsentVerificationResult.Verified)
+        if (outcome.Status == WindowsHelloVerificationStatus.Verified)
         {
             UnlockSuccess();
         }
         else
         {
-            if (result is UserConsentVerificationResult.DeviceNotPresent
-                or UserConsentVerificationResult.NotConfiguredForUser
-                or UserConsentVerificationResult.DisabledByPolicy)
+            if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
             {
                 await RecoverFromUnavailableWindowsHelloAsync();
                 return;
             }
 
-            string errorMessage = result switch
+            string errorMessage = outcome.Status switch
             {
-                UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
+                WindowsHelloVerificationStatus.Error => "Windows Hello is temporarily unavailable. Please try again.",
+                WindowsHelloVerificationStatus.Failed when outcome.Result == UserConsentVerificationResult.RetriesExhausted
+                    => "Too many failed attempts. Please try again later.",
                 _ => "Windows Hello verification failed. Please try again."
             };
 
@@ -409,20 +409,20 @@ public sealed partial class MainWindow : Window
 
     private async Task<AppLockDecision> GetAppLockDecisionAsync()
     {
-        var isWindowsHelloAvailable = false;
+        var windowsHelloAvailability = WindowsHelloAvailabilityStatus.Unavailable;
 
         if (_appSettings.IsWindowsHelloEnabled)
         {
-            isWindowsHelloAvailable = await _appLock.IsWindowsHelloAvailableAsync();
+            windowsHelloAvailability = await _appLock.GetWindowsHelloAvailabilityAsync();
         }
 
         return AppLockDecisionResolver.Resolve(
             _appSettings.IsPinProtectionEnabled,
-            _appLock.IsPinSet(),
+            _appLock.GetPinStatus(),
             _appSettings.IsPasswordProtectionEnabled,
-            _appLock.IsPasswordSet(),
+            _appLock.GetPasswordStatus(),
             _appSettings.IsWindowsHelloEnabled,
-            isWindowsHelloAvailable);
+            windowsHelloAvailability);
     }
 
     private async Task RecoverFromUnavailableWindowsHelloAsync()

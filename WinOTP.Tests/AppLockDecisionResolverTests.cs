@@ -10,11 +10,11 @@ public sealed class AppLockDecisionResolverTests
     {
         var decision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: true,
-            isPinSet: true,
+            pinStatus: AppLockCredentialStatus.Set,
             isPasswordProtectionEnabled: false,
-            isPasswordSet: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
             isWindowsHelloEnabled: false,
-            isWindowsHelloAvailable: false);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
 
         Assert.Equal(AppLockMode.Pin, decision.Mode);
         Assert.False(decision.DisableUnavailableWindowsHello);
@@ -25,11 +25,11 @@ public sealed class AppLockDecisionResolverTests
     {
         var decision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: false,
-            isPinSet: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
             isPasswordProtectionEnabled: true,
-            isPasswordSet: true,
+            passwordStatus: AppLockCredentialStatus.Set,
             isWindowsHelloEnabled: false,
-            isWindowsHelloAvailable: false);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
 
         Assert.Equal(AppLockMode.Password, decision.Mode);
         Assert.False(decision.DisableUnavailableWindowsHello);
@@ -40,11 +40,11 @@ public sealed class AppLockDecisionResolverTests
     {
         var decision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: false,
-            isPinSet: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
             isPasswordProtectionEnabled: false,
-            isPasswordSet: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
             isWindowsHelloEnabled: true,
-            isWindowsHelloAvailable: true);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Available);
 
         Assert.Equal(AppLockMode.WindowsHello, decision.Mode);
         Assert.False(decision.DisableUnavailableWindowsHello);
@@ -55,11 +55,11 @@ public sealed class AppLockDecisionResolverTests
     {
         var decision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: false,
-            isPinSet: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
             isPasswordProtectionEnabled: false,
-            isPasswordSet: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
             isWindowsHelloEnabled: true,
-            isWindowsHelloAvailable: false);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
 
         Assert.Equal(AppLockMode.None, decision.Mode);
         Assert.True(decision.DisableUnavailableWindowsHello);
@@ -70,13 +70,58 @@ public sealed class AppLockDecisionResolverTests
     {
         var decision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: false,
-            isPinSet: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
             isPasswordProtectionEnabled: false,
-            isPasswordSet: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
             isWindowsHelloEnabled: false,
-            isWindowsHelloAvailable: false);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
 
         Assert.Equal(AppLockMode.None, decision.Mode);
+        Assert.False(decision.DisableUnavailableWindowsHello);
+    }
+
+    [Fact]
+    public void Resolve_PinLookupError_ReturnsPinMode()
+    {
+        var decision = AppLockDecisionResolver.Resolve(
+            isPinProtectionEnabled: true,
+            pinStatus: AppLockCredentialStatus.Error,
+            isPasswordProtectionEnabled: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
+            isWindowsHelloEnabled: false,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
+
+        Assert.Equal(AppLockMode.Pin, decision.Mode);
+        Assert.False(decision.DisableUnavailableWindowsHello);
+    }
+
+    [Fact]
+    public void Resolve_PasswordLookupError_ReturnsPasswordMode()
+    {
+        var decision = AppLockDecisionResolver.Resolve(
+            isPinProtectionEnabled: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
+            isPasswordProtectionEnabled: true,
+            passwordStatus: AppLockCredentialStatus.Error,
+            isWindowsHelloEnabled: false,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
+
+        Assert.Equal(AppLockMode.Password, decision.Mode);
+        Assert.False(decision.DisableUnavailableWindowsHello);
+    }
+
+    [Fact]
+    public void Resolve_WindowsHelloAvailabilityError_ReturnsWindowsHelloMode()
+    {
+        var decision = AppLockDecisionResolver.Resolve(
+            isPinProtectionEnabled: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
+            isPasswordProtectionEnabled: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
+            isWindowsHelloEnabled: true,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Error);
+
+        Assert.Equal(AppLockMode.WindowsHello, decision.Mode);
         Assert.False(decision.DisableUnavailableWindowsHello);
     }
 
@@ -85,19 +130,19 @@ public sealed class AppLockDecisionResolverTests
     {
         var pinDecision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: true,
-            isPinSet: true,
+            pinStatus: AppLockCredentialStatus.Set,
             isPasswordProtectionEnabled: true,
-            isPasswordSet: true,
+            passwordStatus: AppLockCredentialStatus.Set,
             isWindowsHelloEnabled: true,
-            isWindowsHelloAvailable: true);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Available);
 
         var passwordDecision = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: true,
-            isPinSet: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
             isPasswordProtectionEnabled: true,
-            isPasswordSet: true,
+            passwordStatus: AppLockCredentialStatus.Set,
             isWindowsHelloEnabled: true,
-            isWindowsHelloAvailable: true);
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Available);
 
         Assert.Equal(AppLockMode.Pin, pinDecision.Mode);
         Assert.Equal(AppLockMode.Password, passwordDecision.Mode);
