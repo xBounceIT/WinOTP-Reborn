@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Security.Credentials.UI;
 using WinOTP.Pages;
 using WinOTP.Services;
 
@@ -14,6 +15,8 @@ public sealed partial class MainWindow : Window
     private readonly IAutoLockService _autoLock;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
     private bool _autoLockHandlersSetUp;
+    private bool _isApplyingWindowsHelloRecovery;
+    private AppLockMode _currentLockMode;
 
     public MainWindow()
     {
@@ -28,6 +31,7 @@ public sealed partial class MainWindow : Window
         _autoLock = App.Current.AutoLock!;
         _autoLock.SetDispatcherQueue(_dispatcherQueue);
         _autoLock.LockRequested += OnAutoLockRequested;
+        _appSettings.SettingsChanged += OnAppSettingsChanged;
 
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
@@ -49,20 +53,7 @@ public sealed partial class MainWindow : Window
         // Frame navigation tracking
         ContentFrame.Navigated += ContentFrame_Navigated;
 
-        // Check if app lock is enabled
-        if (ShouldShowLockScreen())
-        {
-            ShowLockScreen();
-        }
-        else
-        {
-            // Navigate to Home and select the Home item
-            ContentFrame.Navigate(typeof(HomePage));
-            NavView.SelectedItem = NavView.MenuItems[0];
-
-            // Start auto-lock monitoring since we're not showing lock screen
-            SetupAutoLockMonitoring();
-        }
+        _ = InitializeAsync();
     }
 
     private void SetupAutoLockMonitoring()
@@ -97,48 +88,84 @@ public sealed partial class MainWindow : Window
         _autoLock.StartMonitoring();
     }
 
-    private bool ShouldShowLockScreen()
+    private async Task InitializeAsync()
     {
-        return (_appSettings.IsPinProtectionEnabled && _appLock.IsPinSet()) ||
-               (_appSettings.IsPasswordProtectionEnabled && _appLock.IsPasswordSet()) ||
-               (_appSettings.IsWindowsHelloEnabled);
+        await EvaluateProtectionStateAsync();
     }
 
-    private async void ShowLockScreen()
+    private async Task EvaluateProtectionStateAsync()
     {
-        // Stop auto-lock monitoring while locked
+        var decision = await GetAppLockDecisionAsync();
+
+        if (decision.DisableUnavailableWindowsHello)
+        {
+            await RecoverFromUnavailableWindowsHelloAsync();
+            return;
+        }
+
+        if (decision.Mode == AppLockMode.None)
+        {
+            EnsureInitialPage();
+            SetupAutoLockMonitoring();
+            return;
+        }
+
+        await ShowLockScreenAsync(decision);
+    }
+
+    private async Task ShowLockScreenAsync()
+    {
+        await ShowLockScreenAsync(await GetAppLockDecisionAsync());
+    }
+
+    private async Task ShowLockScreenAsync(AppLockDecision decision)
+    {
+        if (decision.DisableUnavailableWindowsHello)
+        {
+            await RecoverFromUnavailableWindowsHelloAsync();
+            return;
+        }
+
+        if (decision.Mode == AppLockMode.None)
+        {
+            LockOverlay.Visibility = Visibility.Collapsed;
+            ClearUnlockInputs();
+            SetupAutoLockMonitoring();
+            return;
+        }
+
         _autoLock.StopMonitoring();
+        _currentLockMode = decision.Mode;
 
         LockOverlay.Visibility = Visibility.Visible;
         UnlockErrorText.Visibility = Visibility.Collapsed;
 
-        if (_appSettings.IsPinProtectionEnabled && _appLock.IsPinSet())
+        switch (decision.Mode)
         {
-            PinInput.Visibility = Visibility.Visible;
-            PasswordInput.Visibility = Visibility.Collapsed;
-            WindowsHelloButton.Visibility = Visibility.Collapsed;
-            UnlockButton.Visibility = Visibility.Visible;
-            LockSubtitleText.Text = "Enter your PIN to unlock";
-            PinInput.Focus(FocusState.Programmatic);
-        }
-        else if (_appSettings.IsPasswordProtectionEnabled && _appLock.IsPasswordSet())
-        {
-            PinInput.Visibility = Visibility.Collapsed;
-            PasswordInput.Visibility = Visibility.Visible;
-            WindowsHelloButton.Visibility = Visibility.Collapsed;
-            UnlockButton.Visibility = Visibility.Visible;
-            LockSubtitleText.Text = "Enter your password to unlock";
-            PasswordInput.Focus(FocusState.Programmatic);
-        }
-        else if (_appSettings.IsWindowsHelloEnabled)
-        {
-            PinInput.Visibility = Visibility.Collapsed;
-            PasswordInput.Visibility = Visibility.Collapsed;
-            UnlockButton.Visibility = Visibility.Collapsed;
-            WindowsHelloButton.Visibility = Visibility.Visible;
-            LockSubtitleText.Text = "Use Windows Hello to unlock";
-            // Auto-trigger Windows Hello authentication
-            await AttemptWindowsHelloUnlockAsync();
+            case AppLockMode.Pin:
+                PinInput.Visibility = Visibility.Visible;
+                PasswordInput.Visibility = Visibility.Collapsed;
+                WindowsHelloButton.Visibility = Visibility.Collapsed;
+                UnlockButton.Visibility = Visibility.Visible;
+                LockSubtitleText.Text = "Enter your PIN to unlock";
+                PinInput.Focus(FocusState.Programmatic);
+                break;
+            case AppLockMode.Password:
+                PinInput.Visibility = Visibility.Collapsed;
+                PasswordInput.Visibility = Visibility.Visible;
+                WindowsHelloButton.Visibility = Visibility.Collapsed;
+                UnlockButton.Visibility = Visibility.Visible;
+                LockSubtitleText.Text = "Enter your password to unlock";
+                PasswordInput.Focus(FocusState.Programmatic);
+                break;
+            case AppLockMode.WindowsHello:
+                PinInput.Visibility = Visibility.Collapsed;
+                PasswordInput.Visibility = Visibility.Collapsed;
+                UnlockButton.Visibility = Visibility.Collapsed;
+                WindowsHelloButton.Visibility = Visibility.Visible;
+                LockSubtitleText.Text = "Use Windows Hello to unlock";
+                await AttemptWindowsHelloUnlockAsync();
+                break;
         }
     }
 
@@ -172,15 +199,15 @@ public sealed partial class MainWindow : Window
     {
         bool isValid = false;
 
-        if (_appSettings.IsPinProtectionEnabled && _appLock.IsPinSet())
+        if (_currentLockMode == AppLockMode.Pin)
         {
-            var pin = PinInput.Text;
+            var pin = PinInput.Password;
             if (!string.IsNullOrWhiteSpace(pin))
             {
                 isValid = await _appLock.VerifyPinAsync(pin);
             }
         }
-        else if (_appSettings.IsPasswordProtectionEnabled && _appLock.IsPasswordSet())
+        else if (_currentLockMode == AppLockMode.Password)
         {
             var password = PasswordInput.Password;
             if (!string.IsNullOrWhiteSpace(password))
@@ -200,7 +227,7 @@ public sealed partial class MainWindow : Window
 
             if (PinInput.Visibility == Visibility.Visible)
             {
-                PinInput.Text = "";
+                PinInput.Password = "";
                 PinInput.Focus(FocusState.Programmatic);
             }
             else
@@ -213,20 +240,30 @@ public sealed partial class MainWindow : Window
 
     private async Task AttemptWindowsHelloUnlockAsync()
     {
+        if (_currentLockMode != AppLockMode.WindowsHello)
+        {
+            return;
+        }
+
         var result = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP");
 
-        if (result == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+        if (result == UserConsentVerificationResult.Verified)
         {
             UnlockSuccess();
         }
         else
         {
+            if (result is UserConsentVerificationResult.DeviceNotPresent
+                or UserConsentVerificationResult.NotConfiguredForUser
+                or UserConsentVerificationResult.DisabledByPolicy)
+            {
+                await RecoverFromUnavailableWindowsHelloAsync();
+                return;
+            }
+
             string errorMessage = result switch
             {
-                Windows.Security.Credentials.UI.UserConsentVerificationResult.DeviceNotPresent => "Windows Hello is not available on this device.",
-                Windows.Security.Credentials.UI.UserConsentVerificationResult.NotConfiguredForUser => "Windows Hello is not set up. Please configure it in Windows Settings.",
-                Windows.Security.Credentials.UI.UserConsentVerificationResult.DisabledByPolicy => "Windows Hello has been disabled by policy.",
-                Windows.Security.Credentials.UI.UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
+                UserConsentVerificationResult.RetriesExhausted => "Too many failed attempts. Please try again later.",
                 _ => "Windows Hello verification failed. Please try again."
             };
 
@@ -237,16 +274,16 @@ public sealed partial class MainWindow : Window
 
     private void UnlockSuccess()
     {
-        // Hide lock overlay and navigate to home
         LockOverlay.Visibility = Visibility.Collapsed;
-        PinInput.Text = "";
-        PasswordInput.Password = "";
+        _currentLockMode = AppLockMode.None;
+        ClearUnlockInputs();
 
-        // Setup and start auto-lock monitoring
         SetupAutoLockMonitoring();
 
-        ContentFrame.Navigate(typeof(HomePage));
-        NavView.SelectedItem = NavView.MenuItems[0];
+        if (ContentFrame.Content == null)
+        {
+            NavigateToHome();
+        }
     }
 
     private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
@@ -312,8 +349,35 @@ public sealed partial class MainWindow : Window
         {
             if (LockOverlay.Visibility == Visibility.Collapsed)
             {
-                ShowLockScreen();
+                _ = ShowLockScreenAsync();
             }
+        });
+    }
+
+    private void OnAppSettingsChanged(object? sender, AppSettingsChangedEventArgs e)
+    {
+        if (_isApplyingWindowsHelloRecovery || !IsProtectionSetting(e.PropertyName))
+        {
+            return;
+        }
+
+        _dispatcherQueue.TryEnqueue(async () =>
+        {
+            if (LockOverlay.Visibility == Visibility.Visible)
+            {
+                return;
+            }
+
+            var decision = await GetAppLockDecisionAsync();
+            _autoLock.StopMonitoring();
+
+            if (decision.DisableUnavailableWindowsHello)
+            {
+                await RecoverFromUnavailableWindowsHelloAsync();
+                return;
+            }
+
+            SetupAutoLockMonitoring();
         });
     }
 
@@ -333,5 +397,88 @@ public sealed partial class MainWindow : Window
         {
             _autoLock.ResetTimer();
         }
+    }
+
+    private static bool IsProtectionSetting(string propertyName)
+    {
+        return propertyName is nameof(IAppSettingsService.IsPinProtectionEnabled)
+            or nameof(IAppSettingsService.IsPasswordProtectionEnabled)
+            or nameof(IAppSettingsService.IsWindowsHelloEnabled)
+            or nameof(IAppSettingsService.AutoLockTimeoutMinutes);
+    }
+
+    private async Task<AppLockDecision> GetAppLockDecisionAsync()
+    {
+        var isWindowsHelloAvailable = false;
+
+        if (_appSettings.IsWindowsHelloEnabled)
+        {
+            isWindowsHelloAvailable = await _appLock.IsWindowsHelloAvailableAsync();
+        }
+
+        return AppLockDecisionResolver.Resolve(
+            _appSettings.IsPinProtectionEnabled,
+            _appLock.IsPinSet(),
+            _appSettings.IsPasswordProtectionEnabled,
+            _appLock.IsPasswordSet(),
+            _appSettings.IsWindowsHelloEnabled,
+            isWindowsHelloAvailable);
+    }
+
+    private async Task RecoverFromUnavailableWindowsHelloAsync()
+    {
+        _autoLock.StopMonitoring();
+        LockOverlay.Visibility = Visibility.Collapsed;
+        _currentLockMode = AppLockMode.None;
+        ClearUnlockInputs();
+
+        try
+        {
+            _isApplyingWindowsHelloRecovery = true;
+            _appSettings.IsWindowsHelloEnabled = false;
+        }
+        finally
+        {
+            _isApplyingWindowsHelloRecovery = false;
+        }
+
+        NavigateIfNeeded(typeof(SettingsPage));
+
+        await ShowWindowsHelloRecoveryDialogAsync();
+        SetupAutoLockMonitoring();
+    }
+
+    private async Task ShowWindowsHelloRecoveryDialogAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Windows Hello unavailable",
+            Content = "Windows Hello is no longer available, so app protection with Windows Hello was turned off. Choose a PIN or password in Settings to keep the app protected.",
+            CloseButtonText = "OK",
+            XamlRoot = LockOverlay.XamlRoot
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private void EnsureInitialPage()
+    {
+        if (ContentFrame.Content == null)
+        {
+            NavigateToHome();
+        }
+    }
+
+    private void NavigateToHome()
+    {
+        ContentFrame.Navigate(typeof(HomePage));
+        NavView.SelectedItem = NavView.MenuItems[0];
+    }
+
+    private void ClearUnlockInputs()
+    {
+        PinInput.Password = "";
+        PasswordInput.Password = "";
+        UnlockErrorText.Visibility = Visibility.Collapsed;
     }
 }

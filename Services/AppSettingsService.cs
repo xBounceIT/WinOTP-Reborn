@@ -9,6 +9,17 @@ public interface IAppSettingsService
     bool IsPasswordProtectionEnabled { get; set; }
     bool IsWindowsHelloEnabled { get; set; }
     int AutoLockTimeoutMinutes { get; set; }
+    event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
+}
+
+public sealed class AppSettingsChangedEventArgs : EventArgs
+{
+    public AppSettingsChangedEventArgs(string propertyName)
+    {
+        PropertyName = propertyName;
+    }
+
+    public string PropertyName { get; }
 }
 
 public sealed class AppSettingsService : IAppSettingsService
@@ -21,6 +32,8 @@ public sealed class AppSettingsService : IAppSettingsService
     private bool _isPasswordProtectionEnabled;
     private bool _isWindowsHelloEnabled;
     private int _autoLockTimeoutMinutes;
+
+    public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 
     public AppSettingsService()
     {
@@ -42,100 +55,74 @@ public sealed class AppSettingsService : IAppSettingsService
     public bool ShowNextCodeWhenFiveSecondsRemain
     {
         get => _showNextCodeWhenFiveSecondsRemain;
-        set
-        {
-            lock (Sync)
-            {
-                _showNextCodeWhenFiveSecondsRemain = value;
-                SaveSettings(new AppSettingsData
-                {
-                    ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
-                    IsPinProtectionEnabled = _isPinProtectionEnabled,
-                    IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
-                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
-                });
-            }
-        }
+        set => SetBooleanProperty(ref _showNextCodeWhenFiveSecondsRemain, value, nameof(ShowNextCodeWhenFiveSecondsRemain));
     }
 
     public bool IsPinProtectionEnabled
     {
         get => _isPinProtectionEnabled;
-        set
-        {
-            lock (Sync)
-            {
-                _isPinProtectionEnabled = value;
-                SaveSettings(new AppSettingsData
-                {
-                    ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
-                    IsPinProtectionEnabled = _isPinProtectionEnabled,
-                    IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
-                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
-                });
-            }
-        }
+        set => SetBooleanProperty(ref _isPinProtectionEnabled, value, nameof(IsPinProtectionEnabled));
     }
 
     public bool IsPasswordProtectionEnabled
     {
         get => _isPasswordProtectionEnabled;
-        set
-        {
-            lock (Sync)
-            {
-                _isPasswordProtectionEnabled = value;
-                SaveSettings(new AppSettingsData
-                {
-                    ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
-                    IsPinProtectionEnabled = _isPinProtectionEnabled,
-                    IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
-                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
-                });
-            }
-        }
+        set => SetBooleanProperty(ref _isPasswordProtectionEnabled, value, nameof(IsPasswordProtectionEnabled));
     }
 
     public bool IsWindowsHelloEnabled
     {
         get => _isWindowsHelloEnabled;
-        set
-        {
-            lock (Sync)
-            {
-                _isWindowsHelloEnabled = value;
-                SaveSettings(new AppSettingsData
-                {
-                    ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
-                    IsPinProtectionEnabled = _isPinProtectionEnabled,
-                    IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
-                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
-                });
-            }
-        }
+        set => SetBooleanProperty(ref _isWindowsHelloEnabled, value, nameof(IsWindowsHelloEnabled));
     }
 
     public int AutoLockTimeoutMinutes
     {
         get => _autoLockTimeoutMinutes;
-        set
+        set => SetIntProperty(ref _autoLockTimeoutMinutes, value, nameof(AutoLockTimeoutMinutes));
+    }
+
+    private void SetBooleanProperty(ref bool field, bool value, string propertyName)
+    {
+        var changed = false;
+
+        lock (Sync)
         {
-            lock (Sync)
+            if (field == value)
             {
-                _autoLockTimeoutMinutes = value;
-                SaveSettings(new AppSettingsData
-                {
-                    ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
-                    IsPinProtectionEnabled = _isPinProtectionEnabled,
-                    IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
-                    IsWindowsHelloEnabled = _isWindowsHelloEnabled,
-                    AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
-                });
+                return;
             }
+
+            field = value;
+            SaveSettings(CreateSnapshot());
+            changed = true;
+        }
+
+        if (changed)
+        {
+            SettingsChanged?.Invoke(this, new AppSettingsChangedEventArgs(propertyName));
+        }
+    }
+
+    private void SetIntProperty(ref int field, int value, string propertyName)
+    {
+        var changed = false;
+
+        lock (Sync)
+        {
+            if (field == value)
+            {
+                return;
+            }
+
+            field = value;
+            SaveSettings(CreateSnapshot());
+            changed = true;
+        }
+
+        if (changed)
+        {
+            SettingsChanged?.Invoke(this, new AppSettingsChangedEventArgs(propertyName));
         }
     }
 
@@ -158,6 +145,18 @@ public sealed class AppSettingsService : IAppSettingsService
                 return new AppSettingsData();
             }
         }
+    }
+
+    private AppSettingsData CreateSnapshot()
+    {
+        return new AppSettingsData
+        {
+            ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
+            IsPinProtectionEnabled = _isPinProtectionEnabled,
+            IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
+            IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+            AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
+        };
     }
 
     private void SaveSettings(AppSettingsData settings)

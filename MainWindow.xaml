@@ -102,10 +102,11 @@
                     Opacity="0.7" />
 
                 <!-- PIN Input -->
-                <TextBox
+                <PasswordBox
                     x:Name="PinInput"
                     PlaceholderText="Enter PIN"
                     MaxLength="6"
+                    PasswordRevealMode="Hidden"
                     Width="200"
                     HorizontalAlignment="Center"
                     Visibility="Collapsed"

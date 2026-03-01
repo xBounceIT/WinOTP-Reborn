@@ -318,16 +318,18 @@ public sealed partial class SettingsPage : Page
 
     private async Task<bool> ShowPinSetupDialogAsync()
     {
-        var pinTextBox = new TextBox
+        var pinTextBox = new PasswordBox
         {
             PlaceholderText = "Enter PIN (4-6 digits)",
-            MaxLength = 6
+            MaxLength = 6,
+            PasswordRevealMode = PasswordRevealMode.Hidden
         };
 
-        var confirmPinTextBox = new TextBox
+        var confirmPinTextBox = new PasswordBox
         {
             PlaceholderText = "Confirm PIN",
-            MaxLength = 6
+            MaxLength = 6,
+            PasswordRevealMode = PasswordRevealMode.Hidden
         };
 
         var stackPanel = new StackPanel { Spacing = 12 };
@@ -349,8 +351,8 @@ public sealed partial class SettingsPage : Page
 
         if (result == ContentDialogResult.Primary)
         {
-            var pin = pinTextBox.Text;
-            var confirmPin = confirmPinTextBox.Text;
+            var pin = pinTextBox.Password;
+            var confirmPin = confirmPinTextBox.Password;
 
             if (string.IsNullOrWhiteSpace(pin) || pin.Length < 4)
             {
@@ -444,10 +446,11 @@ public sealed partial class SettingsPage : Page
 
     private async Task<bool> ShowPinVerificationDialogAsync()
     {
-        var pinTextBox = new TextBox
+        var pinTextBox = new PasswordBox
         {
             PlaceholderText = "Enter your PIN",
-            MaxLength = 6
+            MaxLength = 6,
+            PasswordRevealMode = PasswordRevealMode.Hidden
         };
 
         var stackPanel = new StackPanel { Spacing = 12 };
@@ -468,7 +471,7 @@ public sealed partial class SettingsPage : Page
 
         if (result == ContentDialogResult.Primary)
         {
-            var pin = pinTextBox.Text;
+            var pin = pinTextBox.Password;
             var isValid = await _appLock.VerifyPinAsync(pin);
 
             if (!isValid)
