@@ -21,7 +21,7 @@ public sealed partial class SettingsPage : Page
         _appLock = App.Current.AppLock;
 
         VersionTextBlock.Text = VersionHelper.GetAppVersion();
-        LoadSettings();
+        Loaded += SettingsPage_Loaded;
     }
 
     private async void GoToRepositoryButton_Click(object sender, RoutedEventArgs e)
@@ -30,28 +30,41 @@ public sealed partial class SettingsPage : Page
         await Launcher.LaunchUriAsync(uri);
     }
 
-    private void LoadSettings()
+    private async void SettingsPage_Loaded(object sender, RoutedEventArgs e)
+    {
+        await LoadSettingsAsync();
+    }
+
+    private async Task LoadSettingsAsync()
     {
         _isInitializingToggle = true;
-        ShowNextCodeToggle.IsOn = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
-        PinProtectionToggle.IsOn = _appSettings.IsPinProtectionEnabled;
-        PasswordProtectionToggle.IsOn = _appSettings.IsPasswordProtectionEnabled;
-        WindowsHelloToggle.IsOn = _appSettings.IsWindowsHelloEnabled;
-
-        // Load auto-lock timeout setting
-        var timeout = _appSettings.AutoLockTimeoutMinutes;
-        for (int i = 0; i < AutoLockComboBox.Items.Count; i++)
+        try
         {
-            var item = AutoLockComboBox.Items[i] as ComboBoxItem;
-            if (item != null && int.TryParse(item.Tag?.ToString(), out var tagValue) && tagValue == timeout)
-            {
-                AutoLockComboBox.SelectedIndex = i;
-                break;
-            }
-        }
+            var resolution = await ResolveProtectionStateAsync();
 
-        UpdateProtectionControlsState();
-        _isInitializingToggle = false;
+            ShowNextCodeToggle.IsOn = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
+            PinProtectionToggle.IsOn = resolution.IsPinEffective;
+            PasswordProtectionToggle.IsOn = resolution.IsPasswordEffective;
+            WindowsHelloToggle.IsOn = resolution.IsWindowsHelloEffective;
+
+            // Load auto-lock timeout setting
+            var timeout = _appSettings.AutoLockTimeoutMinutes;
+            for (int i = 0; i < AutoLockComboBox.Items.Count; i++)
+            {
+                var item = AutoLockComboBox.Items[i] as ComboBoxItem;
+                if (item != null && int.TryParse(item.Tag?.ToString(), out var tagValue) && tagValue == timeout)
+                {
+                    AutoLockComboBox.SelectedIndex = i;
+                    break;
+                }
+            }
+
+            UpdateProtectionControlsState();
+        }
+        finally
+        {
+            _isInitializingToggle = false;
+        }
     }
 
     private void UpdateProtectionControlsState()
@@ -130,19 +143,27 @@ public sealed partial class SettingsPage : Page
         }
         else
         {
-            // User wants to disable PIN protection - verify first
-            var verified = await ShowPinVerificationDialogAsync();
-            if (!verified)
+            if (_appLock.GetPinStatus() == AppLockCredentialStatus.NotSet)
             {
-                // Verification failed - revert toggle
-                _isInitializingToggle = true;
-                PinProtectionToggle.IsOn = true;
-                _isInitializingToggle = false;
+                _appSettings.IsPinProtectionEnabled = false;
+                await ShowInfoDialog("PIN protection is no longer available. Choose a password or Windows Hello now to keep the app protected.");
             }
             else
             {
-                await _appLock.RemovePinAsync();
-                _appSettings.IsPinProtectionEnabled = false;
+                // User wants to disable PIN protection - verify first
+                var verified = await ShowPinVerificationDialogAsync();
+                if (!verified)
+                {
+                    // Verification failed - revert toggle
+                    _isInitializingToggle = true;
+                    PinProtectionToggle.IsOn = true;
+                    _isInitializingToggle = false;
+                }
+                else
+                {
+                    await _appLock.RemovePinAsync();
+                    _appSettings.IsPinProtectionEnabled = false;
+                }
             }
         }
         
@@ -183,19 +204,27 @@ public sealed partial class SettingsPage : Page
         }
         else
         {
-            // User wants to disable password protection - verify first
-            var verified = await ShowPasswordVerificationDialogAsync();
-            if (!verified)
+            if (_appLock.GetPasswordStatus() == AppLockCredentialStatus.NotSet)
             {
-                // Verification failed - revert toggle
-                _isInitializingToggle = true;
-                PasswordProtectionToggle.IsOn = true;
-                _isInitializingToggle = false;
+                _appSettings.IsPasswordProtectionEnabled = false;
+                await ShowInfoDialog("Password protection is no longer available. Choose a PIN or Windows Hello now to keep the app protected.");
             }
             else
             {
-                await _appLock.RemovePasswordAsync();
-                _appSettings.IsPasswordProtectionEnabled = false;
+                // User wants to disable password protection - verify first
+                var verified = await ShowPasswordVerificationDialogAsync();
+                if (!verified)
+                {
+                    // Verification failed - revert toggle
+                    _isInitializingToggle = true;
+                    PasswordProtectionToggle.IsOn = true;
+                    _isInitializingToggle = false;
+                }
+                else
+                {
+                    await _appLock.RemovePasswordAsync();
+                    _appSettings.IsPasswordProtectionEnabled = false;
+                }
             }
         }
         
@@ -333,6 +362,32 @@ public sealed partial class SettingsPage : Page
     private Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message)
     {
         return _appLock.VerifyWindowsHelloAsync(message);
+    }
+
+    private async Task<AppLockResolution> ResolveProtectionStateAsync()
+    {
+        var resolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
+        if (!resolution.HasUnavailableConfiguredProtection)
+        {
+            return resolution;
+        }
+
+        if (resolution.DisableUnavailablePin)
+        {
+            _appSettings.IsPinProtectionEnabled = false;
+        }
+
+        if (resolution.DisableUnavailablePassword)
+        {
+            _appSettings.IsPasswordProtectionEnabled = false;
+        }
+
+        if (resolution.DisableUnavailableWindowsHello)
+        {
+            _appSettings.IsWindowsHelloEnabled = false;
+        }
+
+        return await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
     }
 
     private static string GetWindowsHelloVerificationFailureMessage(WindowsHelloVerificationOutcome outcome)

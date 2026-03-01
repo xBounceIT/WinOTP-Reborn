@@ -15,8 +15,10 @@ public sealed partial class MainWindow : Window
     private readonly IAutoLockService _autoLock;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
     private bool _autoLockHandlersSetUp;
-    private bool _isApplyingWindowsHelloRecovery;
+    private bool _isApplyingProtectionRecovery;
     private AppLockMode _currentLockMode;
+
+    private readonly record struct ResolvedProtectionState(AppLockResolution Resolution, bool ShowRecoveryDialog);
 
     public MainWindow()
     {
@@ -70,17 +72,11 @@ public sealed partial class MainWindow : Window
         var rootGrid = this.Content as UIElement;
         if (rootGrid != null)
         {
-            rootGrid.PointerMoved += OnGlobalPointerActivity;
-            rootGrid.PointerPressed += OnGlobalPointerActivity;
-            rootGrid.KeyDown += OnGlobalKeyActivity;
+            AttachGlobalActivityHandlers(rootGrid);
         }
 
-        ContentFrame.PointerMoved += OnGlobalPointerActivity;
-        ContentFrame.PointerPressed += OnGlobalPointerActivity;
-        ContentFrame.KeyDown += OnGlobalKeyActivity;
-
-        NavView.PointerMoved += OnGlobalPointerActivity;
-        NavView.PointerPressed += OnGlobalPointerActivity;
+        AttachGlobalActivityHandlers(ContentFrame);
+        AttachGlobalActivityHandlers(NavView);
 
         _autoLockHandlersSetUp = true;
 
@@ -95,52 +91,53 @@ public sealed partial class MainWindow : Window
 
     private async Task EvaluateProtectionStateAsync()
     {
-        var decision = await GetAppLockDecisionAsync();
-
-        if (decision.DisableUnavailableWindowsHello)
+        var state = await ResolveProtectionStateAsync();
+        if (state.ShowRecoveryDialog)
         {
-            await RecoverFromUnavailableWindowsHelloAsync();
+            await ShowProtectionRecoveryAsync();
             return;
         }
 
-        if (decision.Mode == AppLockMode.None)
+        if (state.Resolution.Mode == AppLockMode.None)
         {
             EnsureInitialPage();
             SetupAutoLockMonitoring();
             return;
         }
 
-        await ShowLockScreenAsync(decision);
+        await ShowLockScreenAsync(state.Resolution);
     }
 
     private async Task ShowLockScreenAsync()
     {
-        await ShowLockScreenAsync(await GetAppLockDecisionAsync());
-    }
-
-    private async Task ShowLockScreenAsync(AppLockDecision decision)
-    {
-        if (decision.DisableUnavailableWindowsHello)
+        var state = await ResolveProtectionStateAsync();
+        if (state.ShowRecoveryDialog)
         {
-            await RecoverFromUnavailableWindowsHelloAsync();
+            await ShowProtectionRecoveryAsync();
             return;
         }
 
-        if (decision.Mode == AppLockMode.None)
+        await ShowLockScreenAsync(state.Resolution);
+    }
+
+    private async Task ShowLockScreenAsync(AppLockResolution resolution)
+    {
+        if (resolution.Mode == AppLockMode.None)
         {
             LockOverlay.Visibility = Visibility.Collapsed;
+            _currentLockMode = AppLockMode.None;
             ClearUnlockInputs();
             SetupAutoLockMonitoring();
             return;
         }
 
         _autoLock.StopMonitoring();
-        _currentLockMode = decision.Mode;
+        _currentLockMode = resolution.Mode;
 
         LockOverlay.Visibility = Visibility.Visible;
         UnlockErrorText.Visibility = Visibility.Collapsed;
 
-        switch (decision.Mode)
+        switch (resolution.Mode)
         {
             case AppLockMode.Pin:
                 PinInput.Visibility = Visibility.Visible;
@@ -222,6 +219,11 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            if (await TryHandleUnavailableCredentialDuringUnlockAsync())
+            {
+                return;
+            }
+
             UnlockErrorText.Text = "Incorrect PIN or password. Please try again.";
             UnlockErrorText.Visibility = Visibility.Visible;
 
@@ -255,7 +257,14 @@ public sealed partial class MainWindow : Window
         {
             if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
             {
-                await RecoverFromUnavailableWindowsHelloAsync();
+                var state = await ResolveProtectionStateAsync();
+                if (state.ShowRecoveryDialog)
+                {
+                    await ShowProtectionRecoveryAsync();
+                    return;
+                }
+
+                await ShowLockScreenAsync(state.Resolution);
                 return;
             }
 
@@ -356,7 +365,7 @@ public sealed partial class MainWindow : Window
 
     private void OnAppSettingsChanged(object? sender, AppSettingsChangedEventArgs e)
     {
-        if (_isApplyingWindowsHelloRecovery || !IsProtectionSetting(e.PropertyName))
+        if (_isApplyingProtectionRecovery || !IsProtectionSetting(e.PropertyName))
         {
             return;
         }
@@ -368,17 +377,25 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            var decision = await GetAppLockDecisionAsync();
+            var state = await ResolveProtectionStateAsync();
             _autoLock.StopMonitoring();
 
-            if (decision.DisableUnavailableWindowsHello)
+            if (state.ShowRecoveryDialog)
             {
-                await RecoverFromUnavailableWindowsHelloAsync();
+                await ShowProtectionRecoveryAsync();
                 return;
             }
 
             SetupAutoLockMonitoring();
         });
+    }
+
+    private void AttachGlobalActivityHandlers(UIElement element)
+    {
+        element.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(OnGlobalPointerActivity), true);
+        element.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnGlobalPointerActivity), true);
+        element.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnGlobalPointerActivity), true);
+        element.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnGlobalKeyActivity), true);
     }
 
     private void OnGlobalPointerActivity(object sender, PointerRoutedEventArgs e)
@@ -407,53 +424,90 @@ public sealed partial class MainWindow : Window
             or nameof(IAppSettingsService.AutoLockTimeoutMinutes);
     }
 
-    private async Task<AppLockDecision> GetAppLockDecisionAsync()
+    private async Task<ResolvedProtectionState> ResolveProtectionStateAsync()
     {
-        var windowsHelloAvailability = WindowsHelloAvailabilityStatus.Unavailable;
-
-        if (_appSettings.IsWindowsHelloEnabled)
+        var resolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
+        if (!resolution.HasUnavailableConfiguredProtection)
         {
-            windowsHelloAvailability = await _appLock.GetWindowsHelloAvailabilityAsync();
+            return new ResolvedProtectionState(resolution, false);
         }
 
-        return AppLockDecisionResolver.Resolve(
-            _appSettings.IsPinProtectionEnabled,
-            _appLock.GetPinStatus(),
-            _appSettings.IsPasswordProtectionEnabled,
-            _appLock.GetPasswordStatus(),
-            _appSettings.IsWindowsHelloEnabled,
-            windowsHelloAvailability);
+        ClearUnavailableProtectionSettings(resolution);
+        var normalizedResolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
+        return new ResolvedProtectionState(normalizedResolution, normalizedResolution.Mode == AppLockMode.None);
     }
 
-    private async Task RecoverFromUnavailableWindowsHelloAsync()
+    private void ClearUnavailableProtectionSettings(AppLockResolution resolution)
+    {
+        try
+        {
+            _isApplyingProtectionRecovery = true;
+
+            if (resolution.DisableUnavailablePin)
+            {
+                _appSettings.IsPinProtectionEnabled = false;
+            }
+
+            if (resolution.DisableUnavailablePassword)
+            {
+                _appSettings.IsPasswordProtectionEnabled = false;
+            }
+
+            if (resolution.DisableUnavailableWindowsHello)
+            {
+                _appSettings.IsWindowsHelloEnabled = false;
+            }
+        }
+        finally
+        {
+            _isApplyingProtectionRecovery = false;
+        }
+    }
+
+    private async Task<bool> TryHandleUnavailableCredentialDuringUnlockAsync()
+    {
+        var currentCredentialStatus = _currentLockMode switch
+        {
+            AppLockMode.Pin => _appLock.GetPinStatus(),
+            AppLockMode.Password => _appLock.GetPasswordStatus(),
+            _ => AppLockCredentialStatus.Error
+        };
+
+        if (currentCredentialStatus != AppLockCredentialStatus.NotSet)
+        {
+            return false;
+        }
+
+        var state = await ResolveProtectionStateAsync();
+        if (state.ShowRecoveryDialog)
+        {
+            await ShowProtectionRecoveryAsync();
+            return true;
+        }
+
+        await ShowLockScreenAsync(state.Resolution);
+        return true;
+    }
+
+    private async Task ShowProtectionRecoveryAsync()
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
         _currentLockMode = AppLockMode.None;
         ClearUnlockInputs();
 
-        try
-        {
-            _isApplyingWindowsHelloRecovery = true;
-            _appSettings.IsWindowsHelloEnabled = false;
-        }
-        finally
-        {
-            _isApplyingWindowsHelloRecovery = false;
-        }
-
         NavigateIfNeeded(typeof(SettingsPage));
 
-        await ShowWindowsHelloRecoveryDialogAsync();
+        await ShowProtectionRecoveryDialogAsync();
         SetupAutoLockMonitoring();
     }
 
-    private async Task ShowWindowsHelloRecoveryDialogAsync()
+    private async Task ShowProtectionRecoveryDialogAsync()
     {
         var dialog = new ContentDialog
         {
-            Title = "Windows Hello unavailable",
-            Content = "Windows Hello is no longer available, so app protection with Windows Hello was turned off. Choose a PIN or password in Settings to keep the app protected.",
+            Title = "App protection unavailable",
+            Content = "One or more configured protection methods are no longer available and were turned off. Choose a PIN, password, or Windows Hello in Settings to keep the app protected.",
             CloseButtonText = "OK",
             XamlRoot = LockOverlay.XamlRoot
         };
