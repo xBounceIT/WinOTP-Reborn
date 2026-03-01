@@ -115,6 +115,11 @@ public sealed partial class AddAccountPage : Page
         Frame.Navigate(typeof(ManualEntryPage));
     }
 
+    private void ImportButton_Click(object sender, RoutedEventArgs e)
+    {
+        Frame.Navigate(typeof(ImportPage));
+    }
+
     private async Task ShowErrorAsync(string message)
     {
         var dialog = new ContentDialog

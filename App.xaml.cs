@@ -11,6 +11,8 @@ public partial class App : Application
     public ICredentialManagerService CredentialManager { get; }
     public IAppSettingsService AppSettings { get; }
     public ITotpCodeGenerator TotpGenerator { get; } = new TotpCodeGenerator();
+    public IAppLockService AppLock { get; } = new AppLockService();
+    public IAutoLockService? AutoLock { get; private set; }
 
     public App()
     {
@@ -18,6 +20,14 @@ public partial class App : Application
         CredentialManager = new CredentialManagerService(Logger);
         AppSettings = new AppSettingsService();
         UnhandledException += OnUnhandledException;
+    }
+
+    public void InitializeAutoLockService()
+    {
+        if (AutoLock == null)
+        {
+            AutoLock = new AutoLockService(AppSettings);
+        }
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

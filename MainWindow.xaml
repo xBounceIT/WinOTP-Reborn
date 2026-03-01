@@ -57,6 +57,104 @@
             <Frame x:Name="ContentFrame" />
 
         </NavigationView>
+
+        <!-- Lock Overlay -->
+        <Grid
+            x:Name="LockOverlay"
+            Grid.Row="0"
+            Grid.RowSpan="2"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+            Visibility="Collapsed"
+            Canvas.ZIndex="100">
+
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <StackPanel
+                Grid.Row="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="16"
+                Padding="32">
+
+                <!-- Lock Icon -->
+                <FontIcon
+                    Glyph="&#xE72E;"
+                    FontSize="64"
+                    HorizontalAlignment="Center"
+                    Opacity="0.8" />
+
+                <!-- Title -->
+                <TextBlock
+                    Text="WinOTP is locked"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    HorizontalAlignment="Center" />
+
+                <!-- Subtitle -->
+                <TextBlock
+                    x:Name="LockSubtitleText"
+                    Text="Enter your PIN to unlock"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    HorizontalAlignment="Center"
+                    Opacity="0.7" />
+
+                <!-- PIN Input -->
+                <PasswordBox
+                    x:Name="PinInput"
+                    PlaceholderText="Enter PIN"
+                    MaxLength="6"
+                    PasswordRevealMode="Hidden"
+                    Width="200"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed"
+                    KeyDown="PinInput_KeyDown" />
+
+                <!-- Password Input -->
+                <PasswordBox
+                    x:Name="PasswordInput"
+                    PlaceholderText="Enter password"
+                    Width="200"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed"
+                    KeyDown="PasswordInput_KeyDown" />
+
+                <!-- Error Message -->
+                <TextBlock
+                    x:Name="UnlockErrorText"
+                    Text=""
+                    Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                    HorizontalAlignment="Center"
+                    TextWrapping="Wrap"
+                    MaxWidth="250"
+                    Visibility="Collapsed" />
+
+                <!-- Unlock Button -->
+                <Button
+                    x:Name="UnlockButton"
+                    Content="Unlock"
+                    Click="UnlockButton_Click"
+                    Width="200"
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource AccentButtonStyle}" />
+
+                <!-- Windows Hello Button -->
+                <Button
+                    x:Name="WindowsHelloButton"
+                    Click="WindowsHelloButton_Click"
+                    Width="200"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE930;" FontSize="16"/>
+                        <TextBlock Text="Use Windows Hello"/>
+                    </StackPanel>
+                </Button>
+
+            </StackPanel>
+        </Grid>
     </Grid>
 
 </Window>

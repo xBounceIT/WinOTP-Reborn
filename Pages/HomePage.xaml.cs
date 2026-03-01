@@ -289,8 +289,13 @@ public sealed partial class HomePage : Page
                 }
                 else
                 {
-                    RemoveCompletedAddFlowEntriesFromBackStack();
+                    AddFlowNavigationHelper.RemoveCompletedAddFlowEntries(Frame);
                 }
+            }
+            else if (e.Parameter is string parameter &&
+                parameter == AddFlowNavigationHelper.CleanupCompletedAddFlowParameter)
+            {
+                AddFlowNavigationHelper.RemoveCompletedAddFlowEntries(Frame);
             }
 
             await LoadAccountsAsync();
@@ -306,25 +311,6 @@ public sealed partial class HomePage : Page
     {
         StopRefreshUpdates();
         base.OnNavigatedFrom(e);
-    }
-
-    private void RemoveCompletedAddFlowEntriesFromBackStack()
-    {
-        var frame = Frame;
-        if (frame == null || frame.BackStack.Count == 0)
-        {
-            return;
-        }
-
-        for (int index = frame.BackStack.Count - 1; index >= 0; index--)
-        {
-            var entry = frame.BackStack[index];
-            if (entry.SourcePageType == typeof(AddAccountPage) ||
-                entry.SourcePageType == typeof(ManualEntryPage))
-            {
-                frame.BackStack.RemoveAt(index);
-            }
-        }
     }
 
     private async Task LoadAccountsAsync()

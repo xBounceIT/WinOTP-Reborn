@@ -4,8 +4,52 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid Padding="16">
-        <StackPanel Spacing="8">
+    <ScrollViewer>
+        <StackPanel Padding="16" Spacing="8">
+            <!-- Security Settings -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        Text="Security"
+                        Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch
+                        x:Name="PinProtectionToggle"
+                        Header="Protect app with PIN"
+                        Toggled="PinProtectionToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="PasswordProtectionToggle"
+                        Header="Protect app with password"
+                        Toggled="PasswordProtectionToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="WindowsHelloToggle"
+                        Header="Protect app with Windows Hello"
+                        Toggled="WindowsHelloToggle_Toggled" />
+
+                    <ComboBox
+                        x:Name="AutoLockComboBox"
+                        Header="Auto-lock after inactivity"
+                        Width="200"
+                        HorizontalAlignment="Left"
+                        SelectionChanged="AutoLockComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Never" Tag="0" />
+                        <ComboBoxItem Content="1 minute" Tag="1" />
+                        <ComboBoxItem Content="2 minutes" Tag="2" />
+                        <ComboBoxItem Content="5 minutes" Tag="5" />
+                        <ComboBoxItem Content="10 minutes" Tag="10" />
+                        <ComboBoxItem Content="15 minutes" Tag="15" />
+                        <ComboBoxItem Content="30 minutes" Tag="30" />
+                    </ComboBox>
+                    <TextBlock
+                        Text="Automatically lock the app after a period of inactivity when protection is enabled."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+            </Border>
+
             <!-- Display Settings -->
             <Border
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -125,6 +169,6 @@
             </Border>
 
         </StackPanel>
-    </Grid>
+    </ScrollViewer>
 
 </Page>

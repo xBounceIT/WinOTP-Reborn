@@ -23,7 +23,14 @@
     <Compile Include="..\Models\OtpAccount.cs" Link="Models\OtpAccount.cs" />
     <Compile Include="..\Models\CredentialResults.cs" Link="Models\CredentialResults.cs" />
     <Compile Include="..\Helpers\OtpAccountStorageMapper.cs" Link="Helpers\OtpAccountStorageMapper.cs" />
+    <Compile Include="..\Helpers\WinOTPLegacyImportMapper.cs" Link="Helpers\WinOTPLegacyImportMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
+    <Compile Include="..\Services\AppLockOperationResults.cs" Link="Services\AppLockOperationResults.cs" />
+    <Compile Include="..\Services\AppSettingsService.cs" Link="Services\AppSettingsService.cs" />
+    <Compile Include="..\Services\AppLockDecisionResolver.cs" Link="Services\AppLockDecisionResolver.cs" />
+    <Compile Include="..\Services\AppLockResolutionService.cs" Link="Services\AppLockResolutionService.cs" />
+    <Compile Include="..\Services\SettingsProtectionViewStateService.cs" Link="Services\SettingsProtectionViewStateService.cs" />
+    <Compile Include="..\Services\AppLockService.cs" Link="Services\AppLockService.cs" />
     <Compile Include="..\Services\TotpCodeGenerator.cs" Link="Services\TotpCodeGenerator.cs" />
   </ItemGroup>
 

@@ -26,8 +26,15 @@ public sealed class OtpAccount
     public int Period { get; set; } = 30;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    public string IssuerOrAccountName =>
+        string.IsNullOrWhiteSpace(Issuer) ? AccountName : Issuer;
+
+    public bool HasIssuer => !string.IsNullOrWhiteSpace(Issuer);
+
+    public string SecondaryLabel => HasIssuer ? AccountName : string.Empty;
+
     public string DisplayLabel =>
-        string.IsNullOrEmpty(Issuer) ? AccountName : $"{Issuer} ({AccountName})";
+        string.IsNullOrWhiteSpace(Issuer) ? AccountName : $"{Issuer} ({AccountName})";
 
     public string ResourceKey => $"WinOTP:{Id}";
 }
