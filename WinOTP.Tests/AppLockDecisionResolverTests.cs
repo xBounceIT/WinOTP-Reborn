@@ -84,7 +84,7 @@ public sealed class AppLockDecisionResolverTests
     }
 
     [Fact]
-    public void Resolve_PinLookupError_ReturnsPinMode()
+    public void Resolve_PinLookupError_ReturnsNoneAndFlagsTransientError()
     {
         var resolution = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: true,
@@ -94,40 +94,48 @@ public sealed class AppLockDecisionResolverTests
             isWindowsHelloEnabled: false,
             windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
 
-        Assert.Equal(AppLockMode.Pin, resolution.Mode);
-        Assert.True(resolution.IsPinEffective);
+        Assert.Equal(AppLockMode.None, resolution.Mode);
+        Assert.False(resolution.IsPinEffective);
+        Assert.True(resolution.HasPinError);
+        Assert.True(resolution.HasConfiguredProtectionError);
         Assert.False(resolution.DisableUnavailablePin);
     }
 
     [Fact]
-    public void Resolve_PasswordLookupError_ReturnsPasswordMode()
+    public void Resolve_PasswordLookupError_FallsBackToWindowsHello()
     {
         var resolution = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: false,
             pinStatus: AppLockCredentialStatus.NotSet,
             isPasswordProtectionEnabled: true,
             passwordStatus: AppLockCredentialStatus.Error,
-            isWindowsHelloEnabled: false,
-            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
+            isWindowsHelloEnabled: true,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Available);
 
-        Assert.Equal(AppLockMode.Password, resolution.Mode);
-        Assert.True(resolution.IsPasswordEffective);
+        Assert.Equal(AppLockMode.WindowsHello, resolution.Mode);
+        Assert.False(resolution.IsPasswordEffective);
+        Assert.True(resolution.IsWindowsHelloEffective);
+        Assert.True(resolution.HasPasswordError);
+        Assert.True(resolution.HasConfiguredProtectionError);
         Assert.False(resolution.DisableUnavailablePassword);
     }
 
     [Fact]
-    public void Resolve_WindowsHelloAvailabilityError_ReturnsWindowsHelloMode()
+    public void Resolve_WindowsHelloAvailabilityError_FallsBackToPassword()
     {
         var resolution = AppLockDecisionResolver.Resolve(
             isPinProtectionEnabled: false,
             pinStatus: AppLockCredentialStatus.NotSet,
-            isPasswordProtectionEnabled: false,
-            passwordStatus: AppLockCredentialStatus.NotSet,
+            isPasswordProtectionEnabled: true,
+            passwordStatus: AppLockCredentialStatus.Set,
             isWindowsHelloEnabled: true,
             windowsHelloAvailability: WindowsHelloAvailabilityStatus.Error);
 
-        Assert.Equal(AppLockMode.WindowsHello, resolution.Mode);
-        Assert.True(resolution.IsWindowsHelloEffective);
+        Assert.Equal(AppLockMode.Password, resolution.Mode);
+        Assert.True(resolution.IsPasswordEffective);
+        Assert.False(resolution.IsWindowsHelloEffective);
+        Assert.True(resolution.HasWindowsHelloError);
+        Assert.True(resolution.HasConfiguredProtectionError);
         Assert.False(resolution.DisableUnavailableWindowsHello);
     }
 
@@ -234,5 +242,23 @@ public sealed class AppLockDecisionResolverTests
         Assert.True(resolution.DisableUnavailablePin);
         Assert.True(resolution.DisableUnavailablePassword);
         Assert.True(resolution.DisableUnavailableWindowsHello);
+    }
+
+    [Fact]
+    public void Resolve_MissingPinAndPasswordError_OnlyDisablesMissingMethod()
+    {
+        var resolution = AppLockDecisionResolver.Resolve(
+            isPinProtectionEnabled: true,
+            pinStatus: AppLockCredentialStatus.NotSet,
+            isPasswordProtectionEnabled: true,
+            passwordStatus: AppLockCredentialStatus.Error,
+            isWindowsHelloEnabled: false,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.Unavailable);
+
+        Assert.Equal(AppLockMode.None, resolution.Mode);
+        Assert.True(resolution.DisableUnavailablePin);
+        Assert.False(resolution.DisableUnavailablePassword);
+        Assert.True(resolution.HasPasswordError);
+        Assert.True(resolution.HasConfiguredProtectionError);
     }
 }

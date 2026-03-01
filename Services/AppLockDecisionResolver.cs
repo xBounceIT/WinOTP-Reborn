@@ -13,12 +13,18 @@ internal readonly record struct AppLockResolution(
     bool IsPinEffective,
     bool IsPasswordEffective,
     bool IsWindowsHelloEffective,
+    bool HasPinError,
+    bool HasPasswordError,
+    bool HasWindowsHelloError,
     bool DisableUnavailablePin,
     bool DisableUnavailablePassword,
     bool DisableUnavailableWindowsHello)
 {
     public bool HasUnavailableConfiguredProtection =>
         DisableUnavailablePin || DisableUnavailablePassword || DisableUnavailableWindowsHello;
+
+    public bool HasConfiguredProtectionError =>
+        HasPinError || HasPasswordError || HasWindowsHelloError;
 }
 
 internal static class AppLockDecisionResolver
@@ -32,11 +38,16 @@ internal static class AppLockDecisionResolver
         WindowsHelloAvailabilityStatus windowsHelloAvailability)
     {
         var isPinEffective = isPinProtectionEnabled &&
-            pinStatus is AppLockCredentialStatus.Set or AppLockCredentialStatus.Error;
+            pinStatus == AppLockCredentialStatus.Set;
         var isPasswordEffective = isPasswordProtectionEnabled &&
-            passwordStatus is AppLockCredentialStatus.Set or AppLockCredentialStatus.Error;
+            passwordStatus == AppLockCredentialStatus.Set;
         var isWindowsHelloEffective = isWindowsHelloEnabled &&
-            windowsHelloAvailability is WindowsHelloAvailabilityStatus.Available or WindowsHelloAvailabilityStatus.Error;
+            windowsHelloAvailability == WindowsHelloAvailabilityStatus.Available;
+
+        var hasPinError = isPinProtectionEnabled && pinStatus == AppLockCredentialStatus.Error;
+        var hasPasswordError = isPasswordProtectionEnabled && passwordStatus == AppLockCredentialStatus.Error;
+        var hasWindowsHelloError =
+            isWindowsHelloEnabled && windowsHelloAvailability == WindowsHelloAvailabilityStatus.Error;
 
         var disableUnavailablePin = isPinProtectionEnabled && pinStatus == AppLockCredentialStatus.NotSet;
         var disableUnavailablePassword = isPasswordProtectionEnabled && passwordStatus == AppLockCredentialStatus.NotSet;
@@ -63,6 +74,9 @@ internal static class AppLockDecisionResolver
             isPinEffective,
             isPasswordEffective,
             isWindowsHelloEffective,
+            hasPinError,
+            hasPasswordError,
+            hasWindowsHelloError,
             disableUnavailablePin,
             disableUnavailablePassword,
             disableUnavailableWindowsHello);

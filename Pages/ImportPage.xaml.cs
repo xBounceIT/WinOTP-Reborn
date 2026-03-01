@@ -171,7 +171,7 @@ public sealed partial class ImportPage : Page
         // Navigate back to home if at least one account was imported
         if (successCount > 0)
         {
-            Frame.Navigate(typeof(HomePage));
+            Frame.Navigate(typeof(HomePage), AddFlowNavigationHelper.CleanupCompletedAddFlowParameter);
         }
     }
 

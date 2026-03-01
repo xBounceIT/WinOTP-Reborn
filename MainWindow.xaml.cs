@@ -18,9 +18,13 @@ public sealed partial class MainWindow : Window
     private bool _isApplyingProtectionRecovery;
     private bool _hasStartedStartupInitialization;
     private bool _hasEffectiveProtection;
+    private bool _hasShownTemporaryProtectionUnavailableDialog;
     private AppLockMode _currentLockMode;
 
-    private readonly record struct ResolvedProtectionState(AppLockResolution Resolution, bool ShowRecoveryDialog);
+    private readonly record struct ResolvedProtectionState(
+        AppLockResolution Resolution,
+        bool ShowRecoveryDialog,
+        bool ShowTemporaryBypassDialog);
 
     public MainWindow()
     {
@@ -114,6 +118,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (state.ShowTemporaryBypassDialog)
+        {
+            _hasEffectiveProtection = false;
+            await ShowTemporaryProtectionUnavailableAsync();
+            return;
+        }
+
         if (state.Resolution.Mode == AppLockMode.None)
         {
             EnsureInitialPage();
@@ -130,6 +141,12 @@ public sealed partial class MainWindow : Window
         if (state.ShowRecoveryDialog)
         {
             await ShowProtectionRecoveryAsync();
+            return;
+        }
+
+        if (state.ShowTemporaryBypassDialog)
+        {
+            await ShowTemporaryProtectionUnavailableAsync();
             return;
         }
 
@@ -273,7 +290,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
+            if (outcome.Status is WindowsHelloVerificationStatus.Unavailable or WindowsHelloVerificationStatus.Error)
             {
                 var state = await ResolveProtectionStateAsync();
                 if (state.ShowRecoveryDialog)
@@ -282,13 +299,31 @@ public sealed partial class MainWindow : Window
                     return;
                 }
 
-                await ShowLockScreenAsync(state.Resolution);
+                if (state.ShowTemporaryBypassDialog)
+                {
+                    await ShowTemporaryProtectionUnavailableAsync();
+                    return;
+                }
+
+                if (state.Resolution.Mode != AppLockMode.None)
+                {
+                    await ShowLockScreenAsync(state.Resolution);
+                    return;
+                }
+
+                if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
+                {
+                    await ShowProtectionRecoveryAsync();
+                    return;
+                }
+
+                UnlockErrorText.Text = "Windows Hello is temporarily unavailable. Please try again.";
+                UnlockErrorText.Visibility = Visibility.Visible;
                 return;
             }
 
             string errorMessage = outcome.Status switch
             {
-                WindowsHelloVerificationStatus.Error => "Windows Hello is temporarily unavailable. Please try again.",
                 WindowsHelloVerificationStatus.Failed when outcome.Result == UserConsentVerificationResult.RetriesExhausted
                     => "Too many failed attempts. Please try again later.",
                 _ => "Windows Hello verification failed. Please try again."
@@ -405,6 +440,13 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            if (state.ShowTemporaryBypassDialog)
+            {
+                _hasEffectiveProtection = false;
+                await ShowTemporaryProtectionUnavailableAsync();
+                return;
+            }
+
             var isProtectedNow = state.Resolution.Mode != AppLockMode.None;
             var shouldLockImmediately = !_hasEffectiveProtection && isProtectedNow;
             _hasEffectiveProtection = isProtectedNow;
@@ -465,12 +507,29 @@ public sealed partial class MainWindow : Window
         var resolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
         if (!resolution.HasUnavailableConfiguredProtection)
         {
-            return new ResolvedProtectionState(resolution, false);
+            if (resolution.Mode != AppLockMode.None)
+            {
+                _hasShownTemporaryProtectionUnavailableDialog = false;
+            }
+
+            return new ResolvedProtectionState(
+                resolution,
+                ShowRecoveryDialog: false,
+                ShowTemporaryBypassDialog: resolution.Mode == AppLockMode.None && resolution.HasConfiguredProtectionError);
         }
 
         ClearUnavailableProtectionSettings(resolution);
         var normalizedResolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
-        return new ResolvedProtectionState(normalizedResolution, normalizedResolution.Mode == AppLockMode.None);
+        if (normalizedResolution.Mode != AppLockMode.None)
+        {
+            _hasShownTemporaryProtectionUnavailableDialog = false;
+        }
+
+        return new ResolvedProtectionState(
+            normalizedResolution,
+            ShowRecoveryDialog: normalizedResolution.Mode == AppLockMode.None,
+            ShowTemporaryBypassDialog: normalizedResolution.Mode == AppLockMode.None &&
+                normalizedResolution.HasConfiguredProtectionError);
     }
 
     private void ClearUnavailableProtectionSettings(AppLockResolution resolution)
@@ -506,10 +565,10 @@ public sealed partial class MainWindow : Window
         {
             AppLockMode.Pin => _appLock.GetPinStatus(),
             AppLockMode.Password => _appLock.GetPasswordStatus(),
-            _ => AppLockCredentialStatus.Error
+            _ => AppLockCredentialStatus.Set
         };
 
-        if (currentCredentialStatus != AppLockCredentialStatus.NotSet)
+        if (currentCredentialStatus == AppLockCredentialStatus.Set)
         {
             return false;
         }
@@ -518,6 +577,12 @@ public sealed partial class MainWindow : Window
         if (state.ShowRecoveryDialog)
         {
             await ShowProtectionRecoveryAsync();
+            return true;
+        }
+
+        if (state.ShowTemporaryBypassDialog)
+        {
+            await ShowTemporaryProtectionUnavailableAsync();
             return true;
         }
 
@@ -539,6 +604,25 @@ public sealed partial class MainWindow : Window
         SetupAutoLockMonitoring();
     }
 
+    private async Task ShowTemporaryProtectionUnavailableAsync()
+    {
+        _autoLock.StopMonitoring();
+        LockOverlay.Visibility = Visibility.Collapsed;
+        _currentLockMode = AppLockMode.None;
+        _hasEffectiveProtection = false;
+        ClearUnlockInputs();
+
+        EnsureInitialPage();
+
+        if (!_hasShownTemporaryProtectionUnavailableDialog)
+        {
+            _hasShownTemporaryProtectionUnavailableDialog = true;
+            await ShowTemporaryProtectionUnavailableDialogAsync();
+        }
+
+        SetupAutoLockMonitoring();
+    }
+
     private async Task ShowProtectionRecoveryDialogAsync()
     {
         var rootElement = Content as FrameworkElement
@@ -548,6 +632,22 @@ public sealed partial class MainWindow : Window
         {
             Title = "App protection unavailable",
             Content = "One or more configured protection methods are no longer available and were turned off. Choose a PIN, password, or Windows Hello in Settings to keep the app protected.",
+            CloseButtonText = "OK",
+            XamlRoot = rootElement.XamlRoot
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private async Task ShowTemporaryProtectionUnavailableDialogAsync()
+    {
+        var rootElement = Content as FrameworkElement
+            ?? throw new InvalidOperationException("Main window content is not ready for dialog hosting.");
+
+        var dialog = new ContentDialog
+        {
+            Title = "App protection temporarily unavailable",
+            Content = "WinOTP could not verify your configured protection because Windows security services are temporarily unavailable. Your protection settings were kept and the app will remain unlocked until protection becomes available again.",
             CloseButtonText = "OK",
             XamlRoot = rootElement.XamlRoot
         };
