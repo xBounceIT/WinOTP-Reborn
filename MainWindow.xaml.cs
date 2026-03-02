@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -48,6 +49,7 @@ public sealed partial class MainWindow : Window
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
         this.SetTitleBar(AppTitleBar);
+        ApplyWindowIcons();
 
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
@@ -65,6 +67,19 @@ public sealed partial class MainWindow : Window
         // Frame navigation tracking
         ContentFrame.Navigated += ContentFrame_Navigated;
         UpdateSettingsNavBadge(_appUpdate.CurrentState);
+    }
+
+    private void ApplyWindowIcons()
+    {
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+        if (!File.Exists(iconPath))
+        {
+            App.Current.Logger.Warn($"App icon file '{iconPath}' was not found.");
+            return;
+        }
+
+        AppWindow.SetIcon(iconPath);
+        AppWindow.SetTaskbarIcon(iconPath);
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
