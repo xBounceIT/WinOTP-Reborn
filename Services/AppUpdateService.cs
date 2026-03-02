@@ -109,7 +109,7 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
             new HttpClient(),
             ownsHttpClient: true,
             VersionHelper.GetAppVersion,
-            () => RuntimeInformation.OSArchitecture,
+            () => RuntimeInformation.ProcessArchitecture,
             AppPaths.GetUpdatesDirectory,
             startInfo => Process.Start(startInfo))
     {
@@ -251,6 +251,28 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
             _logger.Error("Failed to check for app updates.", ex);
 
             var current = CurrentState;
+            if (trigger == UpdateCheckTrigger.ChannelChanged)
+            {
+                SetState(current with
+                {
+                    SelectedChannel = _settings.UpdateChannel,
+                    IsAutomaticCheckEnabled = _settings.IsUpdateCheckEnabled,
+                    Status = _settings.IsUpdateCheckEnabled ? UpdateAvailabilityStatus.Error : UpdateAvailabilityStatus.Disabled,
+                    IsUpdateAvailable = false,
+                    IsBusy = false,
+                    StatusMessage = _settings.IsUpdateCheckEnabled
+                        ? "Couldn't check for updates."
+                        : "Automatic update checks are turned off.",
+                    LastCheckedUtc = DateTimeOffset.UtcNow,
+                    AvailableUpdate = null,
+                    DownloadedInstallerPath = null,
+                    IsDownloadedAssetDigestVerified = false,
+                    LastError = ex.Message
+                });
+
+                return;
+            }
+
             var hasKnownUpdate = current.AvailableUpdate is not null;
             SetState(current with
             {

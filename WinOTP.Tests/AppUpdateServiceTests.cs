@@ -74,6 +74,35 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public void SelectAvailableRelease_UsesProcessArchitectureForAssetSelection()
+    {
+        var releases = new[]
+        {
+            new GitHubReleaseInfo
+            {
+                TagName = "v1.2.0",
+                Name = "1.2.0",
+                HtmlUrl = "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.2.0",
+                IsDraft = false,
+                IsPreRelease = false,
+                Assets =
+                [
+                    CreateAsset("WinOTP-1.2.0-win-x64-setup.exe", null),
+                    CreateAsset("WinOTP-1.2.0-win-arm64-setup.exe", null)
+                ]
+            }
+        };
+
+        var x64Result = AppUpdateService.SelectAvailableRelease(releases, "1.0.0", UpdateChannel.Stable, Architecture.X64);
+        var arm64Result = AppUpdateService.SelectAvailableRelease(releases, "1.0.0", UpdateChannel.Stable, Architecture.Arm64);
+
+        Assert.NotNull(x64Result);
+        Assert.Equal("WinOTP-1.2.0-win-x64-setup.exe", x64Result!.InstallerName);
+        Assert.NotNull(arm64Result);
+        Assert.Equal("WinOTP-1.2.0-win-arm64-setup.exe", arm64Result!.InstallerName);
+    }
+
+    [Fact]
     public async Task InitializeAsync_WithAutomaticChecksDisabled_DoesNotCallNetwork()
     {
         var settings = new FakeAppSettingsService
@@ -190,6 +219,98 @@ public sealed class AppUpdateServiceTests : IDisposable
         Assert.True(launch.Success);
         Assert.NotNull(capturedStartInfo);
         Assert.Equal("/CURRENTUSER /SP- /LOG", capturedStartInfo!.Arguments);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_ChannelChangedFailure_ClearsCachedUpdate()
+    {
+        var settings = new FakeAppSettingsService
+        {
+            UpdateChannel = UpdateChannel.PreRelease
+        };
+        var callCount = 0;
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            callCount++;
+            return callCount == 1
+                ? CreateJsonResponse("""
+                [
+                  {
+                    "tag_name": "v1.2.0-beta.1",
+                    "name": "1.2.0-beta.1",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.2.0-beta.1",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.2.0-beta.1-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.2.0-beta.1-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """)
+                : throw new HttpRequestException("offline");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(settings, httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        Assert.True(service.CurrentState.IsUpdateAvailable);
+        Assert.NotNull(service.CurrentState.AvailableUpdate);
+
+        settings.UpdateChannel = UpdateChannel.Stable;
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.ChannelChanged);
+
+        Assert.Equal(UpdateChannel.Stable, service.CurrentState.SelectedChannel);
+        Assert.False(service.CurrentState.IsUpdateAvailable);
+        Assert.Null(service.CurrentState.AvailableUpdate);
+        Assert.Null(service.CurrentState.DownloadedInstallerPath);
+        Assert.False(service.CurrentState.IsDownloadedAssetDigestVerified);
+        Assert.Equal(UpdateAvailabilityStatus.Error, service.CurrentState.Status);
+        Assert.Equal("offline", service.CurrentState.LastError);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_ManualFailure_PreservesCachedUpdate()
+    {
+        var callCount = 0;
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            callCount++;
+            return callCount == 1
+                ? CreateJsonResponse("""
+                [
+                  {
+                    "tag_name": "v1.1.0",
+                    "name": "1.1.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.1.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.1.0-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """)
+                : throw new HttpRequestException("offline");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(new FakeAppSettingsService(), httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        var cachedUpdate = service.CurrentState.AvailableUpdate;
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+
+        Assert.True(service.CurrentState.IsUpdateAvailable);
+        Assert.NotNull(service.CurrentState.AvailableUpdate);
+        Assert.Equal(cachedUpdate, service.CurrentState.AvailableUpdate);
+        Assert.Equal(UpdateAvailabilityStatus.UpdateAvailable, service.CurrentState.Status);
+        Assert.Equal("offline", service.CurrentState.LastError);
     }
 
     public void Dispose()
