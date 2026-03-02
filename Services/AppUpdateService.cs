@@ -86,7 +86,8 @@ public sealed record UpdateInstallLaunchResult(
 
 public sealed class AppUpdateService : IAppUpdateService, IDisposable
 {
-    private const string ReleaseApiUrl = "https://api.github.com/repos/xBounceIT/WinOTP-Reborn/releases?per_page=20";
+    private const string ReleaseApiUrl = "https://api.github.com/repos/xBounceIT/WinOTP-Reborn/releases";
+    private const int ReleasePageSize = 100;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly object _stateSync = new();
@@ -585,13 +586,32 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
 
     private async Task<IReadOnlyList<GitHubReleaseInfo>> FetchReleasesAsync(CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(HttpMethod.Get, ReleaseApiUrl, CurrentState.CurrentVersion);
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        var releases = new List<GitHubReleaseInfo>();
+        var visitedPageUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var nextPageUrl = $"{ReleaseApiUrl}?per_page={ReleasePageSize}";
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var releases = await JsonSerializer.DeserializeAsync<List<GitHubReleaseInfo>>(stream, JsonOptions, cancellationToken);
-        return releases ?? [];
+        while (!string.IsNullOrWhiteSpace(nextPageUrl))
+        {
+            if (!visitedPageUrls.Add(nextPageUrl))
+            {
+                throw new HttpRequestException($"GitHub releases pagination repeated page '{nextPageUrl}'.");
+            }
+
+            using var request = CreateRequest(HttpMethod.Get, nextPageUrl, CurrentState.CurrentVersion);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var page = await JsonSerializer.DeserializeAsync<List<GitHubReleaseInfo>>(stream, JsonOptions, cancellationToken);
+            if (page is not null)
+            {
+                releases.AddRange(page);
+            }
+
+            nextPageUrl = GetNextPageUrl(response);
+        }
+
+        return releases;
     }
 
     private static HttpRequestMessage CreateRequest(HttpMethod method, string url, string currentVersion)
@@ -601,6 +621,43 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
         request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         request.Headers.UserAgent.ParseAdd($"WinOTP/{currentVersion}");
         return request;
+    }
+
+    private static string? GetNextPageUrl(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Link", out var linkHeaderValues))
+        {
+            return null;
+        }
+
+        foreach (var linkHeaderValue in linkHeaderValues)
+        {
+            foreach (var segment in linkHeaderValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parts = segment.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (parts.Length < 2)
+                {
+                    continue;
+                }
+
+                var target = parts[0];
+                if (!target.StartsWith('<') || !target.EndsWith('>'))
+                {
+                    continue;
+                }
+
+                var isNext = parts
+                    .Skip(1)
+                    .Any(part => string.Equals(part, "rel=\"next\"", StringComparison.OrdinalIgnoreCase));
+
+                if (isNext)
+                {
+                    return target[1..^1];
+                }
+            }
+        }
+
+        return null;
     }
 
     private async Task<(bool IsValid, bool IsDigestVerified, string? ErrorMessage)> ValidateDownloadedFileAsync(

@@ -37,7 +37,8 @@ if (Test-Path $publishDir) {
 & $DotNetPath publish $projectPath `
     -c $Configuration `
     -r "win-$Architecture" `
-    --self-contained false `
+    --self-contained true `
+    -p:WindowsAppSDKSelfContained=true `
     -o $publishDir
 
 & $IsccPath $installerScriptPath `

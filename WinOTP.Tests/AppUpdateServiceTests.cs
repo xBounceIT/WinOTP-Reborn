@@ -200,6 +200,168 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckForUpdatesAsync_Manual_PaginatesToLaterCompatibleRelease()
+    {
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse("""
+                [
+                  {
+                    "tag_name": "v1.2.0",
+                    "name": "1.2.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.2.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.2.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.2.0-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """);
+            }
+
+            return CreateJsonResponse(
+                """
+                [
+                  {
+                    "tag_name": "v1.3.0-beta.1",
+                    "name": "1.3.0-beta.1",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.3.0-beta.1",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.3.0-beta.1-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.3.0-beta.1-win-x64-setup.exe"
+                      }
+                    ]
+                  },
+                  {
+                    "tag_name": "v1.1.0",
+                    "name": "1.1.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.1.0-win-arm64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.1.0-win-arm64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """,
+                "<https://api.github.com/repos/xBounceIT/WinOTP-Reborn/releases?per_page=100&page=2>; rel=\"next\"");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(new FakeAppSettingsService(), httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+
+        Assert.Equal(UpdateAvailabilityStatus.UpdateAvailable, service.CurrentState.Status);
+        Assert.NotNull(service.CurrentState.AvailableUpdate);
+        Assert.Equal("1.2.0", service.CurrentState.AvailableUpdate!.DisplayVersion);
+        Assert.Equal(2, handler.CallCount);
+        Assert.Contains(handler.RequestedUris, uri => uri.Query.Contains("page=2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_Manual_SelectsHighestCompatibleVersionAcrossPages()
+    {
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse("""
+                [
+                  {
+                    "tag_name": "v1.2.0",
+                    "name": "1.2.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.2.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.2.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.2.0-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """);
+            }
+
+            return CreateJsonResponse(
+                """
+                [
+                  {
+                    "tag_name": "v1.1.0",
+                    "name": "1.1.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.1.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.1.0-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """,
+                "<https://api.github.com/repos/xBounceIT/WinOTP-Reborn/releases?per_page=100&page=2>; rel=\"next\"");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(new FakeAppSettingsService(), httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+
+        Assert.Equal(UpdateAvailabilityStatus.UpdateAvailable, service.CurrentState.Status);
+        Assert.NotNull(service.CurrentState.AvailableUpdate);
+        Assert.Equal("1.2.0", service.CurrentState.AvailableUpdate!.DisplayVersion);
+        Assert.Equal(2, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_Manual_RepeatedNextPageUrl_ReportsError()
+    {
+        var repeatedNextPage = "https://api.github.com/repos/xBounceIT/WinOTP-Reborn/releases?per_page=100";
+        var handler = new RecordingHttpMessageHandler(_ => CreateJsonResponse(
+            """
+            [
+              {
+                "tag_name": "v1.1.0",
+                "name": "1.1.0",
+                "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                "draft": false,
+                "prerelease": false,
+                "assets": [
+                  {
+                    "name": "WinOTP-1.1.0-win-x64-setup.exe",
+                    "browser_download_url": "https://example.test/WinOTP-1.1.0-win-x64-setup.exe"
+                  }
+                ]
+              }
+            ]
+            """,
+            $"<{repeatedNextPage}>; rel=\"next\""));
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(new FakeAppSettingsService(), httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+
+        Assert.Equal(UpdateAvailabilityStatus.Error, service.CurrentState.Status);
+        Assert.Equal("Couldn't check for updates.", service.CurrentState.StatusMessage);
+        Assert.Contains("repeated page", service.CurrentState.LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
     public async Task CheckForUpdatesAsync_ManualFailure_WithAutomaticChecksDisabled_ReportsError()
     {
         var settings = new FakeAppSettingsService
@@ -488,22 +650,35 @@ public sealed class AppUpdateServiceTests : IDisposable
         };
     }
 
-    private static HttpResponseMessage CreateJsonResponse(string content)
+    private static HttpResponseMessage CreateJsonResponse(string content, string? linkHeader = null)
     {
-        return new HttpResponseMessage(HttpStatusCode.OK)
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(content, Encoding.UTF8, "application/json")
         };
+
+        if (!string.IsNullOrWhiteSpace(linkHeader))
+        {
+            response.Headers.TryAddWithoutValidation("Link", linkHeader);
+        }
+
+        return response;
     }
 
     private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {
         public int CallCount { get; private set; }
+        public List<Uri> RequestedUris { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             CallCount++;
+            if (request.RequestUri is not null)
+            {
+                RequestedUris.Add(request.RequestUri);
+            }
+
             return Task.FromResult(responder(request));
         }
     }

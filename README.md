@@ -25,13 +25,13 @@ A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windo
 ## Requirements
 
 - Windows 11 (Build 19041 or later)
-- [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for building from source
 
 ## Installation
 
 ### Download Pre-built Binary
 
-Download the latest release from the [Releases](https://github.com/xBounceIT/WinOTP-Reborn/releases) page.
+Download the latest release from the [Releases](https://github.com/xBounceIT/WinOTP-Reborn/releases) page. The installer packages the required .NET and Windows App SDK runtime files for the target architecture.
 
 ### Build from Source
 
@@ -69,7 +69,7 @@ Build an ARM64 installer:
 .\scripts\Build-Installer.ps1 -Architecture arm64
 ```
 
-The script publishes the app, reads the version from `WinOTP.csproj`, and passes that version into `installer/WinOTP.iss`.
+The script publishes a self-contained app payload, reads the version from `WinOTP.csproj`, and passes that version into `installer/WinOTP.iss`.
 
 ## Usage
 
