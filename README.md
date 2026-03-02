@@ -47,6 +47,30 @@ dotnet build -c Release
 dotnet run
 ```
 
+### Build Installer
+
+The project version in `WinOTP.csproj` is the source of truth for both the app and installer version.
+
+Prerequisites:
+
+- Windows PowerShell
+- .NET SDK installed at `C:\Program Files\dotnet\dotnet.exe`
+- Inno Setup 6 installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
+
+Run the packaging script from Windows PowerShell:
+
+```powershell
+.\scripts\Build-Installer.ps1 -Architecture x64
+```
+
+Build an ARM64 installer:
+
+```powershell
+.\scripts\Build-Installer.ps1 -Architecture arm64
+```
+
+The script publishes the app, reads the version from `WinOTP.csproj`, and passes that version into `installer/WinOTP.iss`.
+
 ## Usage
 
 ### Adding an Account

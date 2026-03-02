@@ -4,7 +4,7 @@
 #define MyAppId "{{9C96A88A-8F18-4B57-9F59-AB4E2A8760D1}}"
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #error "MyAppVersion must be defined by the build script."
 #endif
 
 #ifndef MyAppArch

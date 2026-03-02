@@ -257,6 +257,7 @@
                         </Grid.ColumnDefinitions>
                         <Button
                             Grid.Column="0"
+                            Grid.ColumnSpan="2"
                             x:Name="CheckNowButton"
                             Click="CheckNowButton_Click"
                             HorizontalAlignment="Stretch"
@@ -282,27 +283,6 @@
                     <TextBlock
                         Text="About"
                         Style="{StaticResource BodyStrongTextBlockStyle}" />
-
-                    <!-- Version Row -->
-                    <Grid HorizontalAlignment="Stretch">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock
-                            Grid.Column="0"
-                            Text="Version"
-                            Style="{StaticResource BodyTextBlockStyle}"
-                            VerticalAlignment="Center"/>
-                        <TextBlock
-                            Grid.Column="1"
-                            x:Name="VersionTextBlock"
-                            Text="0.1.0"
-                            Style="{StaticResource BodyTextBlockStyle}"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Center"
-                            Opacity="0.8"/>
-                    </Grid>
 
                     <!-- GitHub Repository Row -->
                     <Grid HorizontalAlignment="Stretch">

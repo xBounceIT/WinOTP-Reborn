@@ -26,7 +26,6 @@ public sealed partial class SettingsPage : Page
         _appLock = App.Current.AppLock;
         _backupService = App.Current.BackupService;
 
-        VersionTextBlock.Text = VersionHelper.GetAppVersion();
         CurrentVersionTextBlock.Text = VersionHelper.GetAppVersion();
         RefreshBackupFolderUi();
         Loaded += SettingsPage_Loaded;
@@ -1047,6 +1046,7 @@ public sealed partial class SettingsPage : Page
         UpdateCheckToggle.IsEnabled = !state.IsBusy;
         UpdateChannelComboBox.IsEnabled = !state.IsBusy;
         CheckNowButton.IsEnabled = !state.IsBusy;
+        Grid.SetColumnSpan(CheckNowButton, state.IsUpdateAvailable ? 1 : 2);
         DownloadAndInstallButton.Visibility = state.IsUpdateAvailable
             ? Visibility.Visible
             : Visibility.Collapsed;

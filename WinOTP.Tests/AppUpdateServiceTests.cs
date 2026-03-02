@@ -103,6 +103,21 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public void SelectAvailableRelease_CurrentVersionWithBuildMetadata_ComparesUsingSemanticVersion()
+    {
+        var releases = new[]
+        {
+            CreateRelease("v1.0.0", isPreRelease: false, digest: null),
+            CreateRelease("v1.0.1", isPreRelease: false, digest: null)
+        };
+
+        var result = AppUpdateService.SelectAvailableRelease(releases, "1.0.0+abc123", UpdateChannel.Stable, Architecture.X64);
+
+        Assert.NotNull(result);
+        Assert.Equal("1.0.1", result!.DisplayVersion);
+    }
+
+    [Fact]
     public async Task InitializeAsync_WithAutomaticChecksDisabled_DoesNotCallNetwork()
     {
         var settings = new FakeAppSettingsService

@@ -6,21 +6,26 @@ public static class VersionHelper
 {
     public static string GetAppVersion()
     {
-        var assembly = Assembly.GetEntryAssembly();
-        if (assembly is null)
+        var assembly = System.Reflection.Assembly.GetEntryAssembly();
+        string? informationalVersion = null;
+        if (assembly is not null)
         {
-            return "0.0.0";
+            informationalVersion = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion;
         }
 
-        var informationalVersion = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
+        var version = assembly?.GetName().Version;
+        return GetAppVersion(informationalVersion, version);
+    }
+
+    internal static string GetAppVersion(string? informationalVersion, Version? version)
+    {
         if (!string.IsNullOrWhiteSpace(informationalVersion))
         {
-            return NormalizeVersionString(informationalVersion);
+            return NormalizeVersionString(informationalVersion!);
         }
 
-        var version = assembly.GetName().Version;
         if (version is null)
         {
             return "0.0.0";
@@ -35,6 +40,12 @@ public static class VersionHelper
         if (normalized.StartsWith('v') || normalized.StartsWith('V'))
         {
             normalized = normalized[1..];
+        }
+
+        var buildMetadataSeparatorIndex = normalized.IndexOf('+');
+        if (buildMetadataSeparatorIndex >= 0)
+        {
+            normalized = normalized[..buildMetadataSeparatorIndex];
         }
 
         return normalized;
