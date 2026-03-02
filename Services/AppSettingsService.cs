@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using WinOTP.Helpers;
+using WinOTP.Models;
 
 namespace WinOTP.Services;
 
@@ -12,6 +14,8 @@ public interface IAppSettingsService
     int AutoLockTimeoutMinutes { get; set; }
     bool IsAutomaticBackupEnabled { get; set; }
     string CustomBackupFolderPath { get; set; }
+    bool IsUpdateCheckEnabled { get; set; }
+    UpdateChannel UpdateChannel { get; set; }
     event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 }
 
@@ -28,6 +32,14 @@ public sealed class AppSettingsChangedEventArgs : EventArgs
 public sealed class AppSettingsService : IAppSettingsService
 {
     private static readonly object Sync = new();
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        Converters =
+        {
+            new JsonStringEnumConverter()
+        }
+    };
+
     private readonly string _settingsFilePath;
     private bool _showNextCodeWhenFiveSecondsRemain;
     private bool _isPinProtectionEnabled;
@@ -36,6 +48,8 @@ public sealed class AppSettingsService : IAppSettingsService
     private int _autoLockTimeoutMinutes;
     private bool _isAutomaticBackupEnabled;
     private string _customBackupFolderPath = string.Empty;
+    private bool _isUpdateCheckEnabled;
+    private UpdateChannel _updateChannel;
 
     public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 
@@ -58,6 +72,8 @@ public sealed class AppSettingsService : IAppSettingsService
         _autoLockTimeoutMinutes = loadedSettings.AutoLockTimeoutMinutes;
         _isAutomaticBackupEnabled = loadedSettings.IsAutomaticBackupEnabled;
         _customBackupFolderPath = NormalizePathSetting(loadedSettings.CustomBackupFolderPath);
+        _isUpdateCheckEnabled = loadedSettings.IsUpdateCheckEnabled;
+        _updateChannel = loadedSettings.UpdateChannel;
     }
 
     public bool ShowNextCodeWhenFiveSecondsRemain
@@ -100,6 +116,18 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _customBackupFolderPath;
         set => SetStringProperty(ref _customBackupFolderPath, NormalizePathSetting(value), nameof(CustomBackupFolderPath));
+    }
+
+    public bool IsUpdateCheckEnabled
+    {
+        get => _isUpdateCheckEnabled;
+        set => SetBooleanProperty(ref _isUpdateCheckEnabled, value, nameof(IsUpdateCheckEnabled));
+    }
+
+    public UpdateChannel UpdateChannel
+    {
+        get => _updateChannel;
+        set => SetEnumProperty(ref _updateChannel, value, nameof(UpdateChannel));
     }
 
     private void SetBooleanProperty(ref bool field, bool value, string propertyName)
@@ -168,6 +196,29 @@ public sealed class AppSettingsService : IAppSettingsService
         }
     }
 
+    private void SetEnumProperty<TEnum>(ref TEnum field, TEnum value, string propertyName)
+        where TEnum : struct, Enum
+    {
+        var changed = false;
+
+        lock (Sync)
+        {
+            if (EqualityComparer<TEnum>.Default.Equals(field, value))
+            {
+                return;
+            }
+
+            field = value;
+            SaveSettings(CreateSnapshot());
+            changed = true;
+        }
+
+        if (changed)
+        {
+            SettingsChanged?.Invoke(this, new AppSettingsChangedEventArgs(propertyName));
+        }
+    }
+
     private AppSettingsData LoadSettings()
     {
         lock (Sync)
@@ -180,7 +231,7 @@ public sealed class AppSettingsService : IAppSettingsService
             try
             {
                 var json = File.ReadAllText(_settingsFilePath);
-                return JsonSerializer.Deserialize<AppSettingsData>(json) ?? new AppSettingsData();
+                return JsonSerializer.Deserialize<AppSettingsData>(json, SerializerOptions) ?? new AppSettingsData();
             }
             catch
             {
@@ -199,7 +250,9 @@ public sealed class AppSettingsService : IAppSettingsService
             IsWindowsHelloEnabled = _isWindowsHelloEnabled,
             AutoLockTimeoutMinutes = _autoLockTimeoutMinutes,
             IsAutomaticBackupEnabled = _isAutomaticBackupEnabled,
-            CustomBackupFolderPath = _customBackupFolderPath
+            CustomBackupFolderPath = _customBackupFolderPath,
+            IsUpdateCheckEnabled = _isUpdateCheckEnabled,
+            UpdateChannel = _updateChannel
         };
     }
 
@@ -212,7 +265,7 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         try
         {
-            var json = JsonSerializer.Serialize(settings);
+            var json = JsonSerializer.Serialize(settings, SerializerOptions);
             File.WriteAllText(_settingsFilePath, json);
         }
         catch
@@ -230,5 +283,7 @@ public sealed class AppSettingsService : IAppSettingsService
         public int AutoLockTimeoutMinutes { get; set; }
         public bool IsAutomaticBackupEnabled { get; set; }
         public string CustomBackupFolderPath { get; set; } = string.Empty;
+        public bool IsUpdateCheckEnabled { get; set; } = true;
+        public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     }
 }

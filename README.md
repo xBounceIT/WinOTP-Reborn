@@ -25,13 +25,13 @@ A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windo
 ## Requirements
 
 - Windows 11 (Build 19041 or later)
-- [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for building from source
 
 ## Installation
 
 ### Download Pre-built Binary
 
-Download the latest release from the [Releases](https://github.com/xBounceIT/WinOTP-Reborn/releases) page.
+Download the latest release from the [Releases](https://github.com/xBounceIT/WinOTP-Reborn/releases) page. The installer packages the required .NET and Windows App SDK runtime files for the target architecture.
 
 ### Build from Source
 
@@ -46,6 +46,31 @@ dotnet build -c Release
 # Run the app
 dotnet run
 ```
+
+### Build Installer
+
+The project version in `WinOTP.csproj` is the source of truth for both the app and installer version.
+
+Prerequisites:
+
+- Windows PowerShell
+- .NET SDK installed at `C:\Program Files\dotnet\dotnet.exe`
+- Inno Setup 6 installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
+
+Run the packaging script from Windows PowerShell:
+
+```powershell
+.\scripts\Build-Installer.ps1 -Architecture x64
+```
+
+Build an ARM64 installer:
+
+```powershell
+.\scripts\Build-Installer.ps1 -Architecture arm64
+```
+
+The script publishes a self-contained app payload, reads the version from `WinOTP.csproj`, and passes it into `installer/WinOTP.iss`.
+The raw project version is kept for installer metadata, while the generated installer filename uses a normalized version that strips any leading `v` and SemVer build metadata so release assets match the updater's expected naming.
 
 ## Usage
 
@@ -78,7 +103,7 @@ Click the trash icon next to an account and confirm the deletion. The account an
 ### Backing Up Tokens
 
 - Open **Settings** to enable automatic backups
-- Automatic backups are password-protected and stored in `%LocalAppData%\\WinOTP\\Backups` by default
+- Automatic backups are password-protected and stored in `%LocalAppData%\\WinOTP_Reborn\\Backups` by default
 - You can choose a custom folder for automatic backups from **Settings**
 - Manual **Export backup** writes a `.wotpbackup` file to a location you choose
 - Manual **Import backup** restores tokens from a `.wotpbackup` file using its password

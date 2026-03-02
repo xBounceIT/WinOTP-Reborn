@@ -45,6 +45,7 @@
 
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem
+                    x:Name="SettingsNavItem"
                     Content="Settings"
                     Tag="Settings">
                     <NavigationViewItem.Icon>

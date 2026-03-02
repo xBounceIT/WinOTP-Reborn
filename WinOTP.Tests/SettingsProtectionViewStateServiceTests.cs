@@ -1,5 +1,6 @@
 #pragma warning disable CS0067
 using Windows.Security.Credentials.UI;
+using WinOTP.Models;
 using WinOTP.Services;
 using Xunit;
 
@@ -98,6 +99,8 @@ public sealed class SettingsProtectionViewStateServiceTests
         public int AutoLockTimeoutMinutes { get; set; }
         public bool IsAutomaticBackupEnabled { get; set; }
         public string CustomBackupFolderPath { get; set; } = string.Empty;
+        public bool IsUpdateCheckEnabled { get; set; } = true;
+        public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
         public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
     }
 

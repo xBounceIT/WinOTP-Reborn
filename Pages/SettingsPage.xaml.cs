@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.ApplicationModel;
 using Windows.Security.Credentials.UI;
 using Windows.System;
 using WinOTP.Helpers;
@@ -12,6 +13,7 @@ public sealed partial class SettingsPage : Page
 {
     private const string RepositoryUrl = "https://github.com/xBounceIT/WinOTP-Reborn";
     private readonly IAppSettingsService _appSettings;
+    private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
     private readonly IBackupService _backupService;
     private bool _isInitializingToggle;
@@ -20,12 +22,14 @@ public sealed partial class SettingsPage : Page
     {
         this.InitializeComponent();
         _appSettings = App.Current.AppSettings;
+        _appUpdate = App.Current.AppUpdate;
         _appLock = App.Current.AppLock;
         _backupService = App.Current.BackupService;
 
-        VersionTextBlock.Text = VersionHelper.GetAppVersion();
+        CurrentVersionTextBlock.Text = VersionHelper.GetAppVersion();
         RefreshBackupFolderUi();
         Loaded += SettingsPage_Loaded;
+        Unloaded += SettingsPage_Unloaded;
     }
 
     private async void GoToRepositoryButton_Click(object sender, RoutedEventArgs e)
@@ -36,7 +40,14 @@ public sealed partial class SettingsPage : Page
 
     private async void SettingsPage_Loaded(object sender, RoutedEventArgs e)
     {
+        _appUpdate.StateChanged += AppUpdate_StateChanged;
         await LoadSettingsAsync();
+        ApplyUpdateState(_appUpdate.CurrentState);
+    }
+
+    private void SettingsPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        _appUpdate.StateChanged -= AppUpdate_StateChanged;
     }
 
     private async Task LoadSettingsAsync()
@@ -51,6 +62,8 @@ public sealed partial class SettingsPage : Page
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
             WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
             AutomaticBackupToggle.IsOn = _appSettings.IsAutomaticBackupEnabled;
+            UpdateCheckToggle.IsOn = _appSettings.IsUpdateCheckEnabled;
+            UpdateChannelComboBox.SelectedIndex = _appSettings.UpdateChannel == UpdateChannel.PreRelease ? 1 : 0;
 
             var timeout = _appSettings.AutoLockTimeoutMinutes;
             for (int i = 0; i < AutoLockComboBox.Items.Count; i++)
@@ -109,6 +122,75 @@ public sealed partial class SettingsPage : Page
         }
 
         _appSettings.ShowNextCodeWhenFiveSecondsRemain = ShowNextCodeToggle.IsOn;
+    }
+
+    private async void UpdateCheckToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        _appSettings.IsUpdateCheckEnabled = UpdateCheckToggle.IsOn;
+        if (UpdateCheckToggle.IsOn)
+        {
+            await _appUpdate.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        }
+    }
+
+    private async void UpdateChannelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitializingToggle || UpdateChannelComboBox.SelectedIndex < 0)
+        {
+            return;
+        }
+
+        var selectedChannel = UpdateChannelComboBox.SelectedIndex == 1
+            ? UpdateChannel.PreRelease
+            : UpdateChannel.Stable;
+
+        if (_appSettings.UpdateChannel == selectedChannel)
+        {
+            return;
+        }
+
+        _appSettings.UpdateChannel = selectedChannel;
+        await _appUpdate.CheckForUpdatesAsync(UpdateCheckTrigger.ChannelChanged);
+    }
+
+    private async void CheckNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        await _appUpdate.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        var state = _appUpdate.CurrentState;
+        if (!string.IsNullOrWhiteSpace(state.LastError) && !state.IsUpdateAvailable)
+        {
+            await ShowErrorDialog(state.LastError);
+        }
+    }
+
+    private async void DownloadAndInstallButton_Click(object sender, RoutedEventArgs e)
+    {
+        var downloadResult = await _appUpdate.DownloadInstallerAsync();
+        if (!downloadResult.Success)
+        {
+            await ShowErrorDialog(downloadResult.ErrorMessage ?? "The update installer could not be downloaded.");
+            return;
+        }
+
+        var confirmed = await ShowUpdateInstallConfirmationDialogAsync(downloadResult);
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var launchResult = await _appUpdate.LaunchInstallerAsync(downloadResult);
+        if (!launchResult.Success)
+        {
+            await ShowErrorDialog(launchResult.ErrorMessage ?? "The update installer could not be launched.");
+            return;
+        }
+
+        App.Current.MainWindow?.Close();
     }
 
     private async void AutomaticBackupToggle_Toggled(object sender, RoutedEventArgs e)
@@ -932,6 +1014,82 @@ public sealed partial class SettingsPage : Page
         AutomaticBackupToggle.IsOn = isOn;
         _isInitializingToggle = false;
         await Task.CompletedTask;
+    }
+
+    private void AppUpdate_StateChanged(object? sender, UpdateStateChangedEventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() => ApplyUpdateState(e.State));
+    }
+
+    private void ApplyUpdateState(UpdateState state)
+    {
+        UpdateAvailabilityBadge.Visibility = state.IsUpdateAvailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        UpdateProgressRing.IsActive = state.IsBusy;
+        UpdateProgressRing.Visibility = state.IsBusy
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        UpdateStatusTextBlock.Text = state.StatusMessage;
+        LatestVersionRow.Visibility = state.AvailableUpdate is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        LatestVersionTextBlock.Text = state.AvailableUpdate?.DisplayVersion ?? string.Empty;
+
+        UpdateErrorTextBlock.Visibility = string.IsNullOrWhiteSpace(state.LastError)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        UpdateErrorTextBlock.Text = state.LastError ?? string.Empty;
+
+        UpdateCheckToggle.IsEnabled = !state.IsBusy;
+        UpdateChannelComboBox.IsEnabled = !state.IsBusy;
+        CheckNowButton.IsEnabled = !state.IsBusy;
+        Grid.SetColumnSpan(CheckNowButton, state.IsUpdateAvailable ? 1 : 2);
+        DownloadAndInstallButton.Visibility = state.IsUpdateAvailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DownloadAndInstallButton.IsEnabled = state.IsUpdateAvailable && !state.IsBusy;
+    }
+
+    private async Task<bool> ShowUpdateInstallConfirmationDialogAsync(UpdateDownloadResult downloadResult)
+    {
+        var update = downloadResult.Update
+            ?? throw new InvalidOperationException("Update metadata is required before launching the installer.");
+
+        var digestMessage = downloadResult.IsDigestVerified
+            ? "Installer SHA-256 digest verified."
+            : "GitHub did not provide a SHA-256 digest for this installer.";
+
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"Version {update.DisplayVersion} is ready to install.",
+            TextWrapping = TextWrapping.WrapWholeWords
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = digestMessage,
+            TextWrapping = TextWrapping.WrapWholeWords
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "The installer will open and WinOTP will close so the upgrade can continue.",
+            TextWrapping = TextWrapping.WrapWholeWords
+        });
+
+        var dialog = new ContentDialog
+        {
+            Title = "Install update",
+            Content = panel,
+            PrimaryButtonText = "Install",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private async Task ShowErrorDialog(string message)
