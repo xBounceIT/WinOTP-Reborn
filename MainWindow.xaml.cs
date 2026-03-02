@@ -11,6 +11,7 @@ namespace WinOTP;
 public sealed partial class MainWindow : Window
 {
     private readonly IAppSettingsService _appSettings;
+    private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
     private readonly IAutoLockService _autoLock;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
@@ -31,6 +32,7 @@ public sealed partial class MainWindow : Window
         this.InitializeComponent();
 
         _appSettings = App.Current.AppSettings;
+        _appUpdate = App.Current.AppUpdate;
         _appLock = App.Current.AppLock;
         _dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
@@ -40,6 +42,7 @@ public sealed partial class MainWindow : Window
         _autoLock.SetDispatcherQueue(_dispatcherQueue);
         _autoLock.LockRequested += OnAutoLockRequested;
         _appSettings.SettingsChanged += OnAppSettingsChanged;
+        _appUpdate.StateChanged += OnAppUpdateStateChanged;
         Activated += MainWindow_Activated;
 
         // Custom title bar
@@ -61,6 +64,7 @@ public sealed partial class MainWindow : Window
 
         // Frame navigation tracking
         ContentFrame.Navigated += ContentFrame_Navigated;
+        UpdateSettingsNavBadge(_appUpdate.CurrentState);
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -104,6 +108,7 @@ public sealed partial class MainWindow : Window
     private async Task InitializeAsync()
     {
         await EvaluateProtectionStateAsync();
+        _ = _appUpdate.InitializeAsync();
     }
 
     private async Task EvaluateProtectionStateAsync()
@@ -468,6 +473,11 @@ public sealed partial class MainWindow : Window
         });
     }
 
+    private void OnAppUpdateStateChanged(object? sender, UpdateStateChangedEventArgs e)
+    {
+        _dispatcherQueue.TryEnqueue(() => UpdateSettingsNavBadge(e.State));
+    }
+
     private void AttachGlobalActivityHandlers(UIElement element)
     {
         element.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(OnGlobalPointerActivity), true);
@@ -500,6 +510,13 @@ public sealed partial class MainWindow : Window
             or nameof(IAppSettingsService.IsPasswordProtectionEnabled)
             or nameof(IAppSettingsService.IsWindowsHelloEnabled)
             or nameof(IAppSettingsService.AutoLockTimeoutMinutes);
+    }
+
+    private void UpdateSettingsNavBadge(UpdateState state)
+    {
+        SettingsNavItem.InfoBadge = state.IsUpdateAvailable
+            ? new InfoBadge()
+            : null;
     }
 
     private async Task<ResolvedProtectionState> ResolveProtectionStateAsync()

@@ -133,6 +133,145 @@
                 </StackPanel>
             </Border>
 
+            <!-- Update Settings -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel
+                            Grid.Column="0"
+                            Orientation="Horizontal"
+                            Spacing="8">
+                            <TextBlock
+                                Text="Check for updates"
+                                Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <InfoBadge
+                                x:Name="UpdateAvailabilityBadge"
+                                Visibility="Collapsed" />
+                        </StackPanel>
+                        <ProgressRing
+                            x:Name="UpdateProgressRing"
+                            Grid.Column="1"
+                            Width="20"
+                            Height="20"
+                            IsActive="False"
+                            Visibility="Collapsed" />
+                    </Grid>
+
+                    <ToggleSwitch
+                        x:Name="UpdateCheckToggle"
+                        Header="Automatically check on startup"
+                        Toggled="UpdateCheckToggle_Toggled" />
+                    <ComboBox
+                        x:Name="UpdateChannelComboBox"
+                        Header="Update channel"
+                        Width="200"
+                        HorizontalAlignment="Left"
+                        SelectionChanged="UpdateChannelComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Stable" />
+                        <ComboBoxItem Content="Pre-release" />
+                    </ComboBox>
+                    <TextBlock
+                        Text="Stable checks published releases only. Pre-release also includes prerelease tags on GitHub."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="Current version"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center" />
+                        <TextBlock
+                            Grid.Column="1"
+                            x:Name="CurrentVersionTextBlock"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Opacity="0.8" />
+                    </Grid>
+
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="Status"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center" />
+                        <TextBlock
+                            Grid.Column="1"
+                            x:Name="UpdateStatusTextBlock"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Opacity="0.8"
+                            TextWrapping="WrapWholeWords" />
+                    </Grid>
+
+                    <Grid
+                        x:Name="LatestVersionRow"
+                        HorizontalAlignment="Stretch"
+                        Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="Latest version"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            VerticalAlignment="Center" />
+                        <TextBlock
+                            Grid.Column="1"
+                            x:Name="LatestVersionTextBlock"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Opacity="0.8" />
+                    </Grid>
+
+                    <TextBlock
+                        x:Name="UpdateErrorTextBlock"
+                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="Collapsed" />
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            Grid.Column="0"
+                            x:Name="CheckNowButton"
+                            Click="CheckNowButton_Click"
+                            HorizontalAlignment="Stretch"
+                            Content="Check now" />
+                        <Button
+                            Grid.Column="1"
+                            x:Name="DownloadAndInstallButton"
+                            Click="DownloadAndInstallButton_Click"
+                            HorizontalAlignment="Stretch"
+                            Content="Download and install"
+                            Visibility="Collapsed" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- About Card -->
             <Border
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

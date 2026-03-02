@@ -13,6 +13,7 @@ public partial class App : Application
     public ITotpCodeGenerator TotpGenerator { get; } = new TotpCodeGenerator();
     public IAppLockService AppLock { get; } = new AppLockService();
     public IBackupService BackupService { get; }
+    public IAppUpdateService AppUpdate { get; }
     public IAutoLockService? AutoLock { get; private set; }
 
     public App()
@@ -21,6 +22,7 @@ public partial class App : Application
         CredentialManager = new CredentialManagerService(Logger);
         AppSettings = new AppSettingsService();
         BackupService = new BackupService(CredentialManager, AppSettings, Logger);
+        AppUpdate = new AppUpdateService(AppSettings, Logger);
         UnhandledException += OnUnhandledException;
     }
 

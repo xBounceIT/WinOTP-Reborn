@@ -565,6 +565,8 @@ public sealed class BackupServiceTests : IDisposable
         public int AutoLockTimeoutMinutes { get; set; }
         public bool IsAutomaticBackupEnabled { get; set; }
         public string CustomBackupFolderPath { get; set; } = string.Empty;
+        public bool IsUpdateCheckEnabled { get; set; } = true;
+        public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
         public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged
         {
             add { }

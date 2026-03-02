@@ -1,4 +1,5 @@
 using WinOTP.Services;
+using WinOTP.Models;
 using Xunit;
 
 namespace WinOTP.Tests;
@@ -38,6 +39,32 @@ public sealed class AppSettingsServiceTests : IDisposable
         var second = new AppSettingsService(_settingsFilePath);
 
         Assert.Equal(@"C:\Backups\WinOTP", second.CustomBackupFolderPath);
+    }
+
+    [Fact]
+    public void IsUpdateCheckEnabled_DefaultsToTrueAndPersistsAcrossInstances()
+    {
+        var first = new AppSettingsService(_settingsFilePath);
+        Assert.True(first.IsUpdateCheckEnabled);
+
+        first.IsUpdateCheckEnabled = false;
+
+        var second = new AppSettingsService(_settingsFilePath);
+
+        Assert.False(second.IsUpdateCheckEnabled);
+    }
+
+    [Fact]
+    public void UpdateChannel_DefaultsToStableAndPersistsAcrossInstances()
+    {
+        var first = new AppSettingsService(_settingsFilePath);
+        Assert.Equal(UpdateChannel.Stable, first.UpdateChannel);
+
+        first.UpdateChannel = UpdateChannel.PreRelease;
+
+        var second = new AppSettingsService(_settingsFilePath);
+
+        Assert.Equal(UpdateChannel.PreRelease, second.UpdateChannel);
     }
 
     public void Dispose()

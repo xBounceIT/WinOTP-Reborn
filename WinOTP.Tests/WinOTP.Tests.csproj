@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260209005" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="NuGet.Versioning" Version="7.3.0" />
     <PackageReference Include="Otp.NET" Version="1.4.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
@@ -23,12 +24,15 @@
     <Compile Include="..\Models\OtpAccount.cs" Link="Models\OtpAccount.cs" />
     <Compile Include="..\Models\CredentialResults.cs" Link="Models\CredentialResults.cs" />
     <Compile Include="..\Models\BackupResults.cs" Link="Models\BackupResults.cs" />
+    <Compile Include="..\Models\UpdateChannel.cs" Link="Models\UpdateChannel.cs" />
     <Compile Include="..\Helpers\AppPaths.cs" Link="Helpers\AppPaths.cs" />
     <Compile Include="..\Helpers\OtpAccountStorageMapper.cs" Link="Helpers\OtpAccountStorageMapper.cs" />
     <Compile Include="..\Helpers\WinOTPLegacyImportMapper.cs" Link="Helpers\WinOTPLegacyImportMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
+    <Compile Include="..\Helpers\VersionHelper.cs" Link="Helpers\VersionHelper.cs" />
     <Compile Include="..\Services\AppLockOperationResults.cs" Link="Services\AppLockOperationResults.cs" />
     <Compile Include="..\Services\AppSettingsService.cs" Link="Services\AppSettingsService.cs" />
+    <Compile Include="..\Services\AppUpdateService.cs" Link="Services\AppUpdateService.cs" />
     <Compile Include="..\Services\AppLogger.cs" Link="Services\AppLogger.cs" />
     <Compile Include="..\Services\CredentialManagerService.cs" Link="Services\CredentialManagerService.cs" />
     <Compile Include="..\Services\AppLockDecisionResolver.cs" Link="Services\AppLockDecisionResolver.cs" />
