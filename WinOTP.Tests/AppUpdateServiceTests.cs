@@ -167,6 +167,115 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckForUpdatesAsync_ManualNoUpdate_WithAutomaticChecksDisabled_ReportsUpToDate()
+    {
+        var settings = new FakeAppSettingsService
+        {
+            IsUpdateCheckEnabled = false
+        };
+        var handler = new RecordingHttpMessageHandler(_ => CreateJsonResponse("[]"));
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(settings, httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+
+        Assert.Equal(UpdateAvailabilityStatus.UpToDate, service.CurrentState.Status);
+        Assert.Equal("You're up to date.", service.CurrentState.StatusMessage);
+        Assert.False(service.CurrentState.IsAutomaticCheckEnabled);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_ManualFailure_WithAutomaticChecksDisabled_ReportsError()
+    {
+        var settings = new FakeAppSettingsService
+        {
+            IsUpdateCheckEnabled = false
+        };
+        var handler = new RecordingHttpMessageHandler(_ => throw new HttpRequestException("offline"));
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(settings, httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+
+        Assert.Equal(UpdateAvailabilityStatus.Error, service.CurrentState.Status);
+        Assert.Equal("Couldn't check for updates.", service.CurrentState.StatusMessage);
+        Assert.Equal("offline", service.CurrentState.LastError);
+        Assert.False(service.CurrentState.IsAutomaticCheckEnabled);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_ChannelChangedNoUpdate_WithAutomaticChecksDisabled_ReportsUpToDate()
+    {
+        var settings = new FakeAppSettingsService
+        {
+            IsUpdateCheckEnabled = false
+        };
+        var handler = new RecordingHttpMessageHandler(_ => CreateJsonResponse("[]"));
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(settings, httpClient, handler);
+
+        settings.UpdateChannel = UpdateChannel.PreRelease;
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.ChannelChanged);
+
+        Assert.Equal(UpdateChannel.PreRelease, service.CurrentState.SelectedChannel);
+        Assert.Equal(UpdateAvailabilityStatus.UpToDate, service.CurrentState.Status);
+        Assert.Equal("You're up to date.", service.CurrentState.StatusMessage);
+        Assert.False(service.CurrentState.IsAutomaticCheckEnabled);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_ChannelChangedFailure_WithAutomaticChecksDisabled_ReportsError()
+    {
+        var settings = new FakeAppSettingsService
+        {
+            IsUpdateCheckEnabled = false,
+            UpdateChannel = UpdateChannel.PreRelease
+        };
+        var callCount = 0;
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            callCount++;
+            return callCount == 1
+                ? CreateJsonResponse("""
+                [
+                  {
+                    "tag_name": "v1.2.0-beta.1",
+                    "name": "1.2.0-beta.1",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.2.0-beta.1",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.2.0-beta.1-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.2.0-beta.1-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """)
+                : throw new HttpRequestException("offline");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(settings, httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        Assert.True(service.CurrentState.IsUpdateAvailable);
+
+        settings.UpdateChannel = UpdateChannel.Stable;
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.ChannelChanged);
+
+        Assert.Equal(UpdateChannel.Stable, service.CurrentState.SelectedChannel);
+        Assert.False(service.CurrentState.IsUpdateAvailable);
+        Assert.Null(service.CurrentState.AvailableUpdate);
+        Assert.Null(service.CurrentState.DownloadedInstallerPath);
+        Assert.False(service.CurrentState.IsDownloadedAssetDigestVerified);
+        Assert.Equal(UpdateAvailabilityStatus.Error, service.CurrentState.Status);
+        Assert.Equal("Couldn't check for updates.", service.CurrentState.StatusMessage);
+        Assert.Equal("offline", service.CurrentState.LastError);
+        Assert.False(service.CurrentState.IsAutomaticCheckEnabled);
+    }
+
+    [Fact]
     public async Task DownloadInstallerAsync_WithoutDigest_AllowsLaunch()
     {
         var installerBytes = Encoding.UTF8.GetBytes("unsigned-installer");

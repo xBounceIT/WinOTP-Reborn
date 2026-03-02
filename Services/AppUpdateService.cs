@@ -216,12 +216,10 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 {
                     SelectedChannel = _settings.UpdateChannel,
                     IsAutomaticCheckEnabled = _settings.IsUpdateCheckEnabled,
-                    Status = _settings.IsUpdateCheckEnabled ? UpdateAvailabilityStatus.UpToDate : UpdateAvailabilityStatus.Disabled,
+                    Status = UpdateAvailabilityStatus.UpToDate,
                     IsUpdateAvailable = false,
                     IsBusy = false,
-                    StatusMessage = _settings.IsUpdateCheckEnabled
-                        ? "You're up to date."
-                        : "Automatic update checks are turned off.",
+                    StatusMessage = "You're up to date.",
                     LastCheckedUtc = lastCheckedUtc,
                     AvailableUpdate = null,
                     DownloadedInstallerPath = null,
@@ -257,12 +255,10 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 {
                     SelectedChannel = _settings.UpdateChannel,
                     IsAutomaticCheckEnabled = _settings.IsUpdateCheckEnabled,
-                    Status = _settings.IsUpdateCheckEnabled ? UpdateAvailabilityStatus.Error : UpdateAvailabilityStatus.Disabled,
+                    Status = UpdateAvailabilityStatus.Error,
                     IsUpdateAvailable = false,
                     IsBusy = false,
-                    StatusMessage = _settings.IsUpdateCheckEnabled
-                        ? "Couldn't check for updates."
-                        : "Automatic update checks are turned off.",
+                    StatusMessage = "Couldn't check for updates.",
                     LastCheckedUtc = DateTimeOffset.UtcNow,
                     AvailableUpdate = null,
                     DownloadedInstallerPath = null,
@@ -280,14 +276,12 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 IsAutomaticCheckEnabled = _settings.IsUpdateCheckEnabled,
                 Status = hasKnownUpdate
                     ? UpdateAvailabilityStatus.UpdateAvailable
-                    : (_settings.IsUpdateCheckEnabled ? UpdateAvailabilityStatus.Error : UpdateAvailabilityStatus.Disabled),
+                    : UpdateAvailabilityStatus.Error,
                 IsUpdateAvailable = hasKnownUpdate,
                 IsBusy = false,
                 StatusMessage = hasKnownUpdate
                     ? BuildAvailableStatusMessage(current.AvailableUpdate)
-                    : (_settings.IsUpdateCheckEnabled
-                        ? "Couldn't check for updates."
-                        : "Automatic update checks are turned off."),
+                    : "Couldn't check for updates.",
                 LastCheckedUtc = DateTimeOffset.UtcNow,
                 LastError = ex.Message
             });
