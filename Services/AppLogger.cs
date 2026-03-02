@@ -1,4 +1,5 @@
 using System.Text;
+using WinOTP.Helpers;
 
 namespace WinOTP.Services;
 
@@ -18,10 +19,7 @@ public sealed class AppLogger : IAppLogger
 
     public AppLogger()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WinOTP",
-            "logs");
+        var root = AppPaths.GetLogsDirectory();
 
         Directory.CreateDirectory(root);
         _logFilePath = Path.Combine(root, "winotp.log");

@@ -96,6 +96,8 @@ public sealed class SettingsProtectionViewStateServiceTests
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
         public int AutoLockTimeoutMinutes { get; set; }
+        public bool IsAutomaticBackupEnabled { get; set; }
+        public string CustomBackupFolderPath { get; set; } = string.Empty;
         public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
     }
 

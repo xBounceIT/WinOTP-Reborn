@@ -21,6 +21,7 @@ public sealed partial class HomePage : Page
     private readonly IAppSettingsService _appSettings;
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
+    private readonly IBackupService _backupService;
 
     private readonly List<OtpAccount> _allAccounts = new();
     private List<OtpAccount> _accounts = new();
@@ -30,6 +31,7 @@ public sealed partial class HomePage : Page
     private string _searchText = string.Empty;
     private bool _isRefreshSubscribed;
     private bool _isShowingVaultLoadError;
+    private bool _isPageActive;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -47,6 +49,7 @@ public sealed partial class HomePage : Page
         _appSettings = App.Current.AppSettings;
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
+        _backupService = App.Current.BackupService;
 
         OtpGridView.ItemsSource = _accounts;
 
@@ -153,6 +156,7 @@ public sealed partial class HomePage : Page
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
         // Ensure refresh loop is stopped when page leaves visual tree.
+        _isPageActive = false;
         StopRefreshUpdates();
     }
 
@@ -275,6 +279,7 @@ public sealed partial class HomePage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _isPageActive = true;
         StartRefreshUpdates();
 
         try
@@ -290,6 +295,7 @@ public sealed partial class HomePage : Page
                 else
                 {
                     AddFlowNavigationHelper.RemoveCompletedAddFlowEntries(Frame);
+                    StartAutomaticBackup("account save");
                 }
             }
             else if (e.Parameter is string parameter &&
@@ -309,6 +315,7 @@ public sealed partial class HomePage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        _isPageActive = false;
         StopRefreshUpdates();
         base.OnNavigatedFrom(e);
     }
@@ -526,5 +533,43 @@ public sealed partial class HomePage : Page
 
         _allAccounts.Remove(account);
         ApplyFilterAndSort();
+        StartAutomaticBackup("account deletion");
+    }
+
+    private void StartAutomaticBackup(string reason)
+    {
+        if (!_appSettings.IsAutomaticBackupEnabled)
+        {
+            return;
+        }
+
+        _ = TryCreateAutomaticBackupAsync(reason);
+    }
+
+    private async Task TryCreateAutomaticBackupAsync(string reason)
+    {
+        try
+        {
+            var backupResult = await _backupService.CreateAutomaticBackupAsync();
+            if (backupResult.Success)
+            {
+                return;
+            }
+
+            _logger.Warn($"Automatic backup failed after {reason}: {backupResult.ErrorCode} - {backupResult.Message}");
+            DispatcherQueue?.TryEnqueue(() =>
+            {
+                if (!_isPageActive || XamlRoot == null)
+                {
+                    return;
+                }
+
+                ShowOperationError($"Automatic backup failed: {backupResult.Message}");
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Unhandled exception while creating automatic backup after {reason}.", ex);
+        }
     }
 }

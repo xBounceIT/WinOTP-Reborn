@@ -71,6 +71,68 @@
                 </StackPanel>
             </Border>
 
+            <!-- Backup Settings -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        Text="Backup"
+                        Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch
+                        x:Name="AutomaticBackupToggle"
+                        Header="Enable automatic backup"
+                        Toggled="AutomaticBackupToggle_Toggled" />
+                    <TextBlock
+                        Text="Password-protected backups are stored locally whenever your tokens change."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Name="BackupFolderPathTextBlock"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            Grid.Column="0"
+                            x:Name="BrowseBackupFolderButton"
+                            Click="BrowseBackupFolderButton_Click"
+                            HorizontalAlignment="Stretch"
+                            Content="Browse" />
+                        <Button
+                            Grid.Column="1"
+                            x:Name="ResetBackupFolderButton"
+                            Click="ResetBackupFolderButton_Click"
+                            HorizontalAlignment="Stretch"
+                            Content="Reset to default" />
+                    </Grid>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            Grid.Column="0"
+                            x:Name="ImportBackupButton"
+                            Click="ImportBackupButton_Click"
+                            HorizontalAlignment="Stretch"
+                            Content="Import backup" />
+                        <Button
+                            Grid.Column="1"
+                            x:Name="ExportBackupButton"
+                            Click="ExportBackupButton_Click"
+                            HorizontalAlignment="Stretch"
+                            Content="Export backup" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- About Card -->
             <Border
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
