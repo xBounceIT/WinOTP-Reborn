@@ -206,6 +206,66 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchInstallerAsync_WithMatchingDigest_RevalidatesAndStartsProcess()
+    {
+        var installerBytes = Encoding.UTF8.GetBytes("verified-installer");
+        var installerDigest = Convert.ToHexString(SHA256.HashData(installerBytes)).ToLowerInvariant();
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains("/releases", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse($$"""
+                [
+                  {
+                    "tag_name": "v1.1.0",
+                    "name": "1.1.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.1.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.1.0-win-x64-setup.exe",
+                        "digest": "sha256:{{installerDigest}}"
+                      }
+                    ]
+                  }
+                ]
+                """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(installerBytes)
+            };
+        });
+        using var httpClient = new HttpClient(handler);
+        ProcessStartInfo? capturedStartInfo = null;
+        var processStartCallCount = 0;
+        var service = CreateService(
+            new FakeAppSettingsService(),
+            httpClient,
+            handler,
+            startInfo =>
+            {
+                processStartCallCount++;
+                capturedStartInfo = startInfo;
+                return Process.GetCurrentProcess();
+            });
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        var download = await service.DownloadInstallerAsync();
+        var launch = await service.LaunchInstallerAsync(download);
+
+        Assert.True(download.Success);
+        Assert.True(download.IsDigestVerified);
+        Assert.True(launch.Success);
+        Assert.Equal(1, processStartCallCount);
+        Assert.NotNull(capturedStartInfo);
+        Assert.Equal("/CURRENTUSER /SP- /LOG", capturedStartInfo!.Arguments);
+    }
+
+    [Fact]
     public async Task CheckForUpdatesAsync_ManualNoUpdate_WithAutomaticChecksDisabled_ReportsUpToDate()
     {
         var settings = new FakeAppSettingsService
@@ -529,6 +589,70 @@ public sealed class AppUpdateServiceTests : IDisposable
         Assert.True(launch.Success);
         Assert.NotNull(capturedStartInfo);
         Assert.Equal("/CURRENTUSER /SP- /LOG", capturedStartInfo!.Arguments);
+    }
+
+    [Fact]
+    public async Task LaunchInstallerAsync_WithTamperedSignedInstaller_ReturnsFailureAndDoesNotStartProcess()
+    {
+        var installerBytes = Encoding.UTF8.GetBytes("verified-installer");
+        var installerDigest = Convert.ToHexString(SHA256.HashData(installerBytes)).ToLowerInvariant();
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains("/releases", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse($$"""
+                [
+                  {
+                    "tag_name": "v1.1.0",
+                    "name": "1.1.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.1.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.1.0-win-x64-setup.exe",
+                        "digest": "sha256:{{installerDigest}}"
+                      }
+                    ]
+                  }
+                ]
+                """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(installerBytes)
+            };
+        });
+        using var httpClient = new HttpClient(handler);
+        var processStartCallCount = 0;
+        var service = CreateService(
+            new FakeAppSettingsService(),
+            httpClient,
+            handler,
+            _ =>
+            {
+                processStartCallCount++;
+                return Process.GetCurrentProcess();
+            });
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        var download = await service.DownloadInstallerAsync();
+        Assert.NotNull(download.FilePath);
+
+        File.WriteAllBytes(download.FilePath!, Encoding.UTF8.GetBytes("tampered-installer"));
+
+        var launch = await service.LaunchInstallerAsync(download);
+
+        Assert.False(launch.Success);
+        Assert.Equal("The downloaded installer failed SHA-256 verification.", launch.ErrorMessage);
+        Assert.Equal(0, processStartCallCount);
+        Assert.False(File.Exists(download.FilePath!));
+        Assert.Null(service.CurrentState.DownloadedInstallerPath);
+        Assert.False(service.CurrentState.IsDownloadedAssetDigestVerified);
+        Assert.Equal(UpdateAvailabilityStatus.UpdateAvailable, service.CurrentState.Status);
+        Assert.Equal("The downloaded installer failed SHA-256 verification.", service.CurrentState.LastError);
     }
 
     [Fact]

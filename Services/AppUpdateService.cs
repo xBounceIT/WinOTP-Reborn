@@ -411,24 +411,65 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
         }
     }
 
-    public Task<UpdateInstallLaunchResult> LaunchInstallerAsync(
+    public async Task<UpdateInstallLaunchResult> LaunchInstallerAsync(
         UpdateDownloadResult downloadResult,
         CancellationToken cancellationToken = default)
     {
-        _ = cancellationToken;
-
         if (!downloadResult.Success || string.IsNullOrWhiteSpace(downloadResult.FilePath))
         {
-            return Task.FromResult(new UpdateInstallLaunchResult(false, downloadResult.ErrorMessage ?? "The installer is not ready."));
+            return new UpdateInstallLaunchResult(false, downloadResult.ErrorMessage ?? "The installer is not ready.");
         }
 
         if (!File.Exists(downloadResult.FilePath))
         {
-            return Task.FromResult(new UpdateInstallLaunchResult(false, "The downloaded installer could not be found."));
+            return new UpdateInstallLaunchResult(false, "The downloaded installer could not be found.");
         }
 
         try
         {
+            var current = CurrentState;
+            var update = downloadResult.Update ?? current.AvailableUpdate;
+            var expectedSha256 = update?.InstallerSha256;
+            if (!string.IsNullOrWhiteSpace(expectedSha256))
+            {
+                var digestResult = await ValidateDownloadedFileAsync(downloadResult.FilePath, expectedSha256, cancellationToken);
+                if (!digestResult.IsValid)
+                {
+                    TryDeleteFile(downloadResult.FilePath);
+
+                    if (update is not null)
+                    {
+                        SetState(current with
+                        {
+                            Status = UpdateAvailabilityStatus.UpdateAvailable,
+                            IsUpdateAvailable = true,
+                            IsBusy = false,
+                            StatusMessage = BuildAvailableStatusMessage(update),
+                            AvailableUpdate = update,
+                            DownloadedInstallerPath = null,
+                            IsDownloadedAssetDigestVerified = false,
+                            LastError = digestResult.ErrorMessage
+                        });
+                    }
+                    else
+                    {
+                        SetState(current with
+                        {
+                            Status = UpdateAvailabilityStatus.Error,
+                            IsUpdateAvailable = false,
+                            IsBusy = false,
+                            StatusMessage = "The installer is not ready.",
+                            AvailableUpdate = null,
+                            DownloadedInstallerPath = null,
+                            IsDownloadedAssetDigestVerified = false,
+                            LastError = digestResult.ErrorMessage
+                        });
+                    }
+
+                    return new UpdateInstallLaunchResult(false, digestResult.ErrorMessage);
+                }
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = downloadResult.FilePath,
@@ -440,11 +481,11 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
             var process = _processStarter(startInfo);
             if (process is null)
             {
-                return Task.FromResult(new UpdateInstallLaunchResult(false, "The installer could not be started."));
+                return new UpdateInstallLaunchResult(false, "The installer could not be started.");
             }
 
             _logger.Info($"Launched installer {downloadResult.FilePath}.");
-            return Task.FromResult(new UpdateInstallLaunchResult(true, null));
+            return new UpdateInstallLaunchResult(true, null);
         }
         catch (Exception ex)
         {
@@ -456,7 +497,7 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 LastError = ex.Message
             });
 
-            return Task.FromResult(new UpdateInstallLaunchResult(false, ex.Message));
+            return new UpdateInstallLaunchResult(false, ex.Message);
         }
     }
 
