@@ -103,7 +103,7 @@ Click the trash icon next to an account and confirm the deletion. The account an
 ### Backing Up Tokens
 
 - Open **Settings** to enable automatic backups
-- Automatic backups are password-protected and stored in `%LocalAppData%\\WinOTP\\Backups` by default
+- Automatic backups are password-protected and stored in `%LocalAppData%\\WinOTP_Reborn\\Backups` by default
 - You can choose a custom folder for automatic backups from **Settings**
 - Manual **Export backup** writes a `.wotpbackup` file to a location you choose
 - Manual **Import backup** restores tokens from a `.wotpbackup` file using its password

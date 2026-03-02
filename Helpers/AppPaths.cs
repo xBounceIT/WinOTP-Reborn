@@ -6,7 +6,7 @@ internal static class AppPaths
     {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WinOTP");
+            "WinOTP_Reborn");
     }
 
     public static string GetSettingsFilePath()
