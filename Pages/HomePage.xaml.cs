@@ -31,6 +31,7 @@ public sealed partial class HomePage : Page
     private string _searchText = string.Empty;
     private bool _isRefreshSubscribed;
     private bool _isShowingVaultLoadError;
+    private bool _isPageActive;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -155,6 +156,7 @@ public sealed partial class HomePage : Page
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
         // Ensure refresh loop is stopped when page leaves visual tree.
+        _isPageActive = false;
         StopRefreshUpdates();
     }
 
@@ -277,6 +279,7 @@ public sealed partial class HomePage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _isPageActive = true;
         StartRefreshUpdates();
 
         try
@@ -292,7 +295,7 @@ public sealed partial class HomePage : Page
                 else
                 {
                     AddFlowNavigationHelper.RemoveCompletedAddFlowEntries(Frame);
-                    await TryCreateAutomaticBackupAsync("account save");
+                    StartAutomaticBackup("account save");
                 }
             }
             else if (e.Parameter is string parameter &&
@@ -312,6 +315,7 @@ public sealed partial class HomePage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        _isPageActive = false;
         StopRefreshUpdates();
         base.OnNavigatedFrom(e);
     }
@@ -529,21 +533,43 @@ public sealed partial class HomePage : Page
 
         _allAccounts.Remove(account);
         ApplyFilterAndSort();
-        await TryCreateAutomaticBackupAsync("account deletion");
+        StartAutomaticBackup("account deletion");
     }
 
-    private async Task TryCreateAutomaticBackupAsync(string reason)
+    private void StartAutomaticBackup(string reason)
     {
         if (!_appSettings.IsAutomaticBackupEnabled)
         {
             return;
         }
 
-        var backupResult = await _backupService.CreateAutomaticBackupAsync();
-        if (!backupResult.Success)
+        _ = TryCreateAutomaticBackupAsync(reason);
+    }
+
+    private async Task TryCreateAutomaticBackupAsync(string reason)
+    {
+        try
         {
+            var backupResult = await _backupService.CreateAutomaticBackupAsync();
+            if (backupResult.Success)
+            {
+                return;
+            }
+
             _logger.Warn($"Automatic backup failed after {reason}: {backupResult.ErrorCode} - {backupResult.Message}");
-            ShowOperationError($"Automatic backup failed: {backupResult.Message}");
+            DispatcherQueue?.TryEnqueue(() =>
+            {
+                if (!_isPageActive || XamlRoot == null)
+                {
+                    return;
+                }
+
+                ShowOperationError($"Automatic backup failed: {backupResult.Message}");
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Unhandled exception while creating automatic backup after {reason}.", ex);
         }
     }
 }

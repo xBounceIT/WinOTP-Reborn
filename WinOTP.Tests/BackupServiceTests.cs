@@ -116,6 +116,33 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateAutomaticBackupAsync_WhenRunConcurrently_WritesDistinctAutomaticBackups()
+    {
+        var manager = new FakeCredentialManagerService();
+        manager.SaveAccount(new OtpAccount
+        {
+            Id = "acct-1",
+            Issuer = "ACME",
+            AccountName = "jdoe@example.com",
+            Secret = "JBSWY3DPEHPK3PXP"
+        });
+
+        var service = CreateService(credentialManager: manager);
+        await service.SetAutomaticBackupPasswordAsync("backup-pass-1");
+
+        var results = await Task.WhenAll(
+            service.CreateAutomaticBackupAsync(),
+            service.CreateAutomaticBackupAsync());
+
+        Assert.All(results, result => Assert.True(result.Success));
+
+        var automaticFiles = Directory.GetFiles(_defaultBackupDirectoryPath, "auto-*.wotpbackup");
+
+        Assert.Equal(2, automaticFiles.Length);
+        Assert.Equal(2, automaticFiles.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
     public async Task ExportBackupAsync_ThenImportBackupAsync_RoundTripsAccounts()
     {
         var credentialManager = new FakeCredentialManagerService();
@@ -273,6 +300,40 @@ public sealed class BackupServiceTests : IDisposable
 
         Assert.False(importResult.Success);
         Assert.Equal(BackupOperationErrorCode.InvalidFormat, importResult.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ImportBackupAsync_UnsupportedLowerIterationCount_ReturnsInvalidFormatWithoutWrites()
+    {
+        var exportPath = await CreateValidBackupAsync("unsupported-lower-iterations.wotpbackup");
+        await MutateBackupAsync(exportPath, root =>
+        {
+            ((JsonObject)root["encryption"]!)["iterations"] = 100000;
+        });
+
+        var importManager = new FakeCredentialManagerService();
+        var importResult = await CreateService(credentialManager: importManager).ImportBackupAsync(exportPath, "backup-pass-1");
+
+        Assert.False(importResult.Success);
+        Assert.Equal(BackupOperationErrorCode.InvalidFormat, importResult.ErrorCode);
+        Assert.Empty((await importManager.LoadAccountsAsync()).Accounts);
+    }
+
+    [Fact]
+    public async Task ImportBackupAsync_ExcessiveIterationCount_ReturnsInvalidFormatWithoutWrites()
+    {
+        var exportPath = await CreateValidBackupAsync("unsupported-high-iterations.wotpbackup");
+        await MutateBackupAsync(exportPath, root =>
+        {
+            ((JsonObject)root["encryption"]!)["iterations"] = 150001;
+        });
+
+        var importManager = new FakeCredentialManagerService();
+        var importResult = await CreateService(credentialManager: importManager).ImportBackupAsync(exportPath, "backup-pass-1");
+
+        Assert.False(importResult.Success);
+        Assert.Equal(BackupOperationErrorCode.InvalidFormat, importResult.ErrorCode);
+        Assert.Empty((await importManager.LoadAccountsAsync()).Accounts);
     }
 
     [Fact]

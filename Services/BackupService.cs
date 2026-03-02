@@ -47,6 +47,7 @@ public sealed class BackupService : IBackupService
     private readonly IPasswordVaultAdapter _vault;
     private readonly IFileSystem _fileSystem;
     private readonly string _defaultBackupDirectoryPath;
+    private readonly SemaphoreSlim _automaticBackupSemaphore = new(1, 1);
 
     private sealed record DecodedBackupEnvelope(
         byte[] Salt,
@@ -219,18 +220,29 @@ public sealed class BackupService : IBackupService
             return BackupOperationResult.Fail(BackupOperationErrorCode.FileAccessFailed, folderValidation.Message);
         }
 
-        var timestamp = DateTime.UtcNow;
-        var fileName = $"{AutomaticBackupPrefix}{timestamp:yyyyMMddTHHmmssZ}{BackupExtension}";
-        var destinationPath = GetUniquePath(Path.Combine(folderValidation.ResolvedPath, fileName));
-
-        var result = await ExportBackupCoreAsync(destinationPath, password);
-        if (!result.Success)
+        return await Task.Run(async () =>
         {
-            return result;
-        }
+            await _automaticBackupSemaphore.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var timestamp = DateTime.UtcNow;
+                var fileName = $"{AutomaticBackupPrefix}{timestamp:yyyyMMddTHHmmssZ}{BackupExtension}";
+                var destinationPath = GetUniquePath(Path.Combine(folderValidation.ResolvedPath, fileName));
 
-        PruneAutomaticBackups(folderValidation.ResolvedPath);
-        return result;
+                var result = await ExportBackupCoreAsync(destinationPath, password).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    return result;
+                }
+
+                PruneAutomaticBackups(folderValidation.ResolvedPath);
+                return result;
+            }
+            finally
+            {
+                _automaticBackupSemaphore.Release();
+            }
+        }).ConfigureAwait(false);
     }
 
     public Task<BackupOperationResult> ExportBackupAsync(string destinationFilePath, string? passwordOverride = null)
@@ -285,7 +297,18 @@ public sealed class BackupService : IBackupService
             return BackupImportResult.Fail(BackupOperationErrorCode.InvalidFormat, "The backup file is not valid.");
         }
 
-        if (envelope == null || !IsSupportedEnvelope(envelope))
+        if (envelope == null)
+        {
+            return BackupImportResult.Fail(BackupOperationErrorCode.InvalidFormat, "The backup file format is not supported.");
+        }
+
+        if (!HasSupportedIterations(envelope))
+        {
+            _logger.Warn($"Backup file '{sourceFilePath}' uses unsupported PBKDF2 iteration count '{envelope.Encryption?.Iterations}'.");
+            return BackupImportResult.Fail(BackupOperationErrorCode.InvalidFormat, "The backup file format is not supported.");
+        }
+
+        if (!IsSupportedEnvelope(envelope))
         {
             return BackupImportResult.Fail(BackupOperationErrorCode.InvalidFormat, "The backup file format is not supported.");
         }
@@ -530,8 +553,16 @@ public sealed class BackupService : IBackupService
             envelope.Version == 1 &&
             envelope.Encryption != null &&
             string.Equals(envelope.Encryption.Scheme, "PBKDF2-SHA256-AES-256-GCM", StringComparison.Ordinal) &&
-            envelope.Encryption.Iterations > 0 &&
+            envelope.Encryption.Iterations == Iterations &&
             !string.IsNullOrWhiteSpace(envelope.Ciphertext);
+    }
+
+    private static bool HasSupportedIterations(BackupEnvelope envelope)
+    {
+        return envelope.Version == 1 &&
+            envelope.Encryption != null &&
+            string.Equals(envelope.Encryption.Scheme, "PBKDF2-SHA256-AES-256-GCM", StringComparison.Ordinal) &&
+            envelope.Encryption.Iterations == Iterations;
     }
 
     private static BackupEnvelope EncryptPayload(BackupPayload payload, string password)
