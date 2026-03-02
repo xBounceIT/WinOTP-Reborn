@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using WinOTP.Helpers;
 using WinOTP.Models;
 using WinOTP.Services;
 using Xunit;
@@ -115,6 +116,29 @@ public sealed class AppUpdateServiceTests : IDisposable
 
         Assert.NotNull(result);
         Assert.Equal("1.0.1", result!.DisplayVersion);
+    }
+
+    [Fact]
+    public void SelectAvailableRelease_TagWithBuildMetadata_MatchesNormalizedInstallerAsset()
+    {
+        var releases = new[]
+        {
+            new GitHubReleaseInfo
+            {
+                TagName = "v1.2.3+abc123",
+                Name = "1.2.3+abc123",
+                HtmlUrl = "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.2.3+abc123",
+                IsDraft = false,
+                IsPreRelease = false,
+                Assets = [CreateAsset("WinOTP-1.2.3-win-x64-setup.exe", null)]
+            }
+        };
+
+        var result = AppUpdateService.SelectAvailableRelease(releases, "1.2.2", UpdateChannel.Stable, Architecture.X64);
+
+        Assert.NotNull(result);
+        Assert.Equal("1.2.3", result!.Version.ToNormalizedString());
+        Assert.Equal("WinOTP-1.2.3-win-x64-setup.exe", result.InstallerName);
     }
 
     [Fact]
@@ -628,7 +652,7 @@ public sealed class AppUpdateServiceTests : IDisposable
 
     private static GitHubReleaseInfo CreateRelease(string tagName, bool isPreRelease, string? digest)
     {
-        var normalizedTag = tagName.TrimStart('v', 'V');
+        var normalizedTag = VersionHelper.NormalizeVersionString(tagName);
         return new GitHubReleaseInfo
         {
             TagName = tagName,

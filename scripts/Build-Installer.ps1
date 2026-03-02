@@ -30,6 +30,20 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     throw "Version element was not found in '$projectPath'."
 }
 
+$assetVersion = $version.Trim()
+if ($assetVersion.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $assetVersion = $assetVersion.Substring(1)
+}
+
+$buildMetadataSeparatorIndex = $assetVersion.IndexOf("+", [System.StringComparison]::Ordinal)
+if ($buildMetadataSeparatorIndex -ge 0) {
+    $assetVersion = $assetVersion.Substring(0, $buildMetadataSeparatorIndex)
+}
+
+if ([string]::IsNullOrWhiteSpace($assetVersion)) {
+    throw "Version '$version' could not be normalized for the installer asset filename."
+}
+
 if (Test-Path $publishDir) {
     Remove-Item -Recurse -Force $publishDir
 }
@@ -43,5 +57,6 @@ if (Test-Path $publishDir) {
 
 & $IsccPath $installerScriptPath `
     "/DMyAppVersion=$version" `
+    "/DMyAppAssetVersion=$assetVersion" `
     "/DMyAppArch=$Architecture" `
     "/DPublishDir=$publishDir"

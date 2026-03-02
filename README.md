@@ -69,7 +69,8 @@ Build an ARM64 installer:
 .\scripts\Build-Installer.ps1 -Architecture arm64
 ```
 
-The script publishes a self-contained app payload, reads the version from `WinOTP.csproj`, and passes that version into `installer/WinOTP.iss`.
+The script publishes a self-contained app payload, reads the version from `WinOTP.csproj`, and passes it into `installer/WinOTP.iss`.
+The raw project version is kept for installer metadata, while the generated installer filename uses a normalized version that strips any leading `v` and SemVer build metadata so release assets match the updater's expected naming.
 
 ## Usage
 

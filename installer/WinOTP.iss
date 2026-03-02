@@ -7,6 +7,10 @@
   #error "MyAppVersion must be defined by the build script."
 #endif
 
+#ifndef MyAppAssetVersion
+  #error "MyAppAssetVersion must be defined by the build script."
+#endif
+
 #ifndef MyAppArch
   #define MyAppArch "x64"
 #endif
@@ -35,7 +39,7 @@ PrivilegesRequiredOverridesAllowed=commandline
 ArchitecturesAllowed={#InnoArchitecturesAllowed}
 ArchitecturesInstallIn64BitMode={#InnoArchitecturesAllowed}
 OutputDir=output
-OutputBaseFilename=WinOTP-{#MyAppVersion}-win-{#MyAppArch}-setup
+OutputBaseFilename=WinOTP-{#MyAppAssetVersion}-win-{#MyAppArch}-setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
