@@ -21,6 +21,7 @@ Generated Files/
 
 # Build
 publish/
+installer/output/
 *.nupkg
 *.snupkg
 
