@@ -11,6 +11,7 @@ A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windo
 - **Secure Storage**: TOTP secrets are encrypted and stored using Windows Credential Manager (DPAPI)
 - **QR Code Import**: Scan QR codes from files or screen capture
 - **Manual Entry**: Add accounts manually with support for custom settings
+- **Encrypted Backups**: Create password-protected backup files and optional automatic local backup history
 - **Real-time Codes**: Auto-refreshing TOTP codes with visual countdown timers
 - **Multiple Algorithms**: Supports SHA1, SHA256, and SHA512
 - **Flexible Sorting**: Sort accounts by date added or alphabetically (ascending/descending)
@@ -74,6 +75,14 @@ Use the dropdown menu to sort accounts by:
 
 Click the trash icon next to an account and confirm the deletion. The account and its secret will be permanently removed from Windows Credential Manager.
 
+### Backing Up Tokens
+
+- Open **Settings** to enable automatic backups
+- Automatic backups are password-protected and stored in `%LocalAppData%\\WinOTP\\Backups` by default
+- You can choose a custom folder for automatic backups from **Settings**
+- Manual **Export backup** writes a `.wotpbackup` file to a location you choose
+- Manual **Import backup** restores tokens from a `.wotpbackup` file using its password
+
 ## Security
 
 WinOTP prioritizes the security of your TOTP secrets:
@@ -81,6 +90,7 @@ WinOTP prioritizes the security of your TOTP secrets:
 - **Encryption**: All secrets are encrypted using Windows Data Protection API (DPAPI)
 - **Isolation**: Credentials are stored per Windows user account
 - **No Cloud Sync**: Your secrets never leave your device
+- **Password-Protected Backups**: Backup files are encrypted with a user-provided password
 - **OS-Level Security**: Leverages Windows Credential Manager for secure storage
 
 ## Supported Algorithms
@@ -117,11 +127,13 @@ WinOTP/
 │   └── OtpAccount.cs          # TOTP account model
 ├── Services/
 │   ├── CredentialManagerService.cs  # Secure storage
+│   ├── BackupService.cs             # Encrypted backup import/export
 │   └── TotpCodeGenerator.cs         # TOTP code generation
 ├── Pages/
 │   ├── HomePage.xaml          # Main account list
 │   ├── AddAccountPage.xaml    # Add account methods
 │   ├── ManualEntryPage.xaml   # Manual account entry
+│   ├── SettingsPage.xaml      # Security, display, and backup settings
 │   └── ScreenCaptureOverlay.xaml    # Screen QR capture
 └── Helpers/
     ├── QrCodeHelper.cs        # QR code processing

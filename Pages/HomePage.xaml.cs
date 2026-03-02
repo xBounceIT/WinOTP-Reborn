@@ -21,6 +21,7 @@ public sealed partial class HomePage : Page
     private readonly IAppSettingsService _appSettings;
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
+    private readonly IBackupService _backupService;
 
     private readonly List<OtpAccount> _allAccounts = new();
     private List<OtpAccount> _accounts = new();
@@ -47,6 +48,7 @@ public sealed partial class HomePage : Page
         _appSettings = App.Current.AppSettings;
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
+        _backupService = App.Current.BackupService;
 
         OtpGridView.ItemsSource = _accounts;
 
@@ -290,6 +292,7 @@ public sealed partial class HomePage : Page
                 else
                 {
                     AddFlowNavigationHelper.RemoveCompletedAddFlowEntries(Frame);
+                    await TryCreateAutomaticBackupAsync("account save");
                 }
             }
             else if (e.Parameter is string parameter &&
@@ -526,5 +529,21 @@ public sealed partial class HomePage : Page
 
         _allAccounts.Remove(account);
         ApplyFilterAndSort();
+        await TryCreateAutomaticBackupAsync("account deletion");
+    }
+
+    private async Task TryCreateAutomaticBackupAsync(string reason)
+    {
+        if (!_appSettings.IsAutomaticBackupEnabled)
+        {
+            return;
+        }
+
+        var backupResult = await _backupService.CreateAutomaticBackupAsync();
+        if (!backupResult.Success)
+        {
+            _logger.Warn($"Automatic backup failed after {reason}: {backupResult.ErrorCode} - {backupResult.Message}");
+            ShowOperationError($"Automatic backup failed: {backupResult.Message}");
+        }
     }
 }

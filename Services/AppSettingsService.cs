@@ -1,4 +1,5 @@
 using System.Text.Json;
+using WinOTP.Helpers;
 
 namespace WinOTP.Services;
 
@@ -9,6 +10,8 @@ public interface IAppSettingsService
     bool IsPasswordProtectionEnabled { get; set; }
     bool IsWindowsHelloEnabled { get; set; }
     int AutoLockTimeoutMinutes { get; set; }
+    bool IsAutomaticBackupEnabled { get; set; }
+    string CustomBackupFolderPath { get; set; }
     event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 }
 
@@ -24,7 +27,6 @@ public sealed class AppSettingsChangedEventArgs : EventArgs
 
 public sealed class AppSettingsService : IAppSettingsService
 {
-    private const string SettingsFileName = "settings.json";
     private static readonly object Sync = new();
     private readonly string _settingsFilePath;
     private bool _showNextCodeWhenFiveSecondsRemain;
@@ -32,17 +34,21 @@ public sealed class AppSettingsService : IAppSettingsService
     private bool _isPasswordProtectionEnabled;
     private bool _isWindowsHelloEnabled;
     private int _autoLockTimeoutMinutes;
+    private bool _isAutomaticBackupEnabled;
+    private string _customBackupFolderPath = string.Empty;
 
     public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 
     public AppSettingsService()
+        : this(AppPaths.GetSettingsFilePath())
     {
-        var settingsDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WinOTP");
+    }
 
+    internal AppSettingsService(string settingsFilePath)
+    {
+        var settingsDirectory = Path.GetDirectoryName(settingsFilePath) ?? AppPaths.GetAppDataDirectory();
         Directory.CreateDirectory(settingsDirectory);
-        _settingsFilePath = Path.Combine(settingsDirectory, SettingsFileName);
+        _settingsFilePath = settingsFilePath;
         
         var loadedSettings = LoadSettings();
         _showNextCodeWhenFiveSecondsRemain = loadedSettings.ShowNextCodeWhenFiveSecondsRemain;
@@ -50,6 +56,8 @@ public sealed class AppSettingsService : IAppSettingsService
         _isPasswordProtectionEnabled = loadedSettings.IsPasswordProtectionEnabled;
         _isWindowsHelloEnabled = loadedSettings.IsWindowsHelloEnabled;
         _autoLockTimeoutMinutes = loadedSettings.AutoLockTimeoutMinutes;
+        _isAutomaticBackupEnabled = loadedSettings.IsAutomaticBackupEnabled;
+        _customBackupFolderPath = NormalizePathSetting(loadedSettings.CustomBackupFolderPath);
     }
 
     public bool ShowNextCodeWhenFiveSecondsRemain
@@ -80,6 +88,18 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _autoLockTimeoutMinutes;
         set => SetIntProperty(ref _autoLockTimeoutMinutes, value, nameof(AutoLockTimeoutMinutes));
+    }
+
+    public bool IsAutomaticBackupEnabled
+    {
+        get => _isAutomaticBackupEnabled;
+        set => SetBooleanProperty(ref _isAutomaticBackupEnabled, value, nameof(IsAutomaticBackupEnabled));
+    }
+
+    public string CustomBackupFolderPath
+    {
+        get => _customBackupFolderPath;
+        set => SetStringProperty(ref _customBackupFolderPath, NormalizePathSetting(value), nameof(CustomBackupFolderPath));
     }
 
     private void SetBooleanProperty(ref bool field, bool value, string propertyName)
@@ -126,6 +146,28 @@ public sealed class AppSettingsService : IAppSettingsService
         }
     }
 
+    private void SetStringProperty(ref string field, string value, string propertyName)
+    {
+        var changed = false;
+
+        lock (Sync)
+        {
+            if (string.Equals(field, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            field = value;
+            SaveSettings(CreateSnapshot());
+            changed = true;
+        }
+
+        if (changed)
+        {
+            SettingsChanged?.Invoke(this, new AppSettingsChangedEventArgs(propertyName));
+        }
+    }
+
     private AppSettingsData LoadSettings()
     {
         lock (Sync)
@@ -155,8 +197,15 @@ public sealed class AppSettingsService : IAppSettingsService
             IsPinProtectionEnabled = _isPinProtectionEnabled,
             IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
             IsWindowsHelloEnabled = _isWindowsHelloEnabled,
-            AutoLockTimeoutMinutes = _autoLockTimeoutMinutes
+            AutoLockTimeoutMinutes = _autoLockTimeoutMinutes,
+            IsAutomaticBackupEnabled = _isAutomaticBackupEnabled,
+            CustomBackupFolderPath = _customBackupFolderPath
         };
+    }
+
+    private static string NormalizePathSetting(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
     private void SaveSettings(AppSettingsData settings)
@@ -179,5 +228,7 @@ public sealed class AppSettingsService : IAppSettingsService
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
         public int AutoLockTimeoutMinutes { get; set; }
+        public bool IsAutomaticBackupEnabled { get; set; }
+        public string CustomBackupFolderPath { get; set; } = string.Empty;
     }
 }

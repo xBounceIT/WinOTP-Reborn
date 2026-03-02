@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Windows.Security.Credentials.UI;
 using Windows.System;
 using WinOTP.Helpers;
+using WinOTP.Models;
 using WinOTP.Services;
 
 namespace WinOTP.Pages;
@@ -12,6 +13,7 @@ public sealed partial class SettingsPage : Page
     private const string RepositoryUrl = "https://github.com/xBounceIT/WinOTP-Reborn";
     private readonly IAppSettingsService _appSettings;
     private readonly IAppLockService _appLock;
+    private readonly IBackupService _backupService;
     private bool _isInitializingToggle;
 
     public SettingsPage()
@@ -19,8 +21,10 @@ public sealed partial class SettingsPage : Page
         this.InitializeComponent();
         _appSettings = App.Current.AppSettings;
         _appLock = App.Current.AppLock;
+        _backupService = App.Current.BackupService;
 
         VersionTextBlock.Text = VersionHelper.GetAppVersion();
+        RefreshBackupFolderUi();
         Loaded += SettingsPage_Loaded;
     }
 
@@ -46,8 +50,8 @@ public sealed partial class SettingsPage : Page
             PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
             WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
+            AutomaticBackupToggle.IsOn = _appSettings.IsAutomaticBackupEnabled;
 
-            // Load auto-lock timeout setting
             var timeout = _appSettings.AutoLockTimeoutMinutes;
             for (int i = 0; i < AutoLockComboBox.Items.Count; i++)
             {
@@ -60,6 +64,7 @@ public sealed partial class SettingsPage : Page
             }
 
             UpdateProtectionControlsState();
+            RefreshBackupFolderUi();
         }
         finally
         {
@@ -70,11 +75,9 @@ public sealed partial class SettingsPage : Page
     private void UpdateProtectionControlsState()
     {
         var isAnyProtectionEnabled = PinProtectionToggle.IsOn || PasswordProtectionToggle.IsOn || WindowsHelloToggle.IsOn;
-        
-        // Enable auto-lock dropdown only when protection is enabled
+
         AutoLockComboBox.IsEnabled = isAnyProtectionEnabled;
-        
-        // Disable other protection toggles when one is enabled
+
         if (PinProtectionToggle.IsOn)
         {
             PasswordProtectionToggle.IsEnabled = false;
@@ -92,7 +95,6 @@ public sealed partial class SettingsPage : Page
         }
         else
         {
-            // No protection enabled, enable all toggles
             PinProtectionToggle.IsEnabled = true;
             PasswordProtectionToggle.IsEnabled = true;
             WindowsHelloToggle.IsEnabled = true;
@@ -109,6 +111,213 @@ public sealed partial class SettingsPage : Page
         _appSettings.ShowNextCodeWhenFiveSecondsRemain = ShowNextCodeToggle.IsOn;
     }
 
+    private async void AutomaticBackupToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        if (AutomaticBackupToggle.IsOn)
+        {
+            var password = await ShowBackupPasswordSetupDialogAsync(
+                "Enable automatic backup",
+                "Choose a backup password. It will be stored in Windows Credential Manager and used for automatic backups.",
+                "Enable backup");
+
+            if (password == null)
+            {
+                await RevertAutomaticBackupToggleAsync(false);
+                return;
+            }
+
+            var storeResult = await _backupService.SetAutomaticBackupPasswordAsync(password);
+            if (!storeResult.Success)
+            {
+                await RevertAutomaticBackupToggleAsync(false);
+                await ShowErrorDialog(storeResult.Message);
+                return;
+            }
+
+            _appSettings.IsAutomaticBackupEnabled = true;
+
+            var backupResult = await _backupService.CreateAutomaticBackupAsync();
+            if (!backupResult.Success)
+            {
+                await _backupService.ClearAutomaticBackupPasswordAsync();
+                _appSettings.IsAutomaticBackupEnabled = false;
+                await RevertAutomaticBackupToggleAsync(false);
+                await ShowErrorDialog($"Failed to create the initial automatic backup. {backupResult.Message}");
+                return;
+            }
+
+            RefreshBackupFolderUi();
+            await ShowInfoDialog($"Automatic backup is enabled. Backups will be stored in:\n{_backupService.GetEffectiveAutomaticBackupFolderPath()}");
+            return;
+        }
+
+        var clearResult = await _backupService.ClearAutomaticBackupPasswordAsync();
+        if (!clearResult.Success)
+        {
+            await RevertAutomaticBackupToggleAsync(true);
+            await ShowErrorDialog(clearResult.Message);
+            return;
+        }
+
+        _appSettings.IsAutomaticBackupEnabled = false;
+        await ShowInfoDialog("Automatic backup has been disabled. Existing backup files were kept.");
+    }
+
+    private async void BrowseBackupFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = App.Current.MainWindow!;
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeFilter.Add("*");
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is null)
+        {
+            return;
+        }
+
+        var validation = _backupService.ValidateAutomaticBackupFolder(folder.Path);
+        if (!validation.Success)
+        {
+            await ShowErrorDialog(validation.Message);
+            return;
+        }
+
+        var normalizedPath = NormalizeBackupFolderSetting(validation.ResolvedPath);
+        if (string.Equals(_appSettings.CustomBackupFolderPath, normalizedPath, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var updated = await ApplyBackupFolderChangeAsync(normalizedPath);
+        if (updated)
+        {
+            await ShowInfoDialog($"Automatic backup folder updated to:\n{_backupService.GetEffectiveAutomaticBackupFolderPath()}");
+        }
+    }
+
+    private async void ResetBackupFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsUsingDefaultBackupFolder())
+        {
+            return;
+        }
+
+        var updated = await ApplyBackupFolderChangeAsync(string.Empty);
+        if (updated)
+        {
+            await ShowInfoDialog($"Automatic backup folder reset to default:\n{_backupService.GetDefaultBackupFolderPath()}");
+        }
+    }
+
+    private async void ImportBackupButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = App.Current.MainWindow!;
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeFilter.Add(".wotpbackup");
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var password = await ShowBackupPasswordPromptDialogAsync(
+            "Import backup",
+            "Enter the password used to protect this backup file.",
+            "Import");
+
+        if (password == null)
+        {
+            return;
+        }
+
+        var importResult = await _backupService.ImportBackupAsync(file.Path, password);
+        if (!importResult.Success)
+        {
+            await ShowErrorDialog(importResult.Message);
+            return;
+        }
+
+        var message = $"Import completed:\n• {importResult.ImportedCount} account(s) imported";
+        if (importResult.ReplacedCount > 0)
+        {
+            message += $"\n• {importResult.ReplacedCount} existing account(s) replaced";
+        }
+        if (importResult.SkippedCount > 0)
+        {
+            message += $"\n• {importResult.SkippedCount} account(s) skipped";
+        }
+        if (importResult.FailedCount > 0)
+        {
+            message += $"\n• {importResult.FailedCount} account(s) failed to save";
+        }
+
+        if (importResult.ImportedCount > 0 && _appSettings.IsAutomaticBackupEnabled)
+        {
+            var backupResult = await _backupService.CreateAutomaticBackupAsync();
+            if (!backupResult.Success)
+            {
+                message += $"\n\nAutomatic backup failed after import: {backupResult.Message}";
+            }
+        }
+
+        await ShowInfoDialog(message);
+    }
+
+    private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = App.Current.MainWindow!;
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+
+        var picker = new Windows.Storage.Pickers.FileSavePicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeChoices.Add("WinOTP Backup", [".wotpbackup"]);
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+        picker.SuggestedFileName = $"winotp-backup-{DateTime.UtcNow:yyyyMMddTHHmmssZ}";
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        string? passwordOverride = null;
+        if (!_backupService.HasStoredAutomaticBackupPassword())
+        {
+            passwordOverride = await ShowBackupPasswordSetupDialogAsync(
+                "Export backup",
+                "Choose a password for this exported backup file.",
+                "Export");
+
+            if (passwordOverride == null)
+            {
+                return;
+            }
+        }
+
+        var exportResult = await _backupService.ExportBackupAsync(file.Path, passwordOverride);
+        if (!exportResult.Success)
+        {
+            await ShowErrorDialog(exportResult.Message);
+            return;
+        }
+
+        await ShowInfoDialog($"Backup exported successfully.\n\nFile: {exportResult.FilePath}\nAccounts: {exportResult.AccountCount}");
+    }
+
     private async void PinProtectionToggle_Toggled(object sender, RoutedEventArgs e)
     {
         if (_isInitializingToggle)
@@ -118,11 +327,9 @@ public sealed partial class SettingsPage : Page
 
         if (PinProtectionToggle.IsOn)
         {
-            // User wants to enable PIN protection - show setup dialog
             var success = await ShowPinSetupDialogAsync();
             if (!success)
             {
-                // User cancelled or setup failed - revert toggle
                 _isInitializingToggle = true;
                 PinProtectionToggle.IsOn = false;
                 _isInitializingToggle = false;
@@ -130,7 +337,6 @@ public sealed partial class SettingsPage : Page
             else
             {
                 _appSettings.IsPinProtectionEnabled = true;
-                // Disable other protection methods
                 if (PasswordProtectionToggle.IsOn)
                 {
                     _isInitializingToggle = true;
@@ -150,11 +356,9 @@ public sealed partial class SettingsPage : Page
             }
             else
             {
-                // User wants to disable PIN protection - verify first
                 var verified = await ShowPinVerificationDialogAsync();
                 if (!verified)
                 {
-                    // Verification failed - revert toggle
                     _isInitializingToggle = true;
                     PinProtectionToggle.IsOn = true;
                     _isInitializingToggle = false;
@@ -166,7 +370,7 @@ public sealed partial class SettingsPage : Page
                 }
             }
         }
-        
+
         UpdateProtectionControlsState();
     }
 
@@ -179,11 +383,9 @@ public sealed partial class SettingsPage : Page
 
         if (PasswordProtectionToggle.IsOn)
         {
-            // User wants to enable password protection - show setup dialog
             var success = await ShowPasswordSetupDialogAsync();
             if (!success)
             {
-                // User cancelled or setup failed - revert toggle
                 _isInitializingToggle = true;
                 PasswordProtectionToggle.IsOn = false;
                 _isInitializingToggle = false;
@@ -191,7 +393,6 @@ public sealed partial class SettingsPage : Page
             else
             {
                 _appSettings.IsPasswordProtectionEnabled = true;
-                // Disable other protection methods
                 if (PinProtectionToggle.IsOn)
                 {
                     _isInitializingToggle = true;
@@ -211,11 +412,9 @@ public sealed partial class SettingsPage : Page
             }
             else
             {
-                // User wants to disable password protection - verify first
                 var verified = await ShowPasswordVerificationDialogAsync();
                 if (!verified)
                 {
-                    // Verification failed - revert toggle
                     _isInitializingToggle = true;
                     PasswordProtectionToggle.IsOn = true;
                     _isInitializingToggle = false;
@@ -227,7 +426,7 @@ public sealed partial class SettingsPage : Page
                 }
             }
         }
-        
+
         UpdateProtectionControlsState();
     }
 
@@ -240,11 +439,9 @@ public sealed partial class SettingsPage : Page
 
         if (WindowsHelloToggle.IsOn)
         {
-            // User wants to enable Windows Hello - check availability and verify
             var success = await EnableWindowsHelloAsync();
             if (!success)
             {
-                // User cancelled, verification failed, or not available - revert toggle
                 _isInitializingToggle = true;
                 WindowsHelloToggle.IsOn = false;
                 _isInitializingToggle = false;
@@ -252,7 +449,6 @@ public sealed partial class SettingsPage : Page
             else
             {
                 _appSettings.IsWindowsHelloEnabled = true;
-                // Disable other protection methods
                 if (PinProtectionToggle.IsOn)
                 {
                     _isInitializingToggle = true;
@@ -273,7 +469,6 @@ public sealed partial class SettingsPage : Page
         }
         else
         {
-            // User wants to disable Windows Hello - verify first
             var outcome = await VerifyWindowsHelloAsync("Verify your identity to disable Windows Hello");
             if (outcome.Status == WindowsHelloVerificationStatus.Verified)
             {
@@ -305,7 +500,7 @@ public sealed partial class SettingsPage : Page
                 _isInitializingToggle = false;
             }
         }
-        
+
         UpdateProtectionControlsState();
     }
 
@@ -328,7 +523,6 @@ public sealed partial class SettingsPage : Page
 
     private async Task<bool> EnableWindowsHelloAsync()
     {
-        // Check if Windows Hello is available
         var availability = await _appLock.GetWindowsHelloAvailabilityAsync();
         if (availability == WindowsHelloAvailabilityStatus.Unavailable)
         {
@@ -341,7 +535,6 @@ public sealed partial class SettingsPage : Page
             return false;
         }
 
-        // Request verification to confirm user identity
         var outcome = await _appLock.VerifyWindowsHelloAsync("Set up Windows Hello protection for WinOTP");
 
         if (outcome.Status == WindowsHelloVerificationStatus.Verified)
@@ -504,6 +697,92 @@ public sealed partial class SettingsPage : Page
         return false;
     }
 
+    private async Task<string?> ShowBackupPasswordSetupDialogAsync(string title, string message, string primaryButtonText)
+    {
+        var passwordBox = new PasswordBox
+        {
+            PlaceholderText = "Enter backup password"
+        };
+
+        var confirmPasswordBox = new PasswordBox
+        {
+            PlaceholderText = "Confirm backup password"
+        };
+
+        var stackPanel = new StackPanel { Spacing = 12 };
+        stackPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.WrapWholeWords });
+        stackPanel.Children.Add(passwordBox);
+        stackPanel.Children.Add(confirmPasswordBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = stackPanel,
+            PrimaryButtonText = primaryButtonText,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            return null;
+        }
+
+        var password = passwordBox.Password;
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
+        {
+            await ShowErrorDialog("Backup password must be at least 8 characters.");
+            return null;
+        }
+
+        if (password != confirmPasswordBox.Password)
+        {
+            await ShowErrorDialog("Backup passwords do not match.");
+            return null;
+        }
+
+        return password;
+    }
+
+    private async Task<string?> ShowBackupPasswordPromptDialogAsync(string title, string message, string primaryButtonText)
+    {
+        var passwordBox = new PasswordBox
+        {
+            PlaceholderText = "Enter backup password"
+        };
+
+        var stackPanel = new StackPanel { Spacing = 12 };
+        stackPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.WrapWholeWords });
+        stackPanel.Children.Add(passwordBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = stackPanel,
+            PrimaryButtonText = primaryButtonText,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            return null;
+        }
+
+        var password = passwordBox.Password;
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
+        {
+            await ShowErrorDialog("Backup password must be at least 8 characters.");
+            return null;
+        }
+
+        return password;
+    }
+
     private async Task<bool> ShowPinVerificationDialogAsync()
     {
         var pinTextBox = new PasswordBox
@@ -584,6 +863,75 @@ public sealed partial class SettingsPage : Page
         }
 
         return false;
+    }
+
+    private async Task<bool> ApplyBackupFolderChangeAsync(string customBackupFolderPath)
+    {
+        var previousFolderPath = _appSettings.CustomBackupFolderPath;
+        _appSettings.CustomBackupFolderPath = customBackupFolderPath;
+        RefreshBackupFolderUi();
+
+        if (!_appSettings.IsAutomaticBackupEnabled)
+        {
+            return true;
+        }
+
+        var backupResult = await _backupService.CreateAutomaticBackupAsync();
+        if (backupResult.Success)
+        {
+            return true;
+        }
+
+        _appSettings.CustomBackupFolderPath = previousFolderPath;
+        RefreshBackupFolderUi();
+        await ShowErrorDialog($"Failed to use the selected backup folder. {backupResult.Message}");
+        return false;
+    }
+
+    private void RefreshBackupFolderUi()
+    {
+        BackupFolderPathTextBlock.Text = $"Backup folder: {_backupService.GetEffectiveAutomaticBackupFolderPath()}";
+        ResetBackupFolderButton.IsEnabled = !IsUsingDefaultBackupFolder();
+    }
+
+    private bool IsUsingDefaultBackupFolder()
+    {
+        return ArePathsEqual(
+            _backupService.GetEffectiveAutomaticBackupFolderPath(),
+            _backupService.GetDefaultBackupFolderPath());
+    }
+
+    private string NormalizeBackupFolderSetting(string selectedPath)
+    {
+        if (ArePathsEqual(selectedPath, _backupService.GetDefaultBackupFolderPath()))
+        {
+            return string.Empty;
+        }
+
+        return selectedPath;
+    }
+
+    private static bool ArePathsEqual(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task RevertAutomaticBackupToggleAsync(bool isOn)
+    {
+        _isInitializingToggle = true;
+        AutomaticBackupToggle.IsOn = isOn;
+        _isInitializingToggle = false;
+        await Task.CompletedTask;
     }
 
     private async Task ShowErrorDialog(string message)

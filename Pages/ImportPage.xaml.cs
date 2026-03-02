@@ -11,12 +11,16 @@ public sealed partial class ImportPage : Page
 {
     private readonly ICredentialManagerService _credentialManager;
     private readonly IAppLogger _logger;
+    private readonly IAppSettingsService _appSettings;
+    private readonly IBackupService _backupService;
 
     public ImportPage()
     {
         this.InitializeComponent();
         _credentialManager = App.Current.CredentialManager;
         _logger = App.Current.Logger;
+        _appSettings = App.Current.AppSettings;
+        _backupService = App.Current.BackupService;
     }
 
     private async void ImportFromWinOTPOldButton_Click(object sender, RoutedEventArgs e)
@@ -129,6 +133,16 @@ public sealed partial class ImportPage : Page
         if (skippedCount > 0)
         {
             message += $"\n• {skippedCount} account(s) skipped (invalid data)";
+        }
+
+        if (successCount > 0 && _appSettings.IsAutomaticBackupEnabled)
+        {
+            var backupResult = await _backupService.CreateAutomaticBackupAsync();
+            if (!backupResult.Success)
+            {
+                _logger.Warn($"Automatic backup failed after legacy import: {backupResult.ErrorCode} - {backupResult.Message}");
+                message += $"\n\nAutomatic backup failed: {backupResult.Message}";
+            }
         }
 
         var dialog = new ContentDialog
