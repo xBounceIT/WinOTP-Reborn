@@ -151,9 +151,18 @@
                             <TextBlock
                                 Text="Check for updates"
                                 Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <InfoBadge
+                            <Border
                                 x:Name="UpdateAvailabilityBadge"
-                                Visibility="Collapsed" />
+                                Padding="10,3"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                CornerRadius="999"
+                                Visibility="Collapsed"
+                                VerticalAlignment="Center">
+                                <TextBlock
+                                    Text="Update available"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
                         </StackPanel>
                         <ProgressRing
                             x:Name="UpdateProgressRing"
