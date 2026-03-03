@@ -312,7 +312,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var outcome = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP");
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var outcome = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP", hwnd);
 
         if (outcome.Status == WindowsHelloVerificationStatus.Verified)
         {

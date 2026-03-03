@@ -617,7 +617,7 @@ public sealed partial class SettingsPage : Page
             return false;
         }
 
-        var outcome = await _appLock.VerifyWindowsHelloAsync("Set up Windows Hello protection for WinOTP");
+        var outcome = await VerifyWindowsHelloAsync("Set up Windows Hello protection for WinOTP");
 
         if (outcome.Status == WindowsHelloVerificationStatus.Verified)
         {
@@ -636,7 +636,10 @@ public sealed partial class SettingsPage : Page
 
     private Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message)
     {
-        return _appLock.VerifyWindowsHelloAsync(message);
+        var window = App.Current.MainWindow
+            ?? throw new InvalidOperationException("Main window is not available for Windows Hello verification.");
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        return _appLock.VerifyWindowsHelloAsync(message, hwnd);
     }
 
     private static string GetWindowsHelloVerificationFailureMessage(WindowsHelloVerificationOutcome outcome)

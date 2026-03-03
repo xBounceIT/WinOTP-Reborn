@@ -58,7 +58,7 @@ public sealed class AppLockServiceTests
                 RequestVerificationException = new InvalidOperationException("Service unavailable")
             });
 
-        var outcome = await service.VerifyWindowsHelloAsync("Unlock WinOTP");
+        var outcome = await service.VerifyWindowsHelloAsync("Unlock WinOTP", new IntPtr(42));
 
         Assert.Equal(WindowsHelloVerificationStatus.Error, outcome.Status);
         Assert.Null(outcome.Result);
@@ -76,10 +76,22 @@ public sealed class AppLockServiceTests
                 VerificationResult = result
             });
 
-        var outcome = await service.VerifyWindowsHelloAsync("Unlock WinOTP");
+        var outcome = await service.VerifyWindowsHelloAsync("Unlock WinOTP", new IntPtr(42));
 
         Assert.Equal(WindowsHelloVerificationStatus.Unavailable, outcome.Status);
         Assert.Equal(result, outcome.Result);
+    }
+
+    [Fact]
+    public async Task VerifyWindowsHelloAsync_ForwardsOwnerWindowHandle()
+    {
+        var windowsHello = new FakeWindowsHello();
+        var service = CreateService(windowsHello: windowsHello);
+        var ownerWindowHandle = new IntPtr(1234);
+
+        await service.VerifyWindowsHelloAsync("Unlock WinOTP", ownerWindowHandle);
+
+        Assert.Equal(ownerWindowHandle, windowsHello.LastOwnerWindowHandle);
     }
 
     private static AppLockService CreateService(
@@ -119,6 +131,7 @@ public sealed class AppLockServiceTests
         public UserConsentVerificationResult VerificationResult { get; init; } = UserConsentVerificationResult.Verified;
         public Exception? CheckAvailabilityException { get; init; }
         public Exception? RequestVerificationException { get; init; }
+        public IntPtr LastOwnerWindowHandle { get; private set; }
 
         public Task<UserConsentVerifierAvailability> CheckAvailabilityAsync()
         {
@@ -130,13 +143,14 @@ public sealed class AppLockServiceTests
             return Task.FromResult(AvailabilityResult);
         }
 
-        public Task<UserConsentVerificationResult> RequestVerificationAsync(string message)
+        public Task<UserConsentVerificationResult> RequestVerificationAsync(string message, IntPtr ownerWindowHandle)
         {
             if (RequestVerificationException != null)
             {
                 throw RequestVerificationException;
             }
 
+            LastOwnerWindowHandle = ownerWindowHandle;
             return Task.FromResult(VerificationResult);
         }
     }

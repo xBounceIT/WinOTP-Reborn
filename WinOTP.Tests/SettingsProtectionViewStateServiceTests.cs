@@ -129,7 +129,7 @@ public sealed class SettingsProtectionViewStateServiceTests
         public Task<WindowsHelloAvailabilityStatus> GetWindowsHelloAvailabilityAsync() =>
             Task.FromResult(WindowsHelloAvailability);
 
-        public Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message) =>
+        public Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message, IntPtr ownerWindowHandle) =>
             Task.FromResult(new WindowsHelloVerificationOutcome(
                 WindowsHelloVerificationStatus.Verified,
                 UserConsentVerificationResult.Verified));
