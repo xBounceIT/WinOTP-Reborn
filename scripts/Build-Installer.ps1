@@ -16,6 +16,60 @@ $projectPath = Join-Path $repoRoot "WinOTP.csproj"
 $installerScriptPath = Join-Path $repoRoot "installer\WinOTP.iss"
 $publishDir = Join-Path $repoRoot "artifacts\publish\win-$Architecture"
 
+function Get-ExpectedPublishedWinUIResources {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepositoryRoot
+    )
+
+    $normalizedRepositoryRoot = $RepositoryRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $xamlFiles = @()
+
+    foreach ($xamlPath in @(
+        (Join-Path $RepositoryRoot "App.xaml"),
+        (Join-Path $RepositoryRoot "MainWindow.xaml")
+    )) {
+        if (Test-Path $xamlPath) {
+            $xamlFiles += Get-Item $xamlPath
+        }
+    }
+
+    $pagesDirectory = Join-Path $RepositoryRoot "Pages"
+    if (Test-Path $pagesDirectory) {
+        $xamlFiles += Get-ChildItem -Path $pagesDirectory -Recurse -Filter *.xaml -File
+    }
+
+    $expectedResources = foreach ($file in $xamlFiles) {
+        $relativePath = $file.FullName.Substring($normalizedRepositoryRoot.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        [IO.Path]::ChangeExtension($relativePath, ".xbf")
+    }
+
+    @("WinOTP.pri") + ($expectedResources | Sort-Object -Unique)
+}
+
+function Assert-PublishedWinUIResources {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepositoryRoot,
+        [Parameter(Mandatory)]
+        [string]$PublishDirectory
+    )
+
+    $missingResources = @(Get-ExpectedPublishedWinUIResources -RepositoryRoot $RepositoryRoot | Where-Object {
+        -not (Test-Path (Join-Path $PublishDirectory $_))
+    })
+
+    if ($missingResources.Count -gt 0) {
+        $formattedMissingResources = $missingResources | ForEach-Object { " - $_" }
+        $messageLines = @("The publish output is missing required WinUI resources:")
+        $messageLines += $formattedMissingResources
+        $messageLines += "Publish directory: $PublishDirectory"
+        $message = $messageLines -join [Environment]::NewLine
+
+        throw $message
+    }
+}
+
 if (-not (Test-Path $DotNetPath)) {
     throw "dotnet executable not found at '$DotNetPath'."
 }
@@ -54,6 +108,8 @@ if (Test-Path $publishDir) {
     --self-contained true `
     -p:WindowsAppSDKSelfContained=true `
     -o $publishDir
+
+Assert-PublishedWinUIResources -RepositoryRoot $repoRoot -PublishDirectory $publishDir
 
 & $IsccPath $installerScriptPath `
     "/DMyAppVersion=$version" `

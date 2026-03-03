@@ -15,8 +15,8 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefaultItemExcludes>$(DefaultItemExcludes);WinOTP.Tests\**</DefaultItemExcludes>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
@@ -33,5 +33,28 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="CopyWinUIAppResourcesToPublish"
+          AfterTargets="Publish"
+          Condition="'$(UseWinUI)' == 'true'">
+    <ItemGroup>
+      <_WinUIRootResource Include="$(TargetDir)$(AssemblyName).pri"
+                          Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
+      <_WinUIRootResource Include="$(TargetDir)App.xbf"
+                          Condition="Exists('$(TargetDir)App.xbf')" />
+      <_WinUIRootResource Include="$(TargetDir)MainWindow.xbf"
+                          Condition="Exists('$(TargetDir)MainWindow.xbf')" />
+      <_WinUIPageResource Include="$(TargetDir)Pages\**\*.xbf"
+                          Condition="Exists('$(TargetDir)Pages')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_WinUIRootResource)"
+          DestinationFiles="@(_WinUIRootResource->'$(PublishDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="@(_WinUIPageResource)"
+          DestinationFiles="@(_WinUIPageResource->'$(PublishDir)Pages\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
