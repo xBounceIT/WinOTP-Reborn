@@ -22,28 +22,26 @@ function Get-ExpectedPublishedWinUIResources {
         [string]$RepositoryRoot
     )
 
-    $excludeSegments = @(
-        [IO.Path]::DirectorySeparatorChar + "bin" + [IO.Path]::DirectorySeparatorChar,
-        [IO.Path]::DirectorySeparatorChar + "obj" + [IO.Path]::DirectorySeparatorChar,
-        [IO.Path]::DirectorySeparatorChar + "WinOTP.Tests" + [IO.Path]::DirectorySeparatorChar
-    )
+    $normalizedRepositoryRoot = $RepositoryRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $xamlFiles = @()
 
-    $xamlFiles = Get-ChildItem -Path $RepositoryRoot -Recurse -Filter *.xaml -File | Where-Object {
-        $fullName = $_.FullName
-        foreach ($segment in $excludeSegments) {
-            if ($fullName.Contains($segment, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return $false
-            }
+    foreach ($xamlPath in @(
+        (Join-Path $RepositoryRoot "App.xaml"),
+        (Join-Path $RepositoryRoot "MainWindow.xaml")
+    )) {
+        if (Test-Path $xamlPath) {
+            $xamlFiles += Get-Item $xamlPath
         }
+    }
 
-        return $true
+    $pagesDirectory = Join-Path $RepositoryRoot "Pages"
+    if (Test-Path $pagesDirectory) {
+        $xamlFiles += Get-ChildItem -Path $pagesDirectory -Recurse -Filter *.xaml -File
     }
 
     $expectedResources = foreach ($file in $xamlFiles) {
-        if ($file.Name -ieq "App.xaml" -or $file.Name -ieq "MainWindow.xaml" -or $file.DirectoryName.StartsWith((Join-Path $RepositoryRoot "Pages"), [System.StringComparison]::OrdinalIgnoreCase)) {
-            $relativePath = [IO.Path]::GetRelativePath($RepositoryRoot, $file.FullName)
-            [IO.Path]::ChangeExtension($relativePath, ".xbf")
-        }
+        $relativePath = $file.FullName.Substring($normalizedRepositoryRoot.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        [IO.Path]::ChangeExtension($relativePath, ".xbf")
     }
 
     @("WinOTP.pri") + ($expectedResources | Sort-Object -Unique)
@@ -57,17 +55,16 @@ function Assert-PublishedWinUIResources {
         [string]$PublishDirectory
     )
 
-    $missingResources = Get-ExpectedPublishedWinUIResources -RepositoryRoot $RepositoryRoot | Where-Object {
+    $missingResources = @(Get-ExpectedPublishedWinUIResources -RepositoryRoot $RepositoryRoot | Where-Object {
         -not (Test-Path (Join-Path $PublishDirectory $_))
-    }
+    })
 
     if ($missingResources.Count -gt 0) {
         $formattedMissingResources = $missingResources | ForEach-Object { " - $_" }
-        $message = @(
-            "The publish output is missing required WinUI resources:",
-            $formattedMissingResources,
-            "Publish directory: $PublishDirectory"
-        ) -join [Environment]::NewLine
+        $messageLines = @("The publish output is missing required WinUI resources:")
+        $messageLines += $formattedMissingResources
+        $messageLines += "Publish directory: $PublishDirectory"
+        $message = $messageLines -join [Environment]::NewLine
 
         throw $message
     }
