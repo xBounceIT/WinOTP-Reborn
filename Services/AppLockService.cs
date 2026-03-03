@@ -14,7 +14,7 @@ public interface IAppLockService
     Task<bool> RemovePinAsync();
     Task<bool> RemovePasswordAsync();
     Task<WindowsHelloAvailabilityStatus> GetWindowsHelloAvailabilityAsync();
-    Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message);
+    Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message, IntPtr ownerWindowHandle);
 }
 
 public class AppLockService : IAppLockService
@@ -171,11 +171,11 @@ public class AppLockService : IAppLockService
         }
     }
 
-    public async Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message)
+    public async Task<WindowsHelloVerificationOutcome> VerifyWindowsHelloAsync(string message, IntPtr ownerWindowHandle)
     {
         try
         {
-            var result = await _windowsHello.RequestVerificationAsync(message);
+            var result = await _windowsHello.RequestVerificationAsync(message, ownerWindowHandle);
             return result switch
             {
                 UserConsentVerificationResult.Verified => new WindowsHelloVerificationOutcome(
@@ -224,7 +224,7 @@ public class AppLockService : IAppLockService
     internal interface IWindowsHelloAdapter
     {
         Task<UserConsentVerifierAvailability> CheckAvailabilityAsync();
-        Task<UserConsentVerificationResult> RequestVerificationAsync(string message);
+        Task<UserConsentVerificationResult> RequestVerificationAsync(string message, IntPtr ownerWindowHandle);
     }
 
     internal sealed class PasswordVaultAdapter : IPasswordVaultAdapter
@@ -259,8 +259,13 @@ public class AppLockService : IAppLockService
             return UserConsentVerifier.CheckAvailabilityAsync().AsTask();
         }
 
-        public Task<UserConsentVerificationResult> RequestVerificationAsync(string message)
+        public Task<UserConsentVerificationResult> RequestVerificationAsync(string message, IntPtr ownerWindowHandle)
         {
+            if (ownerWindowHandle != IntPtr.Zero && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            {
+                return UserConsentVerifierInterop.RequestVerificationForWindowAsync(ownerWindowHandle, message).AsTask();
+            }
+
             return UserConsentVerifier.RequestVerificationAsync(message).AsTask();
         }
     }
