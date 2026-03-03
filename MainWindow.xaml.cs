@@ -145,10 +145,20 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (state.Resolution.Mode == AppLockMode.None)
+        var decision = AppLockPresentationPolicy.Resolve(AppLockPresentationTrigger.Startup, state.Resolution);
+
+        if (decision.ShouldEnsureInitialPage)
         {
             EnsureInitialPage();
+        }
+
+        if (decision.ShouldStartMonitoring)
+        {
             SetupAutoLockMonitoring();
+        }
+
+        if (!decision.ShouldShowLockScreen)
+        {
             return;
         }
 
@@ -468,23 +478,18 @@ public sealed partial class MainWindow : Window
             }
 
             var isProtectedNow = state.Resolution.Mode != AppLockMode.None;
-            var shouldLockImmediately = !_hasEffectiveProtection && isProtectedNow;
             _hasEffectiveProtection = isProtectedNow;
+            var decision = AppLockPresentationPolicy.Resolve(AppLockPresentationTrigger.SettingsChange, state.Resolution);
 
-            if (shouldLockImmediately)
-            {
-                await ShowLockScreenAsync(state.Resolution);
-                return;
-            }
-
-            if (!isProtectedNow)
+            if (decision.ShouldEnsureInitialPage)
             {
                 EnsureInitialPage();
-                SetupAutoLockMonitoring();
-                return;
             }
 
-            SetupAutoLockMonitoring();
+            if (decision.ShouldStartMonitoring)
+            {
+                SetupAutoLockMonitoring();
+            }
         });
     }
 
