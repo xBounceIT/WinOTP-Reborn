@@ -45,6 +45,14 @@ internal static class AppLockSessionTransitionPolicy
         return previousState != currentState;
     }
 
+    public static bool ShouldRequireImmediateLockOnSettingsChange(
+        AppLockProtectionPresentationState previousState,
+        AppLockProtectionPresentationState currentState)
+    {
+        return previousState.TemporaryBypassReason == AppLockTemporaryBypassReason.RemoteSession &&
+            currentState.Mode is AppLockMode.WindowsHelloRemotePin or AppLockMode.WindowsHelloRemotePassword;
+    }
+
     public static bool ShouldReconcileOnSessionChange(uint sessionChangeCode)
     {
         return sessionChangeCode is

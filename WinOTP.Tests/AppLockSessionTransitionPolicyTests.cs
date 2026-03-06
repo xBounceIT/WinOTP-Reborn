@@ -142,6 +142,50 @@ public sealed class AppLockSessionTransitionPolicyTests
         Assert.False(shouldPresent);
     }
 
+    [Fact]
+    public void ShouldRequireImmediateLockOnSettingsChange_RemoteBypassToRemotePin_ReturnsTrue()
+    {
+        var shouldLock = AppLockSessionTransitionPolicy.ShouldRequireImmediateLockOnSettingsChange(
+            CreatePresentationState(
+                AppLockMode.None,
+                temporaryBypassReason: AppLockTemporaryBypassReason.RemoteSession),
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePin));
+
+        Assert.True(shouldLock);
+    }
+
+    [Fact]
+    public void ShouldRequireImmediateLockOnSettingsChange_RemoteBypassToRemotePassword_ReturnsTrue()
+    {
+        var shouldLock = AppLockSessionTransitionPolicy.ShouldRequireImmediateLockOnSettingsChange(
+            CreatePresentationState(
+                AppLockMode.None,
+                temporaryBypassReason: AppLockTemporaryBypassReason.RemoteSession),
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePassword));
+
+        Assert.True(shouldLock);
+    }
+
+    [Fact]
+    public void ShouldRequireImmediateLockOnSettingsChange_LocalStateToRemoteFallback_ReturnsFalse()
+    {
+        var shouldLock = AppLockSessionTransitionPolicy.ShouldRequireImmediateLockOnSettingsChange(
+            CreatePresentationState(AppLockMode.WindowsHello),
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePin));
+
+        Assert.False(shouldLock);
+    }
+
+    [Fact]
+    public void ShouldRequireImmediateLockOnSettingsChange_RemoteFallbackSwitch_ReturnsFalse()
+    {
+        var shouldLock = AppLockSessionTransitionPolicy.ShouldRequireImmediateLockOnSettingsChange(
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePin),
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePassword));
+
+        Assert.False(shouldLock);
+    }
+
     [Theory]
     [InlineData(AppLockSessionTransitionPolicy.ConsoleConnectSessionChange)]
     [InlineData(AppLockSessionTransitionPolicy.ConsoleDisconnectSessionChange)]

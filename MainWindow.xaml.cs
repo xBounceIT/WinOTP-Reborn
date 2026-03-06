@@ -27,7 +27,6 @@ public sealed partial class MainWindow : Window
     private bool _isReconcilingProtectionState;
     private bool _hasStartedStartupInitialization;
     private bool _hasEffectiveProtection;
-    private bool _hasAttemptedSessionNotificationRegistration;
     private bool _isSessionNotificationRegistered;
     private bool _isSessionNotificationSubclassInstalled;
     private IntPtr _windowHandle;
@@ -128,7 +127,7 @@ public sealed partial class MainWindow : Window
 
     private void EnsureSessionChangeMonitoring()
     {
-        if (_isSessionNotificationRegistered || _hasAttemptedSessionNotificationRegistration)
+        if (_isSessionNotificationRegistered || _isSessionNotificationSubclassInstalled)
         {
             return;
         }
@@ -139,8 +138,6 @@ public sealed partial class MainWindow : Window
             App.Current.Logger.Warn("Main window handle was not ready for session notification registration.");
             return;
         }
-
-        _hasAttemptedSessionNotificationRegistration = true;
 
         if (!SetWindowSubclass(
             _windowHandle,
@@ -608,6 +605,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            var previousState = _lastResolvedProtectionPresentationState;
             var state = await ResolveProtectionStateAsync();
             _autoLock.StopMonitoring();
 
@@ -623,6 +621,14 @@ public sealed partial class MainWindow : Window
                 _hasEffectiveProtection = false;
                 await ShowTemporaryProtectionUnavailableAsync(
                     state.TemporaryBypassReason ?? AppLockTemporaryBypassReason.ServiceError);
+                return;
+            }
+
+            if (AppLockSessionTransitionPolicy.ShouldRequireImmediateLockOnSettingsChange(
+                previousState,
+                state.ToPresentationState()))
+            {
+                await ShowLockScreenAsync(state.Resolution);
                 return;
             }
 
