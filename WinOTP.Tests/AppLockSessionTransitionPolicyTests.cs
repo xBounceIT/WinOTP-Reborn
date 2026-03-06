@@ -6,6 +6,36 @@ namespace WinOTP.Tests;
 public sealed class AppLockSessionTransitionPolicyTests
 {
     [Fact]
+    public void ShouldResolveOnActivation_WindowsHelloEnabled_ReturnsTrue()
+    {
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+            isWindowsHelloEnabled: true,
+            hadRemoteSessionContext: false);
+
+        Assert.True(shouldResolve);
+    }
+
+    [Fact]
+    public void ShouldResolveOnActivation_PreviouslyRemote_ReturnsTrue()
+    {
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+            isWindowsHelloEnabled: false,
+            hadRemoteSessionContext: true);
+
+        Assert.True(shouldResolve);
+    }
+
+    [Fact]
+    public void ShouldResolveOnActivation_NoWindowsHelloAndNoPreviousRemote_ReturnsFalse()
+    {
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+            isWindowsHelloEnabled: false,
+            hadRemoteSessionContext: false);
+
+        Assert.False(shouldResolve);
+    }
+
+    [Fact]
     public void ShouldRefreshBeforeCredentialVerification_RemotePinWithMatchingResolution_ReturnsFalse()
     {
         var shouldRefresh = AppLockSessionTransitionPolicy.ShouldRefreshBeforeCredentialVerification(
@@ -36,7 +66,17 @@ public sealed class AppLockSessionTransitionPolicyTests
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_RemoteSessionEndedAndProtectionResolved_ReturnsTrue()
+    public void ShouldReapplyProtectionOnActivation_LocalToRemote_ReturnsTrue()
+    {
+        var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
+            hadRemoteSessionContext: false,
+            CreateResolution(AppLockMode.WindowsHelloRemotePassword, hasWindowsHelloRemoteSession: true));
+
+        Assert.True(shouldReapply);
+    }
+
+    [Fact]
+    public void ShouldReapplyProtectionOnActivation_RemoteToLocal_ReturnsTrue()
     {
         var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
             hadRemoteSessionContext: true,
@@ -46,7 +86,7 @@ public sealed class AppLockSessionTransitionPolicyTests
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_RemoteSessionStillActive_ReturnsFalse()
+    public void ShouldReapplyProtectionOnActivation_SessionUnchanged_ReturnsFalse()
     {
         var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
             hadRemoteSessionContext: true,
@@ -56,7 +96,7 @@ public sealed class AppLockSessionTransitionPolicyTests
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_NoPreviousRemoteSession_ReturnsFalse()
+    public void ShouldReapplyProtectionOnActivation_LocalSessionUnchanged_ReturnsFalse()
     {
         var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
             hadRemoteSessionContext: false,

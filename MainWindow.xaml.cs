@@ -703,7 +703,9 @@ public sealed partial class MainWindow : Window
         try
         {
             var hadRemoteSessionContext = _lastResolvedHadWindowsHelloRemoteSession;
-            if (!hadRemoteSessionContext)
+            if (!AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+                _appSettings.IsWindowsHelloEnabled,
+                hadRemoteSessionContext))
             {
                 return;
             }
