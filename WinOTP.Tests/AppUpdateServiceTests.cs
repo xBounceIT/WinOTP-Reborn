@@ -837,6 +837,7 @@ public sealed class AppUpdateServiceTests : IDisposable
         private UpdateChannel _updateChannel = UpdateChannel.Stable;
 
         public bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
+        public SortOption AccountSortOption { get; set; } = SortOption.DateAddedDesc;
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
