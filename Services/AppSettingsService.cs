@@ -8,6 +8,7 @@ namespace WinOTP.Services;
 public interface IAppSettingsService
 {
     bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
+    SortOption AccountSortOption { get; set; }
     bool IsPinProtectionEnabled { get; set; }
     bool IsPasswordProtectionEnabled { get; set; }
     bool IsWindowsHelloEnabled { get; set; }
@@ -42,6 +43,7 @@ public sealed class AppSettingsService : IAppSettingsService
 
     private readonly string _settingsFilePath;
     private bool _showNextCodeWhenFiveSecondsRemain;
+    private SortOption _accountSortOption;
     private bool _isPinProtectionEnabled;
     private bool _isPasswordProtectionEnabled;
     private bool _isWindowsHelloEnabled;
@@ -66,6 +68,7 @@ public sealed class AppSettingsService : IAppSettingsService
         
         var loadedSettings = LoadSettings();
         _showNextCodeWhenFiveSecondsRemain = loadedSettings.ShowNextCodeWhenFiveSecondsRemain;
+        _accountSortOption = loadedSettings.AccountSortOption;
         _isPinProtectionEnabled = loadedSettings.IsPinProtectionEnabled;
         _isPasswordProtectionEnabled = loadedSettings.IsPasswordProtectionEnabled;
         _isWindowsHelloEnabled = loadedSettings.IsWindowsHelloEnabled;
@@ -80,6 +83,12 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _showNextCodeWhenFiveSecondsRemain;
         set => SetBooleanProperty(ref _showNextCodeWhenFiveSecondsRemain, value, nameof(ShowNextCodeWhenFiveSecondsRemain));
+    }
+
+    public SortOption AccountSortOption
+    {
+        get => _accountSortOption;
+        set => SetEnumProperty(ref _accountSortOption, value, nameof(AccountSortOption));
     }
 
     public bool IsPinProtectionEnabled
@@ -245,6 +254,7 @@ public sealed class AppSettingsService : IAppSettingsService
         return new AppSettingsData
         {
             ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
+            AccountSortOption = _accountSortOption,
             IsPinProtectionEnabled = _isPinProtectionEnabled,
             IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
             IsWindowsHelloEnabled = _isWindowsHelloEnabled,
@@ -277,6 +287,7 @@ public sealed class AppSettingsService : IAppSettingsService
     private sealed class AppSettingsData
     {
         public bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
+        public SortOption AccountSortOption { get; set; } = SortOption.DateAddedDesc;
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }

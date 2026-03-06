@@ -27,7 +27,7 @@ public sealed partial class HomePage : Page
     private List<OtpAccount> _accounts = new();
     private readonly Dictionary<string, CardElementCache> _elementCache = new();
     private ItemsWrapGrid? _itemsPanel;
-    private int _currentSortIndex = 0;
+    private SortOption _currentSortOption = SortOption.DateAddedDesc;
     private string _searchText = string.Empty;
     private bool _isRefreshSubscribed;
     private bool _isShowingVaultLoadError;
@@ -50,6 +50,9 @@ public sealed partial class HomePage : Page
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
         _backupService = App.Current.BackupService;
+        _currentSortOption = _appSettings.AccountSortOption;
+
+        ApplySortSelectionToMenu();
 
         OtpGridView.ItemsSource = _accounts;
 
@@ -398,12 +401,21 @@ public sealed partial class HomePage : Page
 
     private void SortMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not RadioMenuFlyoutItem menuItem || menuItem.Tag is not string tag)
+        if (sender is not RadioMenuFlyoutItem menuItem ||
+            menuItem.Tag is not string tag ||
+            !TryGetSortOption(tag, out var sortOption))
         {
             return;
         }
 
-        _currentSortIndex = int.Parse(tag);
+        if (_currentSortOption == sortOption)
+        {
+            return;
+        }
+
+        _currentSortOption = sortOption;
+        _appSettings.AccountSortOption = _currentSortOption;
+        ApplySortSelectionToMenu();
         ApplyFilterAndSort();
     }
 
@@ -430,12 +442,12 @@ public sealed partial class HomePage : Page
             : _allAccounts.Where(a => a.DisplayLabel.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
 
         // Apply sorting
-        var sorted = _currentSortIndex switch
+        var sorted = _currentSortOption switch
         {
-            0 => filtered.OrderByDescending(a => a.CreatedAt),
-            1 => filtered.OrderBy(a => a.CreatedAt),
-            2 => filtered.OrderBy(a => a.DisplayLabel),
-            3 => filtered.OrderByDescending(a => a.DisplayLabel),
+            SortOption.DateAddedDesc => filtered.OrderByDescending(a => a.CreatedAt),
+            SortOption.DateAddedAsc => filtered.OrderBy(a => a.CreatedAt),
+            SortOption.AlphabeticalAsc => filtered.OrderBy(a => a.DisplayLabel),
+            SortOption.AlphabeticalDesc => filtered.OrderByDescending(a => a.DisplayLabel),
             _ => filtered.OrderByDescending(a => a.CreatedAt)
         };
 
@@ -445,6 +457,19 @@ public sealed partial class HomePage : Page
         OtpGridView.ItemsSource = _accounts;
 
         UpdateEmptyState();
+    }
+
+    private void ApplySortSelectionToMenu()
+    {
+        SortNewestFirst.IsChecked = _currentSortOption == SortOption.DateAddedDesc;
+        SortOldestFirst.IsChecked = _currentSortOption == SortOption.DateAddedAsc;
+        SortNameAsc.IsChecked = _currentSortOption == SortOption.AlphabeticalAsc;
+        SortNameDesc.IsChecked = _currentSortOption == SortOption.AlphabeticalDesc;
+    }
+
+    private static bool TryGetSortOption(string tag, out SortOption sortOption)
+    {
+        return Enum.TryParse(tag, out sortOption);
     }
 
     private void AddButton_Click(object sender, RoutedEventArgs e)

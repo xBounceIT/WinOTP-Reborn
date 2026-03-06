@@ -16,6 +16,27 @@ public sealed class AppSettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void AccountSortOption_DefaultsToDateAddedDesc()
+    {
+        var settings = new AppSettingsService(_settingsFilePath);
+
+        Assert.Equal(SortOption.DateAddedDesc, settings.AccountSortOption);
+    }
+
+    [Fact]
+    public void AccountSortOption_PersistsAcrossInstances()
+    {
+        var first = new AppSettingsService(_settingsFilePath)
+        {
+            AccountSortOption = SortOption.AlphabeticalDesc
+        };
+
+        var second = new AppSettingsService(_settingsFilePath);
+
+        Assert.Equal(SortOption.AlphabeticalDesc, second.AccountSortOption);
+    }
+
+    [Fact]
     public void IsAutomaticBackupEnabled_PersistsAcrossInstances()
     {
         var first = new AppSettingsService(_settingsFilePath)

@@ -65,10 +65,10 @@
                     <FontIcon Glyph="&#xE8CB;" FontSize="14"/>
                     <DropDownButton.Flyout>
                         <MenuFlyout Placement="BottomEdgeAlignedRight">
-                            <RadioMenuFlyoutItem x:Name="SortNewestFirst" Text="Date Added (Newest)" GroupName="SortGroup" IsChecked="True" Click="SortMenuItem_Click" Tag="0"/>
-                            <RadioMenuFlyoutItem x:Name="SortOldestFirst" Text="Date Added (Oldest)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="1"/>
-                            <RadioMenuFlyoutItem x:Name="SortNameAsc" Text="Name (A → Z)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="2"/>
-                            <RadioMenuFlyoutItem x:Name="SortNameDesc" Text="Name (Z → A)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="3"/>
+                            <RadioMenuFlyoutItem x:Name="SortNewestFirst" Text="Date Added (Newest)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="DateAddedDesc"/>
+                            <RadioMenuFlyoutItem x:Name="SortOldestFirst" Text="Date Added (Oldest)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="DateAddedAsc"/>
+                            <RadioMenuFlyoutItem x:Name="SortNameAsc" Text="Name (A → Z)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="AlphabeticalAsc"/>
+                            <RadioMenuFlyoutItem x:Name="SortNameDesc" Text="Name (Z → A)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="AlphabeticalDesc"/>
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>

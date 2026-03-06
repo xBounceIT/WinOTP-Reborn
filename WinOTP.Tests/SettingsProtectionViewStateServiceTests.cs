@@ -93,6 +93,7 @@ public sealed class SettingsProtectionViewStateServiceTests
     private sealed class FakeAppSettingsService : IAppSettingsService
     {
         public bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
+        public SortOption AccountSortOption { get; set; } = SortOption.DateAddedDesc;
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
