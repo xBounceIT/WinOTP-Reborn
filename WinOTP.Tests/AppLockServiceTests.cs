@@ -36,6 +36,58 @@ public sealed class AppLockServiceTests
     }
 
     [Fact]
+    public void GetWindowsHelloRemotePinStatus_VaultLookupThrows_ReturnsError()
+    {
+        var service = CreateService(
+            vault: new FakePasswordVault
+            {
+                FindAllException = new InvalidOperationException("Vault unavailable")
+            });
+
+        var status = service.GetWindowsHelloRemotePinStatus();
+
+        Assert.Equal(AppLockCredentialStatus.Error, status);
+    }
+
+    [Fact]
+    public async Task SetWindowsHelloRemotePasswordAsync_StoresDedicatedCredential()
+    {
+        var vault = new FakePasswordVault();
+        var service = CreateService(vault: vault);
+
+        var success = await service.SetWindowsHelloRemotePasswordAsync("rdp-password-1");
+
+        Assert.True(success);
+        Assert.Contains("WindowsHelloRemotePassword", vault.AddedUserNames);
+    }
+
+    [Fact]
+    public async Task VerifyWindowsHelloRemotePinAsync_UsesDedicatedCredential()
+    {
+        var vault = new FakePasswordVault();
+        vault.Credentials.Add(new PasswordCredential("WinOTP_AppLock", "AppPin", "1111"));
+        vault.Credentials.Add(new PasswordCredential("WinOTP_AppLock", "WindowsHelloRemotePin", "9876"));
+        var service = CreateService(vault: vault);
+
+        var isValid = await service.VerifyWindowsHelloRemotePinAsync("9876");
+
+        Assert.True(isValid);
+    }
+
+    [Fact]
+    public async Task RemoveWindowsHelloRemotePasswordAsync_RemovesDedicatedCredential()
+    {
+        var vault = new FakePasswordVault();
+        vault.Credentials.Add(new PasswordCredential("WinOTP_AppLock", "WindowsHelloRemotePassword", "rdp-password-1"));
+        var service = CreateService(vault: vault);
+
+        var removed = await service.RemoveWindowsHelloRemotePasswordAsync();
+
+        Assert.True(removed);
+        Assert.Contains("WindowsHelloRemotePassword", vault.RemovedUserNames);
+    }
+
+    [Fact]
     public async Task GetWindowsHelloAvailabilityAsync_WhenVerifierThrows_ReturnsError()
     {
         var service = CreateService(
@@ -143,7 +195,9 @@ public sealed class AppLockServiceTests
     private sealed class FakePasswordVault : AppLockService.IPasswordVaultAdapter
     {
         public Exception? FindAllException { get; init; }
-        public IReadOnlyList<PasswordCredential> Credentials { get; init; } = [];
+        public List<PasswordCredential> Credentials { get; } = [];
+        public List<string> AddedUserNames { get; } = [];
+        public List<string> RemovedUserNames { get; } = [];
 
         public IReadOnlyList<PasswordCredential> FindAllByResource(string resource)
         {
@@ -157,10 +211,15 @@ public sealed class AppLockServiceTests
 
         public void Add(PasswordCredential credential)
         {
+            AddedUserNames.Add(credential.UserName);
+            Credentials.RemoveAll(existing => existing.UserName == credential.UserName);
+            Credentials.Add(credential);
         }
 
         public void Remove(PasswordCredential credential)
         {
+            RemovedUserNames.Add(credential.UserName);
+            Credentials.RemoveAll(existing => existing.UserName == credential.UserName);
         }
     }
 

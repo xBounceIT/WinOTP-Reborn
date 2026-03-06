@@ -107,11 +107,17 @@ public sealed class AppLockPresentationPolicyTests
             IsPinEffective: mode == AppLockMode.Pin,
             IsPasswordEffective: mode == AppLockMode.Password,
             IsWindowsHelloEffective: mode == AppLockMode.WindowsHello,
+            IsWindowsHelloRemotePinEffective: mode == AppLockMode.WindowsHelloRemotePin,
+            IsWindowsHelloRemotePasswordEffective: mode == AppLockMode.WindowsHelloRemotePassword,
             HasPinError: false,
             HasPasswordError: false,
             HasWindowsHelloError: false,
+            HasWindowsHelloRemotePinError: false,
+            HasWindowsHelloRemotePasswordError: false,
             HasWindowsHelloRemoteSession: false,
             DisableUnavailablePin: false,
             DisableUnavailablePassword: false,
-            DisableUnavailableWindowsHello: false);
+            DisableUnavailableWindowsHello: false,
+            DisableUnavailableWindowsHelloRemotePin: false,
+            DisableUnavailableWindowsHelloRemotePassword: false);
 }

@@ -61,6 +61,8 @@ public sealed partial class SettingsPage : Page
             PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
             WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
+            WindowsHelloRemotePinToggle.IsOn = viewState.IsWindowsHelloRemotePinToggleOn;
+            WindowsHelloRemotePasswordToggle.IsOn = viewState.IsWindowsHelloRemotePasswordToggleOn;
             AutomaticBackupToggle.IsOn = _appSettings.IsAutomaticBackupEnabled;
             UpdateCheckToggle.IsOn = _appSettings.IsUpdateCheckEnabled;
             UpdateChannelComboBox.SelectedIndex = _appSettings.UpdateChannel == UpdateChannel.PreRelease ? 1 : 0;
@@ -112,6 +114,14 @@ public sealed partial class SettingsPage : Page
             PasswordProtectionToggle.IsEnabled = true;
             WindowsHelloToggle.IsEnabled = true;
         }
+
+        WindowsHelloRemoteFallbackPanel.Visibility = WindowsHelloToggle.IsOn
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        WindowsHelloRemotePinToggle.IsEnabled = WindowsHelloToggle.IsOn &&
+            !WindowsHelloRemotePasswordToggle.IsOn;
+        WindowsHelloRemotePasswordToggle.IsEnabled = WindowsHelloToggle.IsOn &&
+            !WindowsHelloRemotePinToggle.IsOn;
     }
 
     private void ShowNextCodeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -555,6 +565,7 @@ public sealed partial class SettingsPage : Page
             if (outcome.Status == WindowsHelloVerificationStatus.Verified)
             {
                 _appSettings.IsWindowsHelloEnabled = false;
+                await ClearWindowsHelloRemoteFallbackAsync();
             }
             else if (outcome.Status == WindowsHelloVerificationStatus.RemoteSession)
             {
@@ -566,6 +577,7 @@ public sealed partial class SettingsPage : Page
             else if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
             {
                 _appSettings.IsWindowsHelloEnabled = false;
+                await ClearWindowsHelloRemoteFallbackAsync();
                 await ShowInfoDialog("Windows Hello is no longer available. Choose a PIN or password now to keep the app protected.");
             }
             else if (outcome.Status == WindowsHelloVerificationStatus.Error)
@@ -587,6 +599,106 @@ public sealed partial class SettingsPage : Page
                 _isInitializingToggle = true;
                 WindowsHelloToggle.IsOn = true;
                 _isInitializingToggle = false;
+            }
+        }
+
+        UpdateProtectionControlsState();
+    }
+
+    private async void WindowsHelloRemotePinToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        if (WindowsHelloRemotePinToggle.IsOn)
+        {
+            var success = await ShowWindowsHelloRemotePinSetupDialogAsync();
+            if (!success)
+            {
+                SetToggleStateWithoutEvent(WindowsHelloRemotePinToggle, false);
+            }
+            else
+            {
+                _appSettings.IsWindowsHelloRemotePinEnabled = true;
+                if (WindowsHelloRemotePasswordToggle.IsOn)
+                {
+                    SetToggleStateWithoutEvent(WindowsHelloRemotePasswordToggle, false);
+                    _appSettings.IsWindowsHelloRemotePasswordEnabled = false;
+                    await _appLock.RemoveWindowsHelloRemotePasswordAsync();
+                }
+            }
+        }
+        else
+        {
+            if (_appLock.GetWindowsHelloRemotePinStatus() == AppLockCredentialStatus.NotSet)
+            {
+                _appSettings.IsWindowsHelloRemotePinEnabled = false;
+                await ShowInfoDialog("The Remote Desktop PIN is no longer available and was turned off.");
+            }
+            else
+            {
+                var verified = await ShowWindowsHelloRemotePinVerificationDialogAsync();
+                if (!verified)
+                {
+                    SetToggleStateWithoutEvent(WindowsHelloRemotePinToggle, true);
+                }
+                else
+                {
+                    await _appLock.RemoveWindowsHelloRemotePinAsync();
+                    _appSettings.IsWindowsHelloRemotePinEnabled = false;
+                }
+            }
+        }
+
+        UpdateProtectionControlsState();
+    }
+
+    private async void WindowsHelloRemotePasswordToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        if (WindowsHelloRemotePasswordToggle.IsOn)
+        {
+            var success = await ShowWindowsHelloRemotePasswordSetupDialogAsync();
+            if (!success)
+            {
+                SetToggleStateWithoutEvent(WindowsHelloRemotePasswordToggle, false);
+            }
+            else
+            {
+                _appSettings.IsWindowsHelloRemotePasswordEnabled = true;
+                if (WindowsHelloRemotePinToggle.IsOn)
+                {
+                    SetToggleStateWithoutEvent(WindowsHelloRemotePinToggle, false);
+                    _appSettings.IsWindowsHelloRemotePinEnabled = false;
+                    await _appLock.RemoveWindowsHelloRemotePinAsync();
+                }
+            }
+        }
+        else
+        {
+            if (_appLock.GetWindowsHelloRemotePasswordStatus() == AppLockCredentialStatus.NotSet)
+            {
+                _appSettings.IsWindowsHelloRemotePasswordEnabled = false;
+                await ShowInfoDialog("The Remote Desktop password is no longer available and was turned off.");
+            }
+            else
+            {
+                var verified = await ShowWindowsHelloRemotePasswordVerificationDialogAsync();
+                if (!verified)
+                {
+                    SetToggleStateWithoutEvent(WindowsHelloRemotePasswordToggle, true);
+                }
+                else
+                {
+                    await _appLock.RemoveWindowsHelloRemotePasswordAsync();
+                    _appSettings.IsWindowsHelloRemotePasswordEnabled = false;
+                }
             }
         }
 
@@ -672,7 +784,32 @@ public sealed partial class SettingsPage : Page
         };
     }
 
-    private async Task<bool> ShowPinSetupDialogAsync()
+    private Task<bool> ShowPinSetupDialogAsync()
+    {
+        return ShowPinSetupDialogAsync(
+            "Set up PIN",
+            "Choose a 4-6 digit PIN to protect the app.",
+            "Set PIN",
+            _appLock.SetPinAsync,
+            "Failed to save PIN. Please try again.");
+    }
+
+    private Task<bool> ShowWindowsHelloRemotePinSetupDialogAsync()
+    {
+        return ShowPinSetupDialogAsync(
+            "Set up Remote Desktop PIN",
+            "Choose a 4-6 digit PIN that WinOTP will require only when Windows Hello is unavailable over Remote Desktop.",
+            "Set PIN",
+            _appLock.SetWindowsHelloRemotePinAsync,
+            "Failed to save the Remote Desktop PIN. Please try again.");
+    }
+
+    private async Task<bool> ShowPinSetupDialogAsync(
+        string title,
+        string message,
+        string primaryButtonText,
+        Func<string, Task<bool>> saveAsync,
+        string saveErrorMessage)
     {
         var pinTextBox = new PasswordBox
         {
@@ -689,15 +826,15 @@ public sealed partial class SettingsPage : Page
         };
 
         var stackPanel = new StackPanel { Spacing = 12 };
-        stackPanel.Children.Add(new TextBlock { Text = "Choose a 4-6 digit PIN to protect the app." });
+        stackPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.WrapWholeWords });
         stackPanel.Children.Add(pinTextBox);
         stackPanel.Children.Add(confirmPinTextBox);
 
         var dialog = new ContentDialog
         {
-            Title = "Set up PIN",
+            Title = title,
             Content = stackPanel,
-            PrimaryButtonText = "Set PIN",
+            PrimaryButtonText = primaryButtonText,
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = this.XamlRoot
@@ -728,10 +865,10 @@ public sealed partial class SettingsPage : Page
                 return false;
             }
 
-            var success = await _appLock.SetPinAsync(pin);
+            var success = await saveAsync(pin);
             if (!success)
             {
-                await ShowErrorDialog("Failed to save PIN. Please try again.");
+                await ShowErrorDialog(saveErrorMessage);
                 return false;
             }
 
@@ -741,7 +878,32 @@ public sealed partial class SettingsPage : Page
         return false;
     }
 
-    private async Task<bool> ShowPasswordSetupDialogAsync()
+    private Task<bool> ShowPasswordSetupDialogAsync()
+    {
+        return ShowPasswordSetupDialogAsync(
+            "Set up Password",
+            "Choose a password to protect the app.",
+            "Set Password",
+            _appLock.SetPasswordAsync,
+            "Failed to save password. Please try again.");
+    }
+
+    private Task<bool> ShowWindowsHelloRemotePasswordSetupDialogAsync()
+    {
+        return ShowPasswordSetupDialogAsync(
+            "Set up Remote Desktop Password",
+            "Choose a password that WinOTP will require only when Windows Hello is unavailable over Remote Desktop.",
+            "Set Password",
+            _appLock.SetWindowsHelloRemotePasswordAsync,
+            "Failed to save the Remote Desktop password. Please try again.");
+    }
+
+    private async Task<bool> ShowPasswordSetupDialogAsync(
+        string title,
+        string message,
+        string primaryButtonText,
+        Func<string, Task<bool>> saveAsync,
+        string saveErrorMessage)
     {
         var passwordBox = new PasswordBox
         {
@@ -754,15 +916,15 @@ public sealed partial class SettingsPage : Page
         };
 
         var stackPanel = new StackPanel { Spacing = 12 };
-        stackPanel.Children.Add(new TextBlock { Text = "Choose a password to protect the app." });
+        stackPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.WrapWholeWords });
         stackPanel.Children.Add(passwordBox);
         stackPanel.Children.Add(confirmPasswordBox);
 
         var dialog = new ContentDialog
         {
-            Title = "Set up Password",
+            Title = title,
             Content = stackPanel,
-            PrimaryButtonText = "Set Password",
+            PrimaryButtonText = primaryButtonText,
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = this.XamlRoot
@@ -787,10 +949,10 @@ public sealed partial class SettingsPage : Page
                 return false;
             }
 
-            var success = await _appLock.SetPasswordAsync(password);
+            var success = await saveAsync(password);
             if (!success)
             {
-                await ShowErrorDialog("Failed to save password. Please try again.");
+                await ShowErrorDialog(saveErrorMessage);
                 return false;
             }
 
@@ -886,22 +1048,47 @@ public sealed partial class SettingsPage : Page
         return password;
     }
 
-    private async Task<bool> ShowPinVerificationDialogAsync()
+    private Task<bool> ShowPinVerificationDialogAsync()
+    {
+        return ShowPinVerificationDialogAsync(
+            "Verify PIN",
+            "Enter your PIN to disable PIN protection.",
+            "Enter your PIN",
+            "Incorrect PIN.",
+            _appLock.VerifyPinAsync);
+    }
+
+    private Task<bool> ShowWindowsHelloRemotePinVerificationDialogAsync()
+    {
+        return ShowPinVerificationDialogAsync(
+            "Verify Remote Desktop PIN",
+            "Enter your Remote Desktop PIN to disable the Remote Desktop PIN fallback.",
+            "Enter your Remote Desktop PIN",
+            "Incorrect Remote Desktop PIN.",
+            _appLock.VerifyWindowsHelloRemotePinAsync);
+    }
+
+    private async Task<bool> ShowPinVerificationDialogAsync(
+        string title,
+        string message,
+        string placeholderText,
+        string invalidCredentialMessage,
+        Func<string, Task<bool>> verifyAsync)
     {
         var pinTextBox = new PasswordBox
         {
-            PlaceholderText = "Enter your PIN",
+            PlaceholderText = placeholderText,
             MaxLength = 6,
             PasswordRevealMode = PasswordRevealMode.Hidden
         };
 
         var stackPanel = new StackPanel { Spacing = 12 };
-        stackPanel.Children.Add(new TextBlock { Text = "Enter your PIN to disable PIN protection." });
+        stackPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.WrapWholeWords });
         stackPanel.Children.Add(pinTextBox);
 
         var dialog = new ContentDialog
         {
-            Title = "Verify PIN",
+            Title = title,
             Content = stackPanel,
             PrimaryButtonText = "Verify",
             CloseButtonText = "Cancel",
@@ -914,11 +1101,11 @@ public sealed partial class SettingsPage : Page
         if (result == ContentDialogResult.Primary)
         {
             var pin = pinTextBox.Password;
-            var isValid = await _appLock.VerifyPinAsync(pin);
+            var isValid = await verifyAsync(pin);
 
             if (!isValid)
             {
-                await ShowErrorDialog("Incorrect PIN.");
+                await ShowErrorDialog(invalidCredentialMessage);
                 return false;
             }
 
@@ -928,20 +1115,45 @@ public sealed partial class SettingsPage : Page
         return false;
     }
 
-    private async Task<bool> ShowPasswordVerificationDialogAsync()
+    private Task<bool> ShowPasswordVerificationDialogAsync()
+    {
+        return ShowPasswordVerificationDialogAsync(
+            "Verify Password",
+            "Enter your password to disable password protection.",
+            "Enter your password",
+            "Incorrect password.",
+            _appLock.VerifyPasswordAsync);
+    }
+
+    private Task<bool> ShowWindowsHelloRemotePasswordVerificationDialogAsync()
+    {
+        return ShowPasswordVerificationDialogAsync(
+            "Verify Remote Desktop Password",
+            "Enter your Remote Desktop password to disable the Remote Desktop password fallback.",
+            "Enter your Remote Desktop password",
+            "Incorrect Remote Desktop password.",
+            _appLock.VerifyWindowsHelloRemotePasswordAsync);
+    }
+
+    private async Task<bool> ShowPasswordVerificationDialogAsync(
+        string title,
+        string message,
+        string placeholderText,
+        string invalidCredentialMessage,
+        Func<string, Task<bool>> verifyAsync)
     {
         var passwordBox = new PasswordBox
         {
-            PlaceholderText = "Enter your password"
+            PlaceholderText = placeholderText
         };
 
         var stackPanel = new StackPanel { Spacing = 12 };
-        stackPanel.Children.Add(new TextBlock { Text = "Enter your password to disable password protection." });
+        stackPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.WrapWholeWords });
         stackPanel.Children.Add(passwordBox);
 
         var dialog = new ContentDialog
         {
-            Title = "Verify Password",
+            Title = title,
             Content = stackPanel,
             PrimaryButtonText = "Verify",
             CloseButtonText = "Cancel",
@@ -954,11 +1166,11 @@ public sealed partial class SettingsPage : Page
         if (result == ContentDialogResult.Primary)
         {
             var password = passwordBox.Password;
-            var isValid = await _appLock.VerifyPasswordAsync(password);
+            var isValid = await verifyAsync(password);
 
             if (!isValid)
             {
-                await ShowErrorDialog("Incorrect password.");
+                await ShowErrorDialog(invalidCredentialMessage);
                 return false;
             }
 
@@ -966,6 +1178,23 @@ public sealed partial class SettingsPage : Page
         }
 
         return false;
+    }
+
+    private async Task ClearWindowsHelloRemoteFallbackAsync()
+    {
+        SetToggleStateWithoutEvent(WindowsHelloRemotePinToggle, false);
+        SetToggleStateWithoutEvent(WindowsHelloRemotePasswordToggle, false);
+        _appSettings.IsWindowsHelloRemotePinEnabled = false;
+        _appSettings.IsWindowsHelloRemotePasswordEnabled = false;
+        await _appLock.RemoveWindowsHelloRemotePinAsync();
+        await _appLock.RemoveWindowsHelloRemotePasswordAsync();
+    }
+
+    private void SetToggleStateWithoutEvent(ToggleSwitch toggle, bool isOn)
+    {
+        _isInitializingToggle = true;
+        toggle.IsOn = isOn;
+        _isInitializingToggle = false;
     }
 
     private async Task<bool> ApplyBackupFolderChangeAsync(string customBackupFolderPath)

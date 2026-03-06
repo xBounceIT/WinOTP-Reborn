@@ -4,7 +4,9 @@ internal readonly record struct SettingsProtectionViewState(
     AppLockResolution Resolution,
     bool IsPinToggleOn,
     bool IsPasswordToggleOn,
-    bool IsWindowsHelloToggleOn);
+    bool IsWindowsHelloToggleOn,
+    bool IsWindowsHelloRemotePinToggleOn,
+    bool IsWindowsHelloRemotePasswordToggleOn);
 
 internal static class SettingsProtectionViewStateService
 {
@@ -12,6 +14,12 @@ internal static class SettingsProtectionViewStateService
         IAppSettingsService settings,
         IAppLockService appLock)
     {
+        if (!settings.IsWindowsHelloEnabled &&
+            (settings.IsWindowsHelloRemotePinEnabled || settings.IsWindowsHelloRemotePasswordEnabled))
+        {
+            await ClearWindowsHelloRemoteFallbackAsync(settings, appLock);
+        }
+
         var resolution = await AppLockResolutionService.ResolveAsync(settings, appLock);
         if (resolution.HasUnavailableConfiguredProtection)
         {
@@ -28,6 +36,19 @@ internal static class SettingsProtectionViewStateService
             if (resolution.DisableUnavailableWindowsHello)
             {
                 settings.IsWindowsHelloEnabled = false;
+                await ClearWindowsHelloRemoteFallbackAsync(settings, appLock);
+            }
+            else if (resolution.DisableUnavailableWindowsHelloRemotePin)
+            {
+                settings.IsWindowsHelloRemotePinEnabled = false;
+                await appLock.RemoveWindowsHelloRemotePinAsync();
+            }
+
+            if (!resolution.DisableUnavailableWindowsHello &&
+                resolution.DisableUnavailableWindowsHelloRemotePassword)
+            {
+                settings.IsWindowsHelloRemotePasswordEnabled = false;
+                await appLock.RemoveWindowsHelloRemotePasswordAsync();
             }
 
             resolution = await AppLockResolutionService.ResolveAsync(settings, appLock);
@@ -37,6 +58,18 @@ internal static class SettingsProtectionViewStateService
             resolution,
             settings.IsPinProtectionEnabled,
             settings.IsPasswordProtectionEnabled,
-            settings.IsWindowsHelloEnabled);
+            settings.IsWindowsHelloEnabled,
+            settings.IsWindowsHelloRemotePinEnabled,
+            settings.IsWindowsHelloRemotePasswordEnabled);
+    }
+
+    private static async Task ClearWindowsHelloRemoteFallbackAsync(
+        IAppSettingsService settings,
+        IAppLockService appLock)
+    {
+        settings.IsWindowsHelloRemotePinEnabled = false;
+        settings.IsWindowsHelloRemotePasswordEnabled = false;
+        await appLock.RemoveWindowsHelloRemotePinAsync();
+        await appLock.RemoveWindowsHelloRemotePasswordAsync();
     }
 }

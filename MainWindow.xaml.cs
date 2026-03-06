@@ -231,6 +231,22 @@ public sealed partial class MainWindow : Window
                 LockSubtitleText.Text = "Enter your password to unlock";
                 PasswordInput.Focus(FocusState.Programmatic);
                 break;
+            case AppLockMode.WindowsHelloRemotePin:
+                PinInput.Visibility = Visibility.Visible;
+                PasswordInput.Visibility = Visibility.Collapsed;
+                WindowsHelloButton.Visibility = Visibility.Collapsed;
+                UnlockButton.Visibility = Visibility.Visible;
+                LockSubtitleText.Text = "Remote Desktop session detected. Enter your Remote Desktop PIN to unlock.";
+                PinInput.Focus(FocusState.Programmatic);
+                break;
+            case AppLockMode.WindowsHelloRemotePassword:
+                PinInput.Visibility = Visibility.Collapsed;
+                PasswordInput.Visibility = Visibility.Visible;
+                WindowsHelloButton.Visibility = Visibility.Collapsed;
+                UnlockButton.Visibility = Visibility.Visible;
+                LockSubtitleText.Text = "Remote Desktop session detected. Enter your Remote Desktop password to unlock.";
+                PasswordInput.Focus(FocusState.Programmatic);
+                break;
             case AppLockMode.WindowsHello:
                 PinInput.Visibility = Visibility.Collapsed;
                 PasswordInput.Visibility = Visibility.Collapsed;
@@ -272,20 +288,24 @@ public sealed partial class MainWindow : Window
     {
         bool isValid = false;
 
-        if (_currentLockMode == AppLockMode.Pin)
+        if (_currentLockMode is AppLockMode.Pin or AppLockMode.WindowsHelloRemotePin)
         {
             var pin = PinInput.Password;
             if (!string.IsNullOrWhiteSpace(pin))
             {
-                isValid = await _appLock.VerifyPinAsync(pin);
+                isValid = _currentLockMode == AppLockMode.Pin
+                    ? await _appLock.VerifyPinAsync(pin)
+                    : await _appLock.VerifyWindowsHelloRemotePinAsync(pin);
             }
         }
-        else if (_currentLockMode == AppLockMode.Password)
+        else if (_currentLockMode is AppLockMode.Password or AppLockMode.WindowsHelloRemotePassword)
         {
             var password = PasswordInput.Password;
             if (!string.IsNullOrWhiteSpace(password))
             {
-                isValid = await _appLock.VerifyPasswordAsync(password);
+                isValid = _currentLockMode == AppLockMode.Password
+                    ? await _appLock.VerifyPasswordAsync(password)
+                    : await _appLock.VerifyWindowsHelloRemotePasswordAsync(password);
             }
         }
 
@@ -300,7 +320,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            UnlockErrorText.Text = "Incorrect PIN or password. Please try again.";
+            UnlockErrorText.Text = GetUnlockFailureMessage();
             UnlockErrorText.Visibility = Visibility.Visible;
 
             if (PinInput.Visibility == Visibility.Visible)
@@ -552,6 +572,8 @@ public sealed partial class MainWindow : Window
         return propertyName is nameof(IAppSettingsService.IsPinProtectionEnabled)
             or nameof(IAppSettingsService.IsPasswordProtectionEnabled)
             or nameof(IAppSettingsService.IsWindowsHelloEnabled)
+            or nameof(IAppSettingsService.IsWindowsHelloRemotePinEnabled)
+            or nameof(IAppSettingsService.IsWindowsHelloRemotePasswordEnabled)
             or nameof(IAppSettingsService.AutoLockTimeoutMinutes);
     }
 
@@ -564,6 +586,12 @@ public sealed partial class MainWindow : Window
 
     private async Task<ResolvedProtectionState> ResolveProtectionStateAsync()
     {
+        if (!_appSettings.IsWindowsHelloEnabled &&
+            (_appSettings.IsWindowsHelloRemotePinEnabled || _appSettings.IsWindowsHelloRemotePasswordEnabled))
+        {
+            await ClearWindowsHelloRemoteFallbackAsync();
+        }
+
         var resolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
         var temporaryBypassReason = GetTemporaryBypassReason(resolution);
         if (!resolution.HasUnavailableConfiguredProtection)
@@ -579,7 +607,7 @@ public sealed partial class MainWindow : Window
                 TemporaryBypassReason: temporaryBypassReason);
         }
 
-        ClearUnavailableProtectionSettings(resolution);
+        await ClearUnavailableProtectionSettingsAsync(resolution);
         var normalizedResolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
         var normalizedTemporaryBypassReason = GetTemporaryBypassReason(normalizedResolution);
         if (normalizedResolution.Mode != AppLockMode.None)
@@ -594,7 +622,7 @@ public sealed partial class MainWindow : Window
             TemporaryBypassReason: normalizedTemporaryBypassReason);
     }
 
-    private void ClearUnavailableProtectionSettings(AppLockResolution resolution)
+    private async Task ClearUnavailableProtectionSettingsAsync(AppLockResolution resolution)
     {
         try
         {
@@ -613,6 +641,21 @@ public sealed partial class MainWindow : Window
             if (resolution.DisableUnavailableWindowsHello)
             {
                 _appSettings.IsWindowsHelloEnabled = false;
+                await ClearWindowsHelloRemoteFallbackCoreAsync();
+            }
+            else
+            {
+                if (resolution.DisableUnavailableWindowsHelloRemotePin)
+                {
+                    _appSettings.IsWindowsHelloRemotePinEnabled = false;
+                    await _appLock.RemoveWindowsHelloRemotePinAsync();
+                }
+
+                if (resolution.DisableUnavailableWindowsHelloRemotePassword)
+                {
+                    _appSettings.IsWindowsHelloRemotePasswordEnabled = false;
+                    await _appLock.RemoveWindowsHelloRemotePasswordAsync();
+                }
             }
         }
         finally
@@ -627,6 +670,8 @@ public sealed partial class MainWindow : Window
         {
             AppLockMode.Pin => _appLock.GetPinStatus(),
             AppLockMode.Password => _appLock.GetPasswordStatus(),
+            AppLockMode.WindowsHelloRemotePin => _appLock.GetWindowsHelloRemotePinStatus(),
+            AppLockMode.WindowsHelloRemotePassword => _appLock.GetWindowsHelloRemotePasswordStatus(),
             _ => AppLockCredentialStatus.Set
         };
 
@@ -711,7 +756,7 @@ public sealed partial class MainWindow : Window
         {
             TemporaryProtectionUnavailableReason.RemoteSession => (
                 "Windows Hello unavailable in Remote Desktop",
-                "Windows Hello cannot be used while WinOTP is running in a Remote Desktop session. Your Windows Hello setting was kept, and WinOTP will stay unlocked until you use the app locally or another protection method becomes available."),
+                "Windows Hello cannot be used while WinOTP is running in a Remote Desktop session. Your Windows Hello setting was kept. Configure a Remote Desktop PIN or password in Settings if you want WinOTP to stay locked while connected remotely; otherwise the app will remain unlocked until you use the app locally again."),
             _ => (
                 "App protection temporarily unavailable",
                 "WinOTP could not verify your configured protection because Windows security services are temporarily unavailable. Your protection settings were kept and the app will remain unlocked until protection becomes available again.")
@@ -735,14 +780,11 @@ public sealed partial class MainWindow : Window
             return null;
         }
 
-        if (resolution.HasWindowsHelloRemoteSession)
-        {
-            return TemporaryProtectionUnavailableReason.RemoteSession;
-        }
-
         return resolution.HasConfiguredProtectionError
             ? TemporaryProtectionUnavailableReason.ServiceError
-            : null;
+            : resolution.HasWindowsHelloRemoteSession
+                ? TemporaryProtectionUnavailableReason.RemoteSession
+                : null;
     }
 
     private static TemporaryProtectionUnavailableReason GetTemporaryBypassReason(
@@ -772,5 +814,36 @@ public sealed partial class MainWindow : Window
         PinInput.Password = "";
         PasswordInput.Password = "";
         UnlockErrorText.Visibility = Visibility.Collapsed;
+    }
+
+    private string GetUnlockFailureMessage()
+    {
+        return _currentLockMode switch
+        {
+            AppLockMode.Pin or AppLockMode.WindowsHelloRemotePin => "Incorrect PIN. Please try again.",
+            AppLockMode.Password or AppLockMode.WindowsHelloRemotePassword => "Incorrect password. Please try again.",
+            _ => "Incorrect credential. Please try again."
+        };
+    }
+
+    private async Task ClearWindowsHelloRemoteFallbackAsync()
+    {
+        try
+        {
+            _isApplyingProtectionRecovery = true;
+            await ClearWindowsHelloRemoteFallbackCoreAsync();
+        }
+        finally
+        {
+            _isApplyingProtectionRecovery = false;
+        }
+    }
+
+    private async Task ClearWindowsHelloRemoteFallbackCoreAsync()
+    {
+        _appSettings.IsWindowsHelloRemotePinEnabled = false;
+        _appSettings.IsWindowsHelloRemotePasswordEnabled = false;
+        await _appLock.RemoveWindowsHelloRemotePinAsync();
+        await _appLock.RemoveWindowsHelloRemotePasswordAsync();
     }
 }

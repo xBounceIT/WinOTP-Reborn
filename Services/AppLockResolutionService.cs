@@ -7,10 +7,22 @@ internal static class AppLockResolutionService
         IAppLockService appLock)
     {
         var windowsHelloAvailability = WindowsHelloAvailabilityStatus.Unavailable;
+        var windowsHelloRemotePinStatus = AppLockCredentialStatus.NotSet;
+        var windowsHelloRemotePasswordStatus = AppLockCredentialStatus.NotSet;
 
         if (appSettings.IsWindowsHelloEnabled)
         {
             windowsHelloAvailability = await appLock.GetWindowsHelloAvailabilityAsync();
+        }
+
+        if (appSettings.IsWindowsHelloRemotePinEnabled)
+        {
+            windowsHelloRemotePinStatus = appLock.GetWindowsHelloRemotePinStatus();
+        }
+
+        if (appSettings.IsWindowsHelloRemotePasswordEnabled)
+        {
+            windowsHelloRemotePasswordStatus = appLock.GetWindowsHelloRemotePasswordStatus();
         }
 
         return AppLockDecisionResolver.Resolve(
@@ -19,6 +31,10 @@ internal static class AppLockResolutionService
             appSettings.IsPasswordProtectionEnabled,
             appLock.GetPasswordStatus(),
             appSettings.IsWindowsHelloEnabled,
-            windowsHelloAvailability);
+            windowsHelloAvailability,
+            appSettings.IsWindowsHelloRemotePinEnabled,
+            windowsHelloRemotePinStatus,
+            appSettings.IsWindowsHelloRemotePasswordEnabled,
+            windowsHelloRemotePasswordStatus);
     }
 }

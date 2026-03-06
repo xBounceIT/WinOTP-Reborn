@@ -12,6 +12,8 @@ public interface IAppSettingsService
     bool IsPinProtectionEnabled { get; set; }
     bool IsPasswordProtectionEnabled { get; set; }
     bool IsWindowsHelloEnabled { get; set; }
+    bool IsWindowsHelloRemotePinEnabled { get; set; }
+    bool IsWindowsHelloRemotePasswordEnabled { get; set; }
     int AutoLockTimeoutMinutes { get; set; }
     bool IsAutomaticBackupEnabled { get; set; }
     string CustomBackupFolderPath { get; set; }
@@ -47,6 +49,8 @@ public sealed class AppSettingsService : IAppSettingsService
     private bool _isPinProtectionEnabled;
     private bool _isPasswordProtectionEnabled;
     private bool _isWindowsHelloEnabled;
+    private bool _isWindowsHelloRemotePinEnabled;
+    private bool _isWindowsHelloRemotePasswordEnabled;
     private int _autoLockTimeoutMinutes;
     private bool _isAutomaticBackupEnabled;
     private string _customBackupFolderPath = string.Empty;
@@ -72,6 +76,8 @@ public sealed class AppSettingsService : IAppSettingsService
         _isPinProtectionEnabled = loadedSettings.IsPinProtectionEnabled;
         _isPasswordProtectionEnabled = loadedSettings.IsPasswordProtectionEnabled;
         _isWindowsHelloEnabled = loadedSettings.IsWindowsHelloEnabled;
+        _isWindowsHelloRemotePinEnabled = loadedSettings.IsWindowsHelloRemotePinEnabled;
+        _isWindowsHelloRemotePasswordEnabled = loadedSettings.IsWindowsHelloRemotePasswordEnabled;
         _autoLockTimeoutMinutes = loadedSettings.AutoLockTimeoutMinutes;
         _isAutomaticBackupEnabled = loadedSettings.IsAutomaticBackupEnabled;
         _customBackupFolderPath = NormalizePathSetting(loadedSettings.CustomBackupFolderPath);
@@ -107,6 +113,18 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _isWindowsHelloEnabled;
         set => SetBooleanProperty(ref _isWindowsHelloEnabled, value, nameof(IsWindowsHelloEnabled));
+    }
+
+    public bool IsWindowsHelloRemotePinEnabled
+    {
+        get => _isWindowsHelloRemotePinEnabled;
+        set => SetBooleanProperty(ref _isWindowsHelloRemotePinEnabled, value, nameof(IsWindowsHelloRemotePinEnabled));
+    }
+
+    public bool IsWindowsHelloRemotePasswordEnabled
+    {
+        get => _isWindowsHelloRemotePasswordEnabled;
+        set => SetBooleanProperty(ref _isWindowsHelloRemotePasswordEnabled, value, nameof(IsWindowsHelloRemotePasswordEnabled));
     }
 
     public int AutoLockTimeoutMinutes
@@ -258,6 +276,8 @@ public sealed class AppSettingsService : IAppSettingsService
             IsPinProtectionEnabled = _isPinProtectionEnabled,
             IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
             IsWindowsHelloEnabled = _isWindowsHelloEnabled,
+            IsWindowsHelloRemotePinEnabled = _isWindowsHelloRemotePinEnabled,
+            IsWindowsHelloRemotePasswordEnabled = _isWindowsHelloRemotePasswordEnabled,
             AutoLockTimeoutMinutes = _autoLockTimeoutMinutes,
             IsAutomaticBackupEnabled = _isAutomaticBackupEnabled,
             CustomBackupFolderPath = _customBackupFolderPath,
@@ -291,6 +311,8 @@ public sealed class AppSettingsService : IAppSettingsService
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
+        public bool IsWindowsHelloRemotePinEnabled { get; set; }
+        public bool IsWindowsHelloRemotePasswordEnabled { get; set; }
         public int AutoLockTimeoutMinutes { get; set; }
         public bool IsAutomaticBackupEnabled { get; set; }
         public string CustomBackupFolderPath { get; set; } = string.Empty;

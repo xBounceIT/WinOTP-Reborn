@@ -841,6 +841,8 @@ public sealed class AppUpdateServiceTests : IDisposable
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
+        public bool IsWindowsHelloRemotePinEnabled { get; set; }
+        public bool IsWindowsHelloRemotePasswordEnabled { get; set; }
         public int AutoLockTimeoutMinutes { get; set; }
         public bool IsAutomaticBackupEnabled { get; set; }
         public string CustomBackupFolderPath { get; set; } = string.Empty;
