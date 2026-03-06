@@ -1,12 +1,33 @@
 namespace WinOTP.Services;
 
+internal enum AppLockTemporaryBypassReason
+{
+    ServiceError,
+    RemoteSession
+}
+
+internal readonly record struct AppLockProtectionPresentationState(
+    AppLockMode Mode,
+    bool ShowRecoveryDialog,
+    AppLockTemporaryBypassReason? TemporaryBypassReason)
+{
+    public bool HasRemoteSessionContext =>
+        Mode is AppLockMode.WindowsHelloRemotePin or AppLockMode.WindowsHelloRemotePassword ||
+        TemporaryBypassReason == AppLockTemporaryBypassReason.RemoteSession;
+}
+
 internal static class AppLockSessionTransitionPolicy
 {
-    public static bool ShouldResolveOnActivation(
+    internal const uint ConsoleConnectSessionChange = 0x1;
+    internal const uint ConsoleDisconnectSessionChange = 0x2;
+    internal const uint RemoteConnectSessionChange = 0x3;
+    internal const uint RemoteDisconnectSessionChange = 0x4;
+
+    public static bool ShouldResolveOnReconciliation(
         bool isWindowsHelloEnabled,
-        bool hadRemoteSessionContext)
+        AppLockProtectionPresentationState previousState)
     {
-        return isWindowsHelloEnabled || hadRemoteSessionContext;
+        return isWindowsHelloEnabled || previousState.HasRemoteSessionContext;
     }
 
     public static bool ShouldRefreshBeforeCredentialVerification(
@@ -17,10 +38,19 @@ internal static class AppLockSessionTransitionPolicy
             resolution.Mode != currentLockMode;
     }
 
-    public static bool ShouldReapplyProtectionOnActivation(
-        bool hadRemoteSessionContext,
-        AppLockResolution resolution)
+    public static bool ShouldPresentResolvedProtectionState(
+        AppLockProtectionPresentationState previousState,
+        AppLockProtectionPresentationState currentState)
     {
-        return hadRemoteSessionContext != resolution.HasWindowsHelloRemoteSession;
+        return previousState != currentState;
+    }
+
+    public static bool ShouldReconcileOnSessionChange(uint sessionChangeCode)
+    {
+        return sessionChangeCode is
+            ConsoleConnectSessionChange or
+            ConsoleDisconnectSessionChange or
+            RemoteConnectSessionChange or
+            RemoteDisconnectSessionChange;
     }
 }

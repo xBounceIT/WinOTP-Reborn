@@ -6,31 +6,44 @@ namespace WinOTP.Tests;
 public sealed class AppLockSessionTransitionPolicyTests
 {
     [Fact]
-    public void ShouldResolveOnActivation_WindowsHelloEnabled_ReturnsTrue()
+    public void ShouldResolveOnReconciliation_WindowsHelloEnabled_ReturnsTrue()
     {
-        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnReconciliation(
             isWindowsHelloEnabled: true,
-            hadRemoteSessionContext: false);
+            CreatePresentationState(AppLockMode.None));
 
         Assert.True(shouldResolve);
     }
 
     [Fact]
-    public void ShouldResolveOnActivation_PreviouslyRemote_ReturnsTrue()
+    public void ShouldResolveOnReconciliation_PreviouslyRemote_ReturnsTrue()
     {
-        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnReconciliation(
             isWindowsHelloEnabled: false,
-            hadRemoteSessionContext: true);
+            CreatePresentationState(
+                AppLockMode.WindowsHelloRemotePassword));
 
         Assert.True(shouldResolve);
     }
 
     [Fact]
-    public void ShouldResolveOnActivation_NoWindowsHelloAndNoPreviousRemote_ReturnsFalse()
+    public void ShouldResolveOnReconciliation_PreviousRemoteTemporaryBypass_ReturnsTrue()
     {
-        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnReconciliation(
             isWindowsHelloEnabled: false,
-            hadRemoteSessionContext: false);
+            CreatePresentationState(
+                AppLockMode.None,
+                temporaryBypassReason: AppLockTemporaryBypassReason.RemoteSession));
+
+        Assert.True(shouldResolve);
+    }
+
+    [Fact]
+    public void ShouldResolveOnReconciliation_NoWindowsHelloAndNoPreviousRemote_ReturnsFalse()
+    {
+        var shouldResolve = AppLockSessionTransitionPolicy.ShouldResolveOnReconciliation(
+            isWindowsHelloEnabled: false,
+            CreatePresentationState(AppLockMode.None));
 
         Assert.False(shouldResolve);
     }
@@ -66,43 +79,91 @@ public sealed class AppLockSessionTransitionPolicyTests
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_LocalToRemote_ReturnsTrue()
+    public void ShouldPresentResolvedProtectionState_LocalToRemoteFallback_ReturnsTrue()
     {
-        var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
-            hadRemoteSessionContext: false,
-            CreateResolution(AppLockMode.WindowsHelloRemotePassword, hasWindowsHelloRemoteSession: true));
+        var shouldPresent = AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+            CreatePresentationState(AppLockMode.WindowsHello),
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePassword));
 
-        Assert.True(shouldReapply);
+        Assert.True(shouldPresent);
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_RemoteToLocal_ReturnsTrue()
+    public void ShouldPresentResolvedProtectionState_LocalToRemoteTemporaryBypass_ReturnsTrue()
     {
-        var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
-            hadRemoteSessionContext: true,
-            CreateResolution(AppLockMode.WindowsHello, hasWindowsHelloRemoteSession: false));
+        var shouldPresent = AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+            CreatePresentationState(AppLockMode.WindowsHello),
+            CreatePresentationState(
+                AppLockMode.None,
+                temporaryBypassReason: AppLockTemporaryBypassReason.RemoteSession));
 
-        Assert.True(shouldReapply);
+        Assert.True(shouldPresent);
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_SessionUnchanged_ReturnsFalse()
+    public void ShouldPresentResolvedProtectionState_ServiceErrorBypassWithoutSessionChange_ReturnsTrue()
     {
-        var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
-            hadRemoteSessionContext: true,
-            CreateResolution(AppLockMode.WindowsHelloRemotePassword, hasWindowsHelloRemoteSession: true));
+        var shouldPresent = AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+            CreatePresentationState(AppLockMode.WindowsHello),
+            CreatePresentationState(
+                AppLockMode.None,
+                temporaryBypassReason: AppLockTemporaryBypassReason.ServiceError));
 
-        Assert.False(shouldReapply);
+        Assert.True(shouldPresent);
     }
 
     [Fact]
-    public void ShouldReapplyProtectionOnActivation_LocalSessionUnchanged_ReturnsFalse()
+    public void ShouldPresentResolvedProtectionState_RemoteToLocal_ReturnsTrue()
     {
-        var shouldReapply = AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
-            hadRemoteSessionContext: false,
-            CreateResolution(AppLockMode.WindowsHello, hasWindowsHelloRemoteSession: false));
+        var shouldPresent = AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePin),
+            CreatePresentationState(AppLockMode.WindowsHello));
 
-        Assert.False(shouldReapply);
+        Assert.True(shouldPresent);
+    }
+
+    [Fact]
+    public void ShouldPresentResolvedProtectionState_PresentationUnchanged_ReturnsFalse()
+    {
+        var shouldPresent = AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePassword),
+            CreatePresentationState(AppLockMode.WindowsHelloRemotePassword));
+
+        Assert.False(shouldPresent);
+    }
+
+    [Fact]
+    public void ShouldPresentResolvedProtectionState_SameEffectiveModeAcrossSessionFlip_ReturnsFalse()
+    {
+        var shouldPresent = AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+            CreatePresentationState(AppLockMode.Password),
+            CreatePresentationState(AppLockMode.Password));
+
+        Assert.False(shouldPresent);
+    }
+
+    [Theory]
+    [InlineData(AppLockSessionTransitionPolicy.ConsoleConnectSessionChange)]
+    [InlineData(AppLockSessionTransitionPolicy.ConsoleDisconnectSessionChange)]
+    [InlineData(AppLockSessionTransitionPolicy.RemoteConnectSessionChange)]
+    [InlineData(AppLockSessionTransitionPolicy.RemoteDisconnectSessionChange)]
+    public void ShouldReconcileOnSessionChange_RelevantCodes_ReturnTrue(uint sessionChangeCode)
+    {
+        var shouldReconcile = AppLockSessionTransitionPolicy.ShouldReconcileOnSessionChange(sessionChangeCode);
+
+        Assert.True(shouldReconcile);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(5u)]
+    [InlineData(7u)]
+    [InlineData(8u)]
+    public void ShouldReconcileOnSessionChange_IrrelevantCodes_ReturnFalse(uint sessionChangeCode)
+    {
+        var shouldReconcile = AppLockSessionTransitionPolicy.ShouldReconcileOnSessionChange(sessionChangeCode);
+
+        Assert.False(shouldReconcile);
     }
 
     private static AppLockResolution CreateResolution(
@@ -127,5 +188,16 @@ public sealed class AppLockSessionTransitionPolicyTests
             DisableUnavailableWindowsHello: false,
             DisableUnavailableWindowsHelloRemotePin: false,
             DisableUnavailableWindowsHelloRemotePassword: false);
+    }
+
+    private static AppLockProtectionPresentationState CreatePresentationState(
+        AppLockMode mode,
+        bool showRecoveryDialog = false,
+        AppLockTemporaryBypassReason? temporaryBypassReason = null)
+    {
+        return new AppLockProtectionPresentationState(
+            mode,
+            showRecoveryDialog,
+            temporaryBypassReason);
     }
 }

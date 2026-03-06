@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -11,32 +12,43 @@ namespace WinOTP;
 
 public sealed partial class MainWindow : Window
 {
+    private const uint SessionChangeWindowMessage = 0x02B1;
+    private const uint NotifyForThisSession = 0;
+    private const nuint SessionNotificationSubclassId = 1;
+
     private readonly IAppSettingsService _appSettings;
     private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
     private readonly IAutoLockService _autoLock;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
+    private readonly SubclassProc _sessionNotificationSubclassProc;
     private bool _autoLockHandlersSetUp;
     private bool _isApplyingProtectionRecovery;
-    private bool _isReconcilingActivationProtectionState;
+    private bool _isReconcilingProtectionState;
     private bool _hasStartedStartupInitialization;
     private bool _hasEffectiveProtection;
-    private bool _lastResolvedHadWindowsHelloRemoteSession;
-    private TemporaryProtectionUnavailableReason? _lastTemporaryProtectionUnavailableReason;
+    private bool _hasAttemptedSessionNotificationRegistration;
+    private bool _isSessionNotificationRegistered;
+    private bool _isSessionNotificationSubclassInstalled;
+    private IntPtr _windowHandle;
+    private AppLockProtectionPresentationState _lastResolvedProtectionPresentationState;
+    private AppLockTemporaryBypassReason? _lastTemporaryProtectionUnavailableReason;
     private AppLockMode _currentLockMode;
-
-    private enum TemporaryProtectionUnavailableReason
-    {
-        ServiceError,
-        RemoteSession
-    }
 
     private readonly record struct ResolvedProtectionState(
         AppLockResolution Resolution,
         bool ShowRecoveryDialog,
-        TemporaryProtectionUnavailableReason? TemporaryBypassReason)
+        AppLockTemporaryBypassReason? TemporaryBypassReason)
     {
         public bool ShowTemporaryBypassDialog => TemporaryBypassReason is not null;
+
+        public AppLockProtectionPresentationState ToPresentationState()
+        {
+            return new AppLockProtectionPresentationState(
+                Resolution.Mode,
+                ShowRecoveryDialog,
+                TemporaryBypassReason);
+        }
     }
 
     public MainWindow()
@@ -47,6 +59,7 @@ public sealed partial class MainWindow : Window
         _appUpdate = App.Current.AppUpdate;
         _appLock = App.Current.AppLock;
         _dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _sessionNotificationSubclassProc = SessionNotificationWindowProc;
 
         // Initialize auto-lock service
         App.Current.InitializeAutoLockService();
@@ -56,6 +69,7 @@ public sealed partial class MainWindow : Window
         _appSettings.SettingsChanged += OnAppSettingsChanged;
         _appUpdate.StateChanged += OnAppUpdateStateChanged;
         Activated += MainWindow_Activated;
+        Closed += (_, _) => CleanupSessionChangeMonitoring();
 
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
@@ -100,6 +114,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        EnsureSessionChangeMonitoring();
+
         if (!_hasStartedStartupInitialization)
         {
             _hasStartedStartupInitialization = true;
@@ -107,7 +123,113 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await HandleActivationProtectionReconciliationAsync();
+        await HandleProtectionStateReconciliationAsync();
+    }
+
+    private void EnsureSessionChangeMonitoring()
+    {
+        if (_isSessionNotificationRegistered || _hasAttemptedSessionNotificationRegistration)
+        {
+            return;
+        }
+
+        _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if (_windowHandle == IntPtr.Zero)
+        {
+            App.Current.Logger.Warn("Main window handle was not ready for session notification registration.");
+            return;
+        }
+
+        _hasAttemptedSessionNotificationRegistration = true;
+
+        if (!SetWindowSubclass(
+            _windowHandle,
+            _sessionNotificationSubclassProc,
+            SessionNotificationSubclassId,
+            0))
+        {
+            App.Current.Logger.Warn(
+                $"Failed to install the main window session notification subclass. Win32 error {Marshal.GetLastWin32Error()}.");
+            return;
+        }
+
+        _isSessionNotificationSubclassInstalled = true;
+
+        if (WTSRegisterSessionNotification(_windowHandle, NotifyForThisSession))
+        {
+            _isSessionNotificationRegistered = true;
+            return;
+        }
+
+        App.Current.Logger.Warn(
+            $"Failed to register the main window for session notifications. Win32 error {Marshal.GetLastWin32Error()}.");
+        CleanupSessionChangeMonitoring();
+    }
+
+    private void CleanupSessionChangeMonitoring()
+    {
+        if (_windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_isSessionNotificationRegistered && !WTSUnRegisterSessionNotification(_windowHandle))
+        {
+            App.Current.Logger.Warn(
+                $"Failed to unregister the main window session notifications. Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+
+        _isSessionNotificationRegistered = false;
+
+        if (_isSessionNotificationSubclassInstalled &&
+            !RemoveWindowSubclass(_windowHandle, _sessionNotificationSubclassProc, SessionNotificationSubclassId))
+        {
+            App.Current.Logger.Warn(
+                $"Failed to remove the main window session notification subclass. Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+
+        _isSessionNotificationSubclassInstalled = false;
+        _windowHandle = IntPtr.Zero;
+    }
+
+    private void QueueProtectionStateReconciliation()
+    {
+        if (!_hasStartedStartupInitialization)
+        {
+            return;
+        }
+
+        if (!_dispatcherQueue.TryEnqueue(() => _ = HandleProtectionStateReconciliationAsync()))
+        {
+            App.Current.Logger.Warn("Failed to enqueue protection-state reconciliation after a session change.");
+        }
+    }
+
+    private IntPtr SessionNotificationWindowProc(
+        IntPtr hWnd,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam,
+        nuint subclassId,
+        nuint referenceData)
+    {
+        try
+        {
+            if (message == SessionChangeWindowMessage)
+            {
+                var sessionChangeCode = unchecked((uint)wParam.ToInt64());
+                if (AppLockSessionTransitionPolicy.ShouldReconcileOnSessionChange(sessionChangeCode))
+                {
+                    QueueProtectionStateReconciliation();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Current.Logger.Error("Unexpected exception while processing a Windows session change notification.", ex);
+        }
+
+        return DefSubclassProc(hWnd, message, wParam, lParam);
     }
 
     private void SetupAutoLockMonitoring()
@@ -158,7 +280,7 @@ public sealed partial class MainWindow : Window
         {
             _hasEffectiveProtection = false;
             await ShowTemporaryProtectionUnavailableAsync(
-                state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
+                state.TemporaryBypassReason ?? AppLockTemporaryBypassReason.ServiceError);
             return;
         }
 
@@ -386,7 +508,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             App.Current.Logger.Error("Unexpected exception while attempting Windows Hello unlock.", ex);
-            await ShowTemporaryProtectionUnavailableAsync(TemporaryProtectionUnavailableReason.ServiceError);
+            await ShowTemporaryProtectionUnavailableAsync(AppLockTemporaryBypassReason.ServiceError);
         }
     }
 
@@ -500,7 +622,7 @@ public sealed partial class MainWindow : Window
             {
                 _hasEffectiveProtection = false;
                 await ShowTemporaryProtectionUnavailableAsync(
-                    state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
+                    state.TemporaryBypassReason ?? AppLockTemporaryBypassReason.ServiceError);
                 return;
             }
 
@@ -585,12 +707,10 @@ public sealed partial class MainWindow : Window
                 _lastTemporaryProtectionUnavailableReason = null;
             }
 
-            _lastResolvedHadWindowsHelloRemoteSession = resolution.HasWindowsHelloRemoteSession;
-
-            return new ResolvedProtectionState(
+            return CreateResolvedProtectionState(
                 resolution,
-                ShowRecoveryDialog: false,
-                TemporaryBypassReason: temporaryBypassReason);
+                showRecoveryDialog: false,
+                temporaryBypassReason);
         }
 
         await ClearUnavailableProtectionSettingsAsync(resolution);
@@ -601,13 +721,25 @@ public sealed partial class MainWindow : Window
             _lastTemporaryProtectionUnavailableReason = null;
         }
 
-        _lastResolvedHadWindowsHelloRemoteSession = normalizedResolution.HasWindowsHelloRemoteSession;
-
-        return new ResolvedProtectionState(
+        return CreateResolvedProtectionState(
             normalizedResolution,
-            ShowRecoveryDialog: normalizedResolution.Mode == AppLockMode.None &&
+            showRecoveryDialog: normalizedResolution.Mode == AppLockMode.None &&
                 normalizedTemporaryBypassReason is null,
-            TemporaryBypassReason: normalizedTemporaryBypassReason);
+            normalizedTemporaryBypassReason);
+    }
+
+    private ResolvedProtectionState CreateResolvedProtectionState(
+        AppLockResolution resolution,
+        bool showRecoveryDialog,
+        AppLockTemporaryBypassReason? temporaryBypassReason)
+    {
+        var state = new ResolvedProtectionState(
+            resolution,
+            showRecoveryDialog,
+            temporaryBypassReason);
+
+        _lastResolvedProtectionPresentationState = state.ToPresentationState();
+        return state;
     }
 
     private async Task ClearUnavailableProtectionSettingsAsync(AppLockResolution resolution)
@@ -684,36 +816,36 @@ public sealed partial class MainWindow : Window
         if (state.ShowTemporaryBypassDialog)
         {
             await ShowTemporaryProtectionUnavailableAsync(
-                state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
+                state.TemporaryBypassReason ?? AppLockTemporaryBypassReason.ServiceError);
             return;
         }
 
         await ShowLockScreenAsync(state.Resolution);
     }
 
-    private async Task HandleActivationProtectionReconciliationAsync()
+    private async Task HandleProtectionStateReconciliationAsync()
     {
-        if (_isReconcilingActivationProtectionState)
+        if (_isReconcilingProtectionState)
         {
             return;
         }
 
-        _isReconcilingActivationProtectionState = true;
+        _isReconcilingProtectionState = true;
 
         try
         {
-            var hadRemoteSessionContext = _lastResolvedHadWindowsHelloRemoteSession;
-            if (!AppLockSessionTransitionPolicy.ShouldResolveOnActivation(
+            var previousState = _lastResolvedProtectionPresentationState;
+            if (!AppLockSessionTransitionPolicy.ShouldResolveOnReconciliation(
                 _appSettings.IsWindowsHelloEnabled,
-                hadRemoteSessionContext))
+                previousState))
             {
                 return;
             }
 
             var state = await ResolveProtectionStateAsync();
-            if (!AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
-                hadRemoteSessionContext,
-                state.Resolution))
+            if (!AppLockSessionTransitionPolicy.ShouldPresentResolvedProtectionState(
+                previousState,
+                state.ToPresentationState()))
             {
                 return;
             }
@@ -722,7 +854,7 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            _isReconcilingActivationProtectionState = false;
+            _isReconcilingProtectionState = false;
         }
     }
 
@@ -740,7 +872,7 @@ public sealed partial class MainWindow : Window
         SetupAutoLockMonitoring();
     }
 
-    private async Task ShowTemporaryProtectionUnavailableAsync(TemporaryProtectionUnavailableReason reason)
+    private async Task ShowTemporaryProtectionUnavailableAsync(AppLockTemporaryBypassReason reason)
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
@@ -775,14 +907,14 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    private async Task ShowTemporaryProtectionUnavailableDialogAsync(TemporaryProtectionUnavailableReason reason)
+    private async Task ShowTemporaryProtectionUnavailableDialogAsync(AppLockTemporaryBypassReason reason)
     {
         var rootElement = Content as FrameworkElement
             ?? throw new InvalidOperationException("Main window content is not ready for dialog hosting.");
 
         var (title, content) = reason switch
         {
-            TemporaryProtectionUnavailableReason.RemoteSession => (
+            AppLockTemporaryBypassReason.RemoteSession => (
                 "Windows Hello unavailable in Remote Desktop",
                 "Windows Hello cannot be used while WinOTP is running in a Remote Desktop session. Your Windows Hello setting was kept. Configure a Remote Desktop PIN or password in Settings if you want WinOTP to stay locked while connected remotely; otherwise the app will remain unlocked until you use the app locally again."),
             _ => (
@@ -801,7 +933,7 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    private static TemporaryProtectionUnavailableReason? GetTemporaryBypassReason(AppLockResolution resolution)
+    private static AppLockTemporaryBypassReason? GetTemporaryBypassReason(AppLockResolution resolution)
     {
         if (resolution.Mode != AppLockMode.None)
         {
@@ -809,18 +941,18 @@ public sealed partial class MainWindow : Window
         }
 
         return resolution.HasConfiguredProtectionError
-            ? TemporaryProtectionUnavailableReason.ServiceError
+            ? AppLockTemporaryBypassReason.ServiceError
             : resolution.HasWindowsHelloRemoteSession
-                ? TemporaryProtectionUnavailableReason.RemoteSession
+                ? AppLockTemporaryBypassReason.RemoteSession
                 : null;
     }
 
-    private static TemporaryProtectionUnavailableReason GetTemporaryBypassReason(
+    private static AppLockTemporaryBypassReason GetTemporaryBypassReason(
         WindowsHelloVerificationStatus status)
     {
         return status == WindowsHelloVerificationStatus.RemoteSession
-            ? TemporaryProtectionUnavailableReason.RemoteSession
-            : TemporaryProtectionUnavailableReason.ServiceError;
+            ? AppLockTemporaryBypassReason.RemoteSession
+            : AppLockTemporaryBypassReason.ServiceError;
     }
 
     private void EnsureInitialPage()
@@ -874,4 +1006,44 @@ public sealed partial class MainWindow : Window
         await _appLock.RemoveWindowsHelloRemotePinAsync();
         await _appLock.RemoveWindowsHelloRemotePasswordAsync();
     }
+
+    private delegate IntPtr SubclassProc(
+        IntPtr hWnd,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam,
+        nuint subclassId,
+        nuint referenceData);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowSubclass(
+        IntPtr hWnd,
+        SubclassProc callback,
+        nuint subclassId,
+        nuint referenceData);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveWindowSubclass(
+        IntPtr hWnd,
+        SubclassProc callback,
+        nuint subclassId);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern IntPtr DefSubclassProc(
+        IntPtr hWnd,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSRegisterSessionNotification(
+        IntPtr hWnd,
+        uint flags);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 }
