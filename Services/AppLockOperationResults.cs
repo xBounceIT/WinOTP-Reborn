@@ -13,6 +13,7 @@ public enum WindowsHelloAvailabilityStatus
 {
     Available,
     Unavailable,
+    RemoteSession,
     Error
 }
 
@@ -20,6 +21,7 @@ public enum WindowsHelloVerificationStatus
 {
     Verified,
     Unavailable,
+    RemoteSession,
     Failed,
     Error
 }

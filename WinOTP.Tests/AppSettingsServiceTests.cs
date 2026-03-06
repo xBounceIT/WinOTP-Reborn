@@ -50,6 +50,22 @@ public sealed class AppSettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void WindowsHelloRemoteFallbackSettings_DefaultToFalseAndPersistAcrossInstances()
+    {
+        var first = new AppSettingsService(_settingsFilePath);
+        Assert.False(first.IsWindowsHelloRemotePinEnabled);
+        Assert.False(first.IsWindowsHelloRemotePasswordEnabled);
+
+        first.IsWindowsHelloRemotePinEnabled = true;
+        first.IsWindowsHelloRemotePasswordEnabled = false;
+
+        var second = new AppSettingsService(_settingsFilePath);
+
+        Assert.True(second.IsWindowsHelloRemotePinEnabled);
+        Assert.False(second.IsWindowsHelloRemotePasswordEnabled);
+    }
+
+    [Fact]
     public void CustomBackupFolderPath_PersistsAcrossInstances()
     {
         var first = new AppSettingsService(_settingsFilePath)

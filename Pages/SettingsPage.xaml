@@ -27,6 +27,28 @@
                         x:Name="WindowsHelloToggle"
                         Header="Protect app with Windows Hello"
                         Toggled="WindowsHelloToggle_Toggled" />
+                    <StackPanel
+                        x:Name="WindowsHelloRemoteFallbackPanel"
+                        Margin="24,0,0,0"
+                        Spacing="8"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            Text="Remote Desktop fallback"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Windows Hello is unavailable over Remote Desktop. Add an optional PIN or password that WinOTP will require only while you are connected remotely."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.7"
+                            TextWrapping="WrapWholeWords" />
+                        <ToggleSwitch
+                            x:Name="WindowsHelloRemotePinToggle"
+                            Header="Require PIN over Remote Desktop"
+                            Toggled="WindowsHelloRemotePinToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="WindowsHelloRemotePasswordToggle"
+                            Header="Require password over Remote Desktop"
+                            Toggled="WindowsHelloRemotePasswordToggle_Toggled" />
+                    </StackPanel>
 
                     <ComboBox
                         x:Name="AutoLockComboBox"
