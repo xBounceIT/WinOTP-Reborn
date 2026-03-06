@@ -18,8 +18,10 @@ public sealed partial class MainWindow : Window
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
     private bool _autoLockHandlersSetUp;
     private bool _isApplyingProtectionRecovery;
+    private bool _isReconcilingActivationProtectionState;
     private bool _hasStartedStartupInitialization;
     private bool _hasEffectiveProtection;
+    private bool _lastResolvedHadWindowsHelloRemoteSession;
     private TemporaryProtectionUnavailableReason? _lastTemporaryProtectionUnavailableReason;
     private AppLockMode _currentLockMode;
 
@@ -93,14 +95,19 @@ public sealed partial class MainWindow : Window
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated || _hasStartedStartupInitialization)
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             return;
         }
 
-        _hasStartedStartupInitialization = true;
-        Activated -= MainWindow_Activated;
-        await InitializeAsync();
+        if (!_hasStartedStartupInitialization)
+        {
+            _hasStartedStartupInitialization = true;
+            await InitializeAsync();
+            return;
+        }
+
+        await HandleActivationProtectionReconciliationAsync();
     }
 
     private void SetupAutoLockMonitoring()
@@ -178,20 +185,7 @@ public sealed partial class MainWindow : Window
     private async Task ShowLockScreenAsync()
     {
         var state = await ResolveProtectionStateAsync();
-        if (state.ShowRecoveryDialog)
-        {
-            await ShowProtectionRecoveryAsync();
-            return;
-        }
-
-        if (state.ShowTemporaryBypassDialog)
-        {
-            await ShowTemporaryProtectionUnavailableAsync(
-                state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
-            return;
-        }
-
-        await ShowLockScreenAsync(state.Resolution);
+        await PresentResolvedProtectionStateAsync(state);
     }
 
     private async Task ShowLockScreenAsync(AppLockResolution resolution)
@@ -287,23 +281,38 @@ public sealed partial class MainWindow : Window
     private async Task AttemptUnlockAsync()
     {
         bool isValid = false;
+        var currentLockMode = _currentLockMode;
 
-        if (_currentLockMode is AppLockMode.Pin or AppLockMode.WindowsHelloRemotePin)
+        if (currentLockMode is AppLockMode.WindowsHelloRemotePin or AppLockMode.WindowsHelloRemotePassword)
+        {
+            var state = await ResolveProtectionStateAsync();
+            if (AppLockSessionTransitionPolicy.ShouldRefreshBeforeCredentialVerification(
+                currentLockMode,
+                state.Resolution))
+            {
+                await PresentResolvedProtectionStateAsync(state);
+                return;
+            }
+
+            currentLockMode = state.Resolution.Mode;
+        }
+
+        if (currentLockMode is AppLockMode.Pin or AppLockMode.WindowsHelloRemotePin)
         {
             var pin = PinInput.Password;
             if (!string.IsNullOrWhiteSpace(pin))
             {
-                isValid = _currentLockMode == AppLockMode.Pin
+                isValid = currentLockMode == AppLockMode.Pin
                     ? await _appLock.VerifyPinAsync(pin)
                     : await _appLock.VerifyWindowsHelloRemotePinAsync(pin);
             }
         }
-        else if (_currentLockMode is AppLockMode.Password or AppLockMode.WindowsHelloRemotePassword)
+        else if (currentLockMode is AppLockMode.Password or AppLockMode.WindowsHelloRemotePassword)
         {
             var password = PasswordInput.Password;
             if (!string.IsNullOrWhiteSpace(password))
             {
-                isValid = _currentLockMode == AppLockMode.Password
+                isValid = currentLockMode == AppLockMode.Password
                     ? await _appLock.VerifyPasswordAsync(password)
                     : await _appLock.VerifyWindowsHelloRemotePasswordAsync(password);
             }
@@ -359,32 +368,7 @@ public sealed partial class MainWindow : Window
                     or WindowsHelloVerificationStatus.Error)
                 {
                     var state = await ResolveProtectionStateAsync();
-                    if (state.ShowRecoveryDialog)
-                    {
-                        await ShowProtectionRecoveryAsync();
-                        return;
-                    }
-
-                    if (state.ShowTemporaryBypassDialog)
-                    {
-                        await ShowTemporaryProtectionUnavailableAsync(
-                            state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
-                        return;
-                    }
-
-                    if (state.Resolution.Mode != AppLockMode.None)
-                    {
-                        await ShowLockScreenAsync(state.Resolution);
-                        return;
-                    }
-
-                    if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
-                    {
-                        await ShowProtectionRecoveryAsync();
-                        return;
-                    }
-
-                    await ShowTemporaryProtectionUnavailableAsync(GetTemporaryBypassReason(outcome.Status));
+                    await PresentResolvedProtectionStateAsync(state);
                     return;
                 }
 
@@ -601,6 +585,8 @@ public sealed partial class MainWindow : Window
                 _lastTemporaryProtectionUnavailableReason = null;
             }
 
+            _lastResolvedHadWindowsHelloRemoteSession = resolution.HasWindowsHelloRemoteSession;
+
             return new ResolvedProtectionState(
                 resolution,
                 ShowRecoveryDialog: false,
@@ -614,6 +600,8 @@ public sealed partial class MainWindow : Window
         {
             _lastTemporaryProtectionUnavailableReason = null;
         }
+
+        _lastResolvedHadWindowsHelloRemoteSession = normalizedResolution.HasWindowsHelloRemoteSession;
 
         return new ResolvedProtectionState(
             normalizedResolution,
@@ -681,21 +669,59 @@ public sealed partial class MainWindow : Window
         }
 
         var state = await ResolveProtectionStateAsync();
+        await PresentResolvedProtectionStateAsync(state);
+        return true;
+    }
+
+    private async Task PresentResolvedProtectionStateAsync(ResolvedProtectionState state)
+    {
         if (state.ShowRecoveryDialog)
         {
             await ShowProtectionRecoveryAsync();
-            return true;
+            return;
         }
 
         if (state.ShowTemporaryBypassDialog)
         {
             await ShowTemporaryProtectionUnavailableAsync(
                 state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
-            return true;
+            return;
         }
 
         await ShowLockScreenAsync(state.Resolution);
-        return true;
+    }
+
+    private async Task HandleActivationProtectionReconciliationAsync()
+    {
+        if (_isReconcilingActivationProtectionState)
+        {
+            return;
+        }
+
+        _isReconcilingActivationProtectionState = true;
+
+        try
+        {
+            var hadRemoteSessionContext = _lastResolvedHadWindowsHelloRemoteSession;
+            if (!hadRemoteSessionContext)
+            {
+                return;
+            }
+
+            var state = await ResolveProtectionStateAsync();
+            if (!AppLockSessionTransitionPolicy.ShouldReapplyProtectionOnActivation(
+                hadRemoteSessionContext,
+                state.Resolution))
+            {
+                return;
+            }
+
+            await PresentResolvedProtectionStateAsync(state);
+        }
+        finally
+        {
+            _isReconcilingActivationProtectionState = false;
+        }
     }
 
     private async Task ShowProtectionRecoveryAsync()

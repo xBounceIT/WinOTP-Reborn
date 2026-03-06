@@ -38,6 +38,7 @@
     <Compile Include="..\Services\AppLockDecisionResolver.cs" Link="Services\AppLockDecisionResolver.cs" />
     <Compile Include="..\Services\AppLockResolutionService.cs" Link="Services\AppLockResolutionService.cs" />
     <Compile Include="..\Services\AppLockPresentationPolicy.cs" Link="Services\AppLockPresentationPolicy.cs" />
+    <Compile Include="..\Services\AppLockSessionTransitionPolicy.cs" Link="Services\AppLockSessionTransitionPolicy.cs" />
     <Compile Include="..\Services\SettingsProtectionViewStateService.cs" Link="Services\SettingsProtectionViewStateService.cs" />
     <Compile Include="..\Services\AppLockService.cs" Link="Services\AppLockService.cs" />
     <Compile Include="..\Services\BackupService.cs" Link="Services\BackupService.cs" />
