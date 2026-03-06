@@ -110,6 +110,7 @@ public sealed class AppLockPresentationPolicyTests
             HasPinError: false,
             HasPasswordError: false,
             HasWindowsHelloError: false,
+            HasWindowsHelloRemoteSession: false,
             DisableUnavailablePin: false,
             DisableUnavailablePassword: false,
             DisableUnavailableWindowsHello: false);

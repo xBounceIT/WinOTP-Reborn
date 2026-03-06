@@ -69,6 +69,23 @@ public sealed class AppLockDecisionResolverTests
     }
 
     [Fact]
+    public void Resolve_WindowsHelloRemoteSession_KeepsWindowsHelloEnabledForLater()
+    {
+        var resolution = AppLockDecisionResolver.Resolve(
+            isPinProtectionEnabled: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
+            isPasswordProtectionEnabled: false,
+            passwordStatus: AppLockCredentialStatus.NotSet,
+            isWindowsHelloEnabled: true,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.RemoteSession);
+
+        Assert.Equal(AppLockMode.None, resolution.Mode);
+        Assert.False(resolution.DisableUnavailableWindowsHello);
+        Assert.False(resolution.HasConfiguredProtectionError);
+        Assert.True(resolution.HasWindowsHelloRemoteSession);
+    }
+
+    [Fact]
     public void Resolve_NoConfiguredProtection_ReturnsNone()
     {
         var resolution = AppLockDecisionResolver.Resolve(
@@ -137,6 +154,23 @@ public sealed class AppLockDecisionResolverTests
         Assert.True(resolution.HasWindowsHelloError);
         Assert.True(resolution.HasConfiguredProtectionError);
         Assert.False(resolution.DisableUnavailableWindowsHello);
+    }
+
+    [Fact]
+    public void Resolve_WindowsHelloRemoteSession_FallsBackToPassword()
+    {
+        var resolution = AppLockDecisionResolver.Resolve(
+            isPinProtectionEnabled: false,
+            pinStatus: AppLockCredentialStatus.NotSet,
+            isPasswordProtectionEnabled: true,
+            passwordStatus: AppLockCredentialStatus.Set,
+            isWindowsHelloEnabled: true,
+            windowsHelloAvailability: WindowsHelloAvailabilityStatus.RemoteSession);
+
+        Assert.Equal(AppLockMode.Password, resolution.Mode);
+        Assert.True(resolution.IsPasswordEffective);
+        Assert.False(resolution.DisableUnavailableWindowsHello);
+        Assert.True(resolution.HasWindowsHelloRemoteSession);
     }
 
     [Fact]

@@ -20,13 +20,22 @@ public sealed partial class MainWindow : Window
     private bool _isApplyingProtectionRecovery;
     private bool _hasStartedStartupInitialization;
     private bool _hasEffectiveProtection;
-    private bool _hasShownTemporaryProtectionUnavailableDialog;
+    private TemporaryProtectionUnavailableReason? _lastTemporaryProtectionUnavailableReason;
     private AppLockMode _currentLockMode;
+
+    private enum TemporaryProtectionUnavailableReason
+    {
+        ServiceError,
+        RemoteSession
+    }
 
     private readonly record struct ResolvedProtectionState(
         AppLockResolution Resolution,
         bool ShowRecoveryDialog,
-        bool ShowTemporaryBypassDialog);
+        TemporaryProtectionUnavailableReason? TemporaryBypassReason)
+    {
+        public bool ShowTemporaryBypassDialog => TemporaryBypassReason is not null;
+    }
 
     public MainWindow()
     {
@@ -141,7 +150,8 @@ public sealed partial class MainWindow : Window
         if (state.ShowTemporaryBypassDialog)
         {
             _hasEffectiveProtection = false;
-            await ShowTemporaryProtectionUnavailableAsync();
+            await ShowTemporaryProtectionUnavailableAsync(
+                state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
             return;
         }
 
@@ -176,7 +186,8 @@ public sealed partial class MainWindow : Window
 
         if (state.ShowTemporaryBypassDialog)
         {
-            await ShowTemporaryProtectionUnavailableAsync();
+            await ShowTemporaryProtectionUnavailableAsync(
+                state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
             return;
         }
 
@@ -312,56 +323,66 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        var outcome = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP", hwnd);
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var outcome = await _appLock.VerifyWindowsHelloAsync("Unlock WinOTP", hwnd);
 
-        if (outcome.Status == WindowsHelloVerificationStatus.Verified)
-        {
-            UnlockSuccess();
-        }
-        else
-        {
-            if (outcome.Status is WindowsHelloVerificationStatus.Unavailable or WindowsHelloVerificationStatus.Error)
+            if (outcome.Status == WindowsHelloVerificationStatus.Verified)
             {
-                var state = await ResolveProtectionStateAsync();
-                if (state.ShowRecoveryDialog)
-                {
-                    await ShowProtectionRecoveryAsync();
-                    return;
-                }
-
-                if (state.ShowTemporaryBypassDialog)
-                {
-                    await ShowTemporaryProtectionUnavailableAsync();
-                    return;
-                }
-
-                if (state.Resolution.Mode != AppLockMode.None)
-                {
-                    await ShowLockScreenAsync(state.Resolution);
-                    return;
-                }
-
-                if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
-                {
-                    await ShowProtectionRecoveryAsync();
-                    return;
-                }
-
-                UnlockErrorText.Text = "Windows Hello is temporarily unavailable. Please try again.";
-                UnlockErrorText.Visibility = Visibility.Visible;
-                return;
+                UnlockSuccess();
             }
-
-            string errorMessage = outcome.Status switch
+            else
             {
-                WindowsHelloVerificationStatus.Failed when outcome.Result == UserConsentVerificationResult.RetriesExhausted
-                    => "Too many failed attempts. Please try again later.",
-                _ => "Windows Hello verification failed. Please try again."
-            };
+                if (outcome.Status is WindowsHelloVerificationStatus.Unavailable
+                    or WindowsHelloVerificationStatus.RemoteSession
+                    or WindowsHelloVerificationStatus.Error)
+                {
+                    var state = await ResolveProtectionStateAsync();
+                    if (state.ShowRecoveryDialog)
+                    {
+                        await ShowProtectionRecoveryAsync();
+                        return;
+                    }
 
-            UnlockErrorText.Text = errorMessage;
-            UnlockErrorText.Visibility = Visibility.Visible;
+                    if (state.ShowTemporaryBypassDialog)
+                    {
+                        await ShowTemporaryProtectionUnavailableAsync(
+                            state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
+                        return;
+                    }
+
+                    if (state.Resolution.Mode != AppLockMode.None)
+                    {
+                        await ShowLockScreenAsync(state.Resolution);
+                        return;
+                    }
+
+                    if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
+                    {
+                        await ShowProtectionRecoveryAsync();
+                        return;
+                    }
+
+                    await ShowTemporaryProtectionUnavailableAsync(GetTemporaryBypassReason(outcome.Status));
+                    return;
+                }
+
+                string errorMessage = outcome.Status switch
+                {
+                    WindowsHelloVerificationStatus.Failed when outcome.Result == UserConsentVerificationResult.RetriesExhausted
+                        => "Too many failed attempts. Please try again later.",
+                    _ => "Windows Hello verification failed. Please try again."
+                };
+
+                UnlockErrorText.Text = errorMessage;
+                UnlockErrorText.Visibility = Visibility.Visible;
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Current.Logger.Error("Unexpected exception while attempting Windows Hello unlock.", ex);
+            await ShowTemporaryProtectionUnavailableAsync(TemporaryProtectionUnavailableReason.ServiceError);
         }
     }
 
@@ -474,7 +495,8 @@ public sealed partial class MainWindow : Window
             if (state.ShowTemporaryBypassDialog)
             {
                 _hasEffectiveProtection = false;
-                await ShowTemporaryProtectionUnavailableAsync();
+                await ShowTemporaryProtectionUnavailableAsync(
+                    state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
                 return;
             }
 
@@ -543,31 +565,33 @@ public sealed partial class MainWindow : Window
     private async Task<ResolvedProtectionState> ResolveProtectionStateAsync()
     {
         var resolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
+        var temporaryBypassReason = GetTemporaryBypassReason(resolution);
         if (!resolution.HasUnavailableConfiguredProtection)
         {
             if (resolution.Mode != AppLockMode.None)
             {
-                _hasShownTemporaryProtectionUnavailableDialog = false;
+                _lastTemporaryProtectionUnavailableReason = null;
             }
 
             return new ResolvedProtectionState(
                 resolution,
                 ShowRecoveryDialog: false,
-                ShowTemporaryBypassDialog: resolution.Mode == AppLockMode.None && resolution.HasConfiguredProtectionError);
+                TemporaryBypassReason: temporaryBypassReason);
         }
 
         ClearUnavailableProtectionSettings(resolution);
         var normalizedResolution = await AppLockResolutionService.ResolveAsync(_appSettings, _appLock);
+        var normalizedTemporaryBypassReason = GetTemporaryBypassReason(normalizedResolution);
         if (normalizedResolution.Mode != AppLockMode.None)
         {
-            _hasShownTemporaryProtectionUnavailableDialog = false;
+            _lastTemporaryProtectionUnavailableReason = null;
         }
 
         return new ResolvedProtectionState(
             normalizedResolution,
-            ShowRecoveryDialog: normalizedResolution.Mode == AppLockMode.None,
-            ShowTemporaryBypassDialog: normalizedResolution.Mode == AppLockMode.None &&
-                normalizedResolution.HasConfiguredProtectionError);
+            ShowRecoveryDialog: normalizedResolution.Mode == AppLockMode.None &&
+                normalizedTemporaryBypassReason is null,
+            TemporaryBypassReason: normalizedTemporaryBypassReason);
     }
 
     private void ClearUnavailableProtectionSettings(AppLockResolution resolution)
@@ -620,7 +644,8 @@ public sealed partial class MainWindow : Window
 
         if (state.ShowTemporaryBypassDialog)
         {
-            await ShowTemporaryProtectionUnavailableAsync();
+            await ShowTemporaryProtectionUnavailableAsync(
+                state.TemporaryBypassReason ?? TemporaryProtectionUnavailableReason.ServiceError);
             return true;
         }
 
@@ -642,7 +667,7 @@ public sealed partial class MainWindow : Window
         SetupAutoLockMonitoring();
     }
 
-    private async Task ShowTemporaryProtectionUnavailableAsync()
+    private async Task ShowTemporaryProtectionUnavailableAsync(TemporaryProtectionUnavailableReason reason)
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
@@ -652,10 +677,10 @@ public sealed partial class MainWindow : Window
 
         EnsureInitialPage();
 
-        if (!_hasShownTemporaryProtectionUnavailableDialog)
+        if (_lastTemporaryProtectionUnavailableReason != reason)
         {
-            _hasShownTemporaryProtectionUnavailableDialog = true;
-            await ShowTemporaryProtectionUnavailableDialogAsync();
+            _lastTemporaryProtectionUnavailableReason = reason;
+            await ShowTemporaryProtectionUnavailableDialogAsync(reason);
         }
 
         SetupAutoLockMonitoring();
@@ -677,20 +702,55 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    private async Task ShowTemporaryProtectionUnavailableDialogAsync()
+    private async Task ShowTemporaryProtectionUnavailableDialogAsync(TemporaryProtectionUnavailableReason reason)
     {
         var rootElement = Content as FrameworkElement
             ?? throw new InvalidOperationException("Main window content is not ready for dialog hosting.");
 
+        var (title, content) = reason switch
+        {
+            TemporaryProtectionUnavailableReason.RemoteSession => (
+                "Windows Hello unavailable in Remote Desktop",
+                "Windows Hello cannot be used while WinOTP is running in a Remote Desktop session. Your Windows Hello setting was kept, and WinOTP will stay unlocked until you use the app locally or another protection method becomes available."),
+            _ => (
+                "App protection temporarily unavailable",
+                "WinOTP could not verify your configured protection because Windows security services are temporarily unavailable. Your protection settings were kept and the app will remain unlocked until protection becomes available again.")
+        };
+
         var dialog = new ContentDialog
         {
-            Title = "App protection temporarily unavailable",
-            Content = "WinOTP could not verify your configured protection because Windows security services are temporarily unavailable. Your protection settings were kept and the app will remain unlocked until protection becomes available again.",
+            Title = title,
+            Content = content,
             CloseButtonText = "OK",
             XamlRoot = rootElement.XamlRoot
         };
 
         await dialog.ShowAsync();
+    }
+
+    private static TemporaryProtectionUnavailableReason? GetTemporaryBypassReason(AppLockResolution resolution)
+    {
+        if (resolution.Mode != AppLockMode.None)
+        {
+            return null;
+        }
+
+        if (resolution.HasWindowsHelloRemoteSession)
+        {
+            return TemporaryProtectionUnavailableReason.RemoteSession;
+        }
+
+        return resolution.HasConfiguredProtectionError
+            ? TemporaryProtectionUnavailableReason.ServiceError
+            : null;
+    }
+
+    private static TemporaryProtectionUnavailableReason GetTemporaryBypassReason(
+        WindowsHelloVerificationStatus status)
+    {
+        return status == WindowsHelloVerificationStatus.RemoteSession
+            ? TemporaryProtectionUnavailableReason.RemoteSession
+            : TemporaryProtectionUnavailableReason.ServiceError;
     }
 
     private void EnsureInitialPage()

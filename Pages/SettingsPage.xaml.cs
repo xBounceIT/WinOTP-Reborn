@@ -556,6 +556,13 @@ public sealed partial class SettingsPage : Page
             {
                 _appSettings.IsWindowsHelloEnabled = false;
             }
+            else if (outcome.Status == WindowsHelloVerificationStatus.RemoteSession)
+            {
+                _isInitializingToggle = true;
+                WindowsHelloToggle.IsOn = true;
+                _isInitializingToggle = false;
+                await ShowErrorDialog("Windows Hello can't be changed from a Remote Desktop session. Open WinOTP locally on the host device to disable Windows Hello.");
+            }
             else if (outcome.Status == WindowsHelloVerificationStatus.Unavailable)
             {
                 _appSettings.IsWindowsHelloEnabled = false;
@@ -611,6 +618,11 @@ public sealed partial class SettingsPage : Page
             await ShowErrorDialog("Windows Hello is not available on this device or is not configured. Please set up Windows Hello in Windows Settings first.");
             return false;
         }
+        if (availability == WindowsHelloAvailabilityStatus.RemoteSession)
+        {
+            await ShowErrorDialog("Windows Hello can't be enabled from a Remote Desktop session. Open WinOTP locally on the host device to enable Windows Hello.");
+            return false;
+        }
         if (availability == WindowsHelloAvailabilityStatus.Error)
         {
             await ShowErrorDialog("Windows Hello is temporarily unavailable. Please try again.");
@@ -622,6 +634,12 @@ public sealed partial class SettingsPage : Page
         if (outcome.Status == WindowsHelloVerificationStatus.Verified)
         {
             return true;
+        }
+
+        if (outcome.Status == WindowsHelloVerificationStatus.RemoteSession)
+        {
+            await ShowErrorDialog("Windows Hello can't be enabled from a Remote Desktop session. Open WinOTP locally on the host device to enable Windows Hello.");
+            return false;
         }
 
         if (outcome.Status == WindowsHelloVerificationStatus.Error)

@@ -16,6 +16,7 @@ internal readonly record struct AppLockResolution(
     bool HasPinError,
     bool HasPasswordError,
     bool HasWindowsHelloError,
+    bool HasWindowsHelloRemoteSession,
     bool DisableUnavailablePin,
     bool DisableUnavailablePassword,
     bool DisableUnavailableWindowsHello)
@@ -48,6 +49,8 @@ internal static class AppLockDecisionResolver
         var hasPasswordError = isPasswordProtectionEnabled && passwordStatus == AppLockCredentialStatus.Error;
         var hasWindowsHelloError =
             isWindowsHelloEnabled && windowsHelloAvailability == WindowsHelloAvailabilityStatus.Error;
+        var hasWindowsHelloRemoteSession =
+            isWindowsHelloEnabled && windowsHelloAvailability == WindowsHelloAvailabilityStatus.RemoteSession;
 
         var disableUnavailablePin = isPinProtectionEnabled && pinStatus == AppLockCredentialStatus.NotSet;
         var disableUnavailablePassword = isPasswordProtectionEnabled && passwordStatus == AppLockCredentialStatus.NotSet;
@@ -77,6 +80,7 @@ internal static class AppLockDecisionResolver
             hasPinError,
             hasPasswordError,
             hasWindowsHelloError,
+            hasWindowsHelloRemoteSession,
             disableUnavailablePin,
             disableUnavailablePassword,
             disableUnavailableWindowsHello);

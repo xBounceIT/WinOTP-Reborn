@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Windows.Security.Credentials;
 using Windows.Security.Credentials.UI;
 
@@ -25,16 +26,21 @@ public class AppLockService : IAppLockService
     private const int ElementNotFoundHResult = unchecked((int)0x80070490);
     private readonly IPasswordVaultAdapter _vault;
     private readonly IWindowsHelloAdapter _windowsHello;
+    private readonly IRemoteSessionDetector _remoteSessionDetector;
 
     public AppLockService()
-        : this(new PasswordVaultAdapter(new PasswordVault()), new WindowsHelloAdapter())
+        : this(new PasswordVaultAdapter(new PasswordVault()), new WindowsHelloAdapter(), new RemoteSessionDetector())
     {
     }
 
-    internal AppLockService(IPasswordVaultAdapter vault, IWindowsHelloAdapter windowsHello)
+    internal AppLockService(
+        IPasswordVaultAdapter vault,
+        IWindowsHelloAdapter windowsHello,
+        IRemoteSessionDetector remoteSessionDetector)
     {
         _vault = vault;
         _windowsHello = windowsHello;
+        _remoteSessionDetector = remoteSessionDetector;
     }
 
     public AppLockCredentialStatus GetPinStatus()
@@ -155,6 +161,11 @@ public class AppLockService : IAppLockService
     {
         try
         {
+            if (_remoteSessionDetector.IsRemoteSession())
+            {
+                return WindowsHelloAvailabilityStatus.RemoteSession;
+            }
+
             var availability = await _windowsHello.CheckAvailabilityAsync();
             return availability switch
             {
@@ -175,6 +186,11 @@ public class AppLockService : IAppLockService
     {
         try
         {
+            if (_remoteSessionDetector.IsRemoteSession())
+            {
+                return new WindowsHelloVerificationOutcome(WindowsHelloVerificationStatus.RemoteSession);
+            }
+
             var result = await _windowsHello.RequestVerificationAsync(message, ownerWindowHandle);
             return result switch
             {
@@ -227,6 +243,11 @@ public class AppLockService : IAppLockService
         Task<UserConsentVerificationResult> RequestVerificationAsync(string message, IntPtr ownerWindowHandle);
     }
 
+    internal interface IRemoteSessionDetector
+    {
+        bool IsRemoteSession();
+    }
+
     internal sealed class PasswordVaultAdapter : IPasswordVaultAdapter
     {
         private readonly PasswordVault _vault;
@@ -268,5 +289,18 @@ public class AppLockService : IAppLockService
 
             return UserConsentVerifier.RequestVerificationAsync(message).AsTask();
         }
+    }
+
+    internal sealed class RemoteSessionDetector : IRemoteSessionDetector
+    {
+        private const int SmRemoteSession = 0x1000;
+
+        public bool IsRemoteSession()
+        {
+            return GetSystemMetrics(SmRemoteSession) != 0;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int index);
     }
 }

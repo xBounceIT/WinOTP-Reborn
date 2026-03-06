@@ -50,6 +50,23 @@ public sealed class AppLockServiceTests
     }
 
     [Fact]
+    public async Task GetWindowsHelloAvailabilityAsync_WhenRemoteSession_ReturnsRemoteSessionWithoutCallingVerifier()
+    {
+        var windowsHello = new FakeWindowsHello();
+        var service = CreateService(
+            windowsHello: windowsHello,
+            remoteSessionDetector: new FakeRemoteSessionDetector
+            {
+                IsRemoteSessionResult = true
+            });
+
+        var status = await service.GetWindowsHelloAvailabilityAsync();
+
+        Assert.Equal(WindowsHelloAvailabilityStatus.RemoteSession, status);
+        Assert.Equal(0, windowsHello.CheckAvailabilityCallCount);
+    }
+
+    [Fact]
     public async Task VerifyWindowsHelloAsync_WhenVerifierThrows_ReturnsError()
     {
         var service = CreateService(
@@ -83,6 +100,24 @@ public sealed class AppLockServiceTests
     }
 
     [Fact]
+    public async Task VerifyWindowsHelloAsync_WhenRemoteSession_ReturnsRemoteSessionWithoutCallingVerifier()
+    {
+        var windowsHello = new FakeWindowsHello();
+        var service = CreateService(
+            windowsHello: windowsHello,
+            remoteSessionDetector: new FakeRemoteSessionDetector
+            {
+                IsRemoteSessionResult = true
+            });
+
+        var outcome = await service.VerifyWindowsHelloAsync("Unlock WinOTP", new IntPtr(42));
+
+        Assert.Equal(WindowsHelloVerificationStatus.RemoteSession, outcome.Status);
+        Assert.Null(outcome.Result);
+        Assert.Equal(0, windowsHello.RequestVerificationCallCount);
+    }
+
+    [Fact]
     public async Task VerifyWindowsHelloAsync_ForwardsOwnerWindowHandle()
     {
         var windowsHello = new FakeWindowsHello();
@@ -96,9 +131,13 @@ public sealed class AppLockServiceTests
 
     private static AppLockService CreateService(
         FakePasswordVault? vault = null,
-        FakeWindowsHello? windowsHello = null)
+        FakeWindowsHello? windowsHello = null,
+        FakeRemoteSessionDetector? remoteSessionDetector = null)
     {
-        return new AppLockService(vault ?? new FakePasswordVault(), windowsHello ?? new FakeWindowsHello());
+        return new AppLockService(
+            vault ?? new FakePasswordVault(),
+            windowsHello ?? new FakeWindowsHello(),
+            remoteSessionDetector ?? new FakeRemoteSessionDetector());
     }
 
     private sealed class FakePasswordVault : AppLockService.IPasswordVaultAdapter
@@ -132,9 +171,13 @@ public sealed class AppLockServiceTests
         public Exception? CheckAvailabilityException { get; init; }
         public Exception? RequestVerificationException { get; init; }
         public IntPtr LastOwnerWindowHandle { get; private set; }
+        public int CheckAvailabilityCallCount { get; private set; }
+        public int RequestVerificationCallCount { get; private set; }
 
         public Task<UserConsentVerifierAvailability> CheckAvailabilityAsync()
         {
+            CheckAvailabilityCallCount++;
+
             if (CheckAvailabilityException != null)
             {
                 throw CheckAvailabilityException;
@@ -145,6 +188,8 @@ public sealed class AppLockServiceTests
 
         public Task<UserConsentVerificationResult> RequestVerificationAsync(string message, IntPtr ownerWindowHandle)
         {
+            RequestVerificationCallCount++;
+
             if (RequestVerificationException != null)
             {
                 throw RequestVerificationException;
@@ -152,6 +197,16 @@ public sealed class AppLockServiceTests
 
             LastOwnerWindowHandle = ownerWindowHandle;
             return Task.FromResult(VerificationResult);
+        }
+    }
+
+    private sealed class FakeRemoteSessionDetector : AppLockService.IRemoteSessionDetector
+    {
+        public bool IsRemoteSessionResult { get; init; }
+
+        public bool IsRemoteSession()
+        {
+            return IsRemoteSessionResult;
         }
     }
 }

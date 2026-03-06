@@ -90,6 +90,26 @@ public sealed class SettingsProtectionViewStateServiceTests
         Assert.Equal(AppLockMode.None, viewState.Resolution.Mode);
     }
 
+    [Fact]
+    public async Task ResolveAsync_WindowsHelloRemoteSession_KeepsToggleOn()
+    {
+        var settings = new FakeAppSettingsService
+        {
+            IsWindowsHelloEnabled = true
+        };
+        var appLock = new FakeAppLockService
+        {
+            WindowsHelloAvailability = WindowsHelloAvailabilityStatus.RemoteSession
+        };
+
+        var viewState = await SettingsProtectionViewStateService.ResolveAsync(settings, appLock);
+
+        Assert.True(settings.IsWindowsHelloEnabled);
+        Assert.True(viewState.IsWindowsHelloToggleOn);
+        Assert.False(viewState.Resolution.IsWindowsHelloEffective);
+        Assert.True(viewState.Resolution.HasWindowsHelloRemoteSession);
+    }
+
     private sealed class FakeAppSettingsService : IAppSettingsService
     {
         public bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
