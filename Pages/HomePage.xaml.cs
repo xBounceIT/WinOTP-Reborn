@@ -519,6 +519,75 @@ public sealed partial class HomePage : Page
         }
     }
 
+    private async void EditButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string id)
+        {
+            return;
+        }
+
+        var account = _accounts.FirstOrDefault(a => a.Id == id);
+        if (account == null)
+        {
+            return;
+        }
+
+        var issuerTextBox = new TextBox
+        {
+            Header = "Issuer",
+            Text = account.Issuer,
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+
+        var accountNameTextBox = new TextBox
+        {
+            Header = "Account Name",
+            Text = account.AccountName
+        };
+
+        var contentPanel = new StackPanel();
+        contentPanel.Children.Add(issuerTextBox);
+        contentPanel.Children.Add(accountNameTextBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Edit Account",
+            Content = contentPanel,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var newIssuer = issuerTextBox.Text.Trim();
+        var newAccountName = accountNameTextBox.Text.Trim();
+
+        if (account.Issuer == newIssuer && account.AccountName == newAccountName)
+        {
+            return; // No changes
+        }
+
+        account.Issuer = newIssuer;
+        account.AccountName = newAccountName;
+
+        var saveResult = await _credentialManager.SaveAccountAsync(account);
+        if (!saveResult.Success)
+        {
+            ShowOperationError(saveResult.Message);
+            _logger.Warn($"Edit account failed: {saveResult.ErrorCode} - {saveResult.Message}");
+            return;
+        }
+
+        ApplyFilterAndSort();
+        StartAutomaticBackup("account edit");
+    }
+
     private async void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button || button.Tag is not string id)

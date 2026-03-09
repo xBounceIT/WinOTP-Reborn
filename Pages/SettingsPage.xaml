@@ -175,14 +175,18 @@
                                 Style="{StaticResource BodyStrongTextBlockStyle}" />
                             <Border
                                 x:Name="UpdateAvailabilityBadge"
-                                Padding="10,3"
+                                MinHeight="24"
+                                Padding="10,4"
                                 Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                CornerRadius="999"
+                                CornerRadius="12"
+                                HorizontalAlignment="Left"
                                 Visibility="Collapsed"
                                 VerticalAlignment="Center">
                                 <TextBlock
                                     Text="Update available"
                                     Style="{StaticResource CaptionTextBlockStyle}"
+                                    TextWrapping="NoWrap"
+                                    VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                             </Border>
                         </StackPanel>
