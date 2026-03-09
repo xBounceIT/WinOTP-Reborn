@@ -155,6 +155,11 @@ public sealed partial class MainWindow : Window
         contextMenu.Opening += TrayContextMenu_Opening;
         BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
+
+        if (_appSettings.MinimizeOnClose || _appSettings.MinimizeToTrayOnClose)
+        {
+            _trayIcon.ForceCreate();
+        }
     }
 
     private void TrayContextMenu_Opening(object? sender, object e)
@@ -720,6 +725,22 @@ public sealed partial class MainWindow : Window
 
     private void OnAppSettingsChanged(object? sender, AppSettingsChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(IAppSettingsService.MinimizeOnClose) or nameof(IAppSettingsService.MinimizeToTrayOnClose))
+        {
+            if (_appSettings.MinimizeOnClose || _appSettings.MinimizeToTrayOnClose)
+            {
+                _dispatcherQueue.TryEnqueue(() => _trayIcon?.ForceCreate());
+            }
+            else
+            {
+                _dispatcherQueue.TryEnqueue(() => 
+                {
+                    _trayIcon?.Dispose();
+                    InitializeTrayIcon();
+                });
+            }
+        }
+
         if (_isApplyingProtectionRecovery || !IsProtectionSetting(e.PropertyName))
         {
             return;
