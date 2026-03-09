@@ -1,11 +1,13 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using H.NotifyIcon;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Security.Credentials.UI;
 using WinOTP.Pages;
+using WinOTP.Helpers;
 using WinOTP.Services;
 
 namespace WinOTP;
@@ -34,6 +36,7 @@ public sealed partial class MainWindow : Window
     private AppLockProtectionPresentationState _lastResolvedProtectionPresentationState;
     private AppLockTemporaryBypassReason? _lastTemporaryProtectionUnavailableReason;
     private AppLockMode _currentLockMode;
+    private TaskbarIcon? _trayIcon;
 
     private readonly record struct ResolvedProtectionState(
         AppLockResolution Resolution,
@@ -69,8 +72,15 @@ public sealed partial class MainWindow : Window
         _appSettings.SettingsChanged += OnAppSettingsChanged;
         _appUpdate.StateChanged += OnAppUpdateStateChanged;
         Activated += MainWindow_Activated;
-        Closed += (_, _) => CleanupSessionChangeMonitoring();
+        Closed += (_, _) =>
+        {
+            CleanupSessionChangeMonitoring();
+            _trayIcon?.Dispose();
+        };
         AppWindow.Closing += AppWindow_Closing;
+
+        // System tray icon
+        InitializeTrayIcon();
 
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
@@ -127,10 +137,37 @@ public sealed partial class MainWindow : Window
         await HandleProtectionStateReconciliationAsync();
     }
 
+    private void InitializeTrayIcon()
+    {
+        _trayIcon = new TaskbarIcon
+        {
+            IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                new Uri("ms-appx:///Assets/app.ico")),
+            ToolTipText = "WinOTP",
+        };
+
+        var openItem = new MenuFlyoutItem { Text = "Open WinOTP", Command = new RelayCommand(RestoreFromTray) };
+        var exitItem = new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(ForceClose) };
+
+        var contextMenu = new MenuFlyout();
+        contextMenu.Items.Add(openItem);
+        contextMenu.Items.Add(new MenuFlyoutSeparator());
+        contextMenu.Items.Add(exitItem);
+        _trayIcon.ContextFlyout = contextMenu;
+    }
+
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
         if (_forceClose)
         {
+            return;
+        }
+
+        if (_appSettings.MinimizeToTrayOnClose)
+        {
+            args.Cancel = true;
+            AppWindow.Hide();
+            _trayIcon?.ForceCreate();
             return;
         }
 
@@ -142,6 +179,14 @@ public sealed partial class MainWindow : Window
                 presenter.Minimize();
             }
         }
+    }
+
+    private void RestoreFromTray()
+    {
+        _trayIcon?.Dispose();
+        InitializeTrayIcon();
+        AppWindow.Show();
+        this.Activate();
     }
 
     public void ForceClose()
