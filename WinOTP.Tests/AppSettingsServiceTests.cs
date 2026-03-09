@@ -104,6 +104,19 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal(UpdateChannel.PreRelease, second.UpdateChannel);
     }
 
+    [Fact]
+    public void AutoStartOnBoot_DefaultsToFalseAndPersistsAcrossInstances()
+    {
+        var first = new AppSettingsService(_settingsFilePath);
+        Assert.False(first.AutoStartOnBoot);
+
+        first.AutoStartOnBoot = true;
+
+        var second = new AppSettingsService(_settingsFilePath);
+
+        Assert.True(second.AutoStartOnBoot);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_settingsDirectoryPath))

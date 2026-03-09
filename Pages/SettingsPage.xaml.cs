@@ -15,6 +15,7 @@ public sealed partial class SettingsPage : Page
     private readonly IAppSettingsService _appSettings;
     private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
+    private readonly IAutoStartService _autoStart;
     private readonly IBackupService _backupService;
     private bool _isInitializingToggle;
 
@@ -24,6 +25,7 @@ public sealed partial class SettingsPage : Page
         _appSettings = App.Current.AppSettings;
         _appUpdate = App.Current.AppUpdate;
         _appLock = App.Current.AppLock;
+        _autoStart = App.Current.AutoStart;
         _backupService = App.Current.BackupService;
 
         CurrentVersionTextBlock.Text = VersionHelper.GetAppVersion();
@@ -58,6 +60,7 @@ public sealed partial class SettingsPage : Page
             var viewState = await SettingsProtectionViewStateService.ResolveAsync(_appSettings, _appLock);
 
             ShowNextCodeToggle.IsOn = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
+            AutoStartToggle.IsOn = _appSettings.AutoStartOnBoot;
             MinimizeOnCloseToggle.IsOn = _appSettings.MinimizeOnClose;
             PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
@@ -143,6 +146,44 @@ public sealed partial class SettingsPage : Page
         }
 
         _appSettings.MinimizeOnClose = MinimizeOnCloseToggle.IsOn;
+    }
+
+    private async void AutoStartToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        bool success;
+        if (AutoStartToggle.IsOn)
+        {
+            success = await _autoStart.EnableAutoStartAsync();
+            if (!success)
+            {
+                await ShowErrorDialog("Failed to enable auto-start on boot. Please check permissions or try again.");
+                _isInitializingToggle = true;
+                AutoStartToggle.IsOn = false;
+                _isInitializingToggle = false;
+                _appSettings.AutoStartOnBoot = false;
+                return;
+            }
+        }
+        else
+        {
+             success = await _autoStart.DisableAutoStartAsync();
+             if (!success)
+             {
+                 await ShowErrorDialog("Failed to disable auto-start on boot. Please check permissions or try again.");
+                 _isInitializingToggle = true;
+                 AutoStartToggle.IsOn = true;
+                 _isInitializingToggle = false;
+                 _appSettings.AutoStartOnBoot = true;
+                 return;
+             }
+        }
+
+        _appSettings.AutoStartOnBoot = AutoStartToggle.IsOn;
     }
 
     private async void UpdateCheckToggle_Toggled(object sender, RoutedEventArgs e)
