@@ -140,6 +140,15 @@
                                         BorderBrush="Transparent"
                                         Padding="8,4"
                                         MinWidth="0"
+                                        Click="EditButton_Click"
+                                        Tag="{x:Bind Id}"
+                                        ToolTipService.ToolTip="Edit account">
+                                    <FontIcon Glyph="&#xE70F;" FontSize="14"/>
+                                </Button>
+                                <Button Background="Transparent"
+                                        BorderBrush="Transparent"
+                                        Padding="8,4"
+                                        MinWidth="0"
                                         Click="DeleteButton_Click"
                                         Tag="{x:Bind Id}"
                                         ToolTipService.ToolTip="Delete account">
