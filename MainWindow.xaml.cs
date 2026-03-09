@@ -191,14 +191,14 @@ public sealed partial class MainWindow : Window
                     };
 
                     var capturedAccount = account;
-                    item.Click += (_, _) =>
+                    item.Command = new RelayCommand(() =>
                     {
                         var currentCode = _totpGenerator.GenerateCode(capturedAccount);
                         var dataPackage = new DataPackage();
                         dataPackage.SetText(currentCode);
                         Clipboard.SetContent(dataPackage);
                         Clipboard.Flush();
-                    };
+                    });
 
                     contextMenu.Items.Add(item);
                 }
