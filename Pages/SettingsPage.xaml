@@ -117,6 +117,15 @@
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Opacity="0.7"
                         TextWrapping="WrapWholeWords" />
+                    <ToggleSwitch
+                        x:Name="ShowTotpInTrayToggle"
+                        Header="Show TOTP codes in tray menu"
+                        Toggled="ShowTotpInTrayToggle_Toggled" />
+                    <TextBlock
+                        Text="Display TOTP accounts in the system tray right-click menu. Clicking a code copies it to the clipboard."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
                 </StackPanel>
             </Border>
 

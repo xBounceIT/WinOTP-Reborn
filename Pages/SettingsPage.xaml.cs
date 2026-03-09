@@ -63,6 +63,7 @@ public sealed partial class SettingsPage : Page
             AutoStartToggle.IsOn = _appSettings.AutoStartOnBoot;
             MinimizeOnCloseToggle.IsOn = _appSettings.MinimizeOnClose;
             MinimizeToTrayOnCloseToggle.IsOn = _appSettings.MinimizeToTrayOnClose;
+            ShowTotpInTrayToggle.IsOn = _appSettings.ShowTotpInTrayMenu;
             PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
             WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
@@ -165,6 +166,16 @@ public sealed partial class SettingsPage : Page
         {
             MinimizeOnCloseToggle.IsOn = false;
         }
+    }
+
+    private void ShowTotpInTrayToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        _appSettings.ShowTotpInTrayMenu = ShowTotpInTrayToggle.IsOn;
     }
 
     private async void AutoStartToggle_Toggled(object sender, RoutedEventArgs e)

@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Security.Credentials.UI;
+using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Pages;
 using WinOTP.Helpers;
 using WinOTP.Services;
@@ -22,6 +23,8 @@ public sealed partial class MainWindow : Window
     private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
     private readonly IAutoLockService _autoLock;
+    private readonly ICredentialManagerService _credentialManager;
+    private readonly ITotpCodeGenerator _totpGenerator;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
     private readonly SubclassProc _sessionNotificationSubclassProc;
     private bool _autoLockHandlersSetUp;
@@ -61,6 +64,8 @@ public sealed partial class MainWindow : Window
         _appSettings = App.Current.AppSettings;
         _appUpdate = App.Current.AppUpdate;
         _appLock = App.Current.AppLock;
+        _credentialManager = App.Current.CredentialManager;
+        _totpGenerator = App.Current.TotpGenerator;
         _dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         _sessionNotificationSubclassProc = SessionNotificationWindowProc;
 
@@ -146,14 +151,66 @@ public sealed partial class MainWindow : Window
             ToolTipText = "WinOTP",
         };
 
-        var openItem = new MenuFlyoutItem { Text = "Open WinOTP", Command = new RelayCommand(RestoreFromTray) };
-        var exitItem = new MenuFlyoutItem { Text = "Exit", Command = new RelayCommand(ForceClose) };
-
         var contextMenu = new MenuFlyout();
-        contextMenu.Items.Add(openItem);
-        contextMenu.Items.Add(new MenuFlyoutSeparator());
-        contextMenu.Items.Add(exitItem);
+        contextMenu.Opening += TrayContextMenu_Opening;
+        BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
+    }
+
+    private void TrayContextMenu_Opening(object? sender, object e)
+    {
+        if (sender is MenuFlyout flyout)
+        {
+            BuildTrayContextMenuItems(flyout);
+        }
+    }
+
+    private void BuildTrayContextMenuItems(MenuFlyout contextMenu)
+    {
+        contextMenu.Items.Clear();
+
+        contextMenu.Items.Add(new MenuFlyoutItem
+        {
+            Text = "Open WinOTP",
+            Command = new RelayCommand(RestoreFromTray)
+        });
+
+        if (_appSettings.ShowTotpInTrayMenu && LockOverlay.Visibility == Visibility.Collapsed)
+        {
+            var result = _credentialManager.LoadAccountsAsync().GetAwaiter().GetResult();
+            if (result.Accounts.Count > 0)
+            {
+                contextMenu.Items.Add(new MenuFlyoutSeparator());
+
+                foreach (var account in result.Accounts)
+                {
+                    var code = _totpGenerator.GenerateCode(account);
+                    var item = new MenuFlyoutItem
+                    {
+                        Text = $"{account.DisplayLabel}  \u2014  {code}"
+                    };
+
+                    var capturedAccount = account;
+                    item.Click += (_, _) =>
+                    {
+                        var currentCode = _totpGenerator.GenerateCode(capturedAccount);
+                        var dataPackage = new DataPackage();
+                        dataPackage.SetText(currentCode);
+                        Clipboard.SetContent(dataPackage);
+                        Clipboard.Flush();
+                    };
+
+                    contextMenu.Items.Add(item);
+                }
+            }
+        }
+
+        contextMenu.Items.Add(new MenuFlyoutSeparator());
+        contextMenu.Items.Add(new MenuFlyoutItem
+        {
+            Text = "Exit",
+            Command = new RelayCommand(ForceClose)
+        });
     }
 
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
