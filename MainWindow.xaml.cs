@@ -149,6 +149,7 @@ public sealed partial class MainWindow : Window
             IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
                 new Uri("ms-appx:///Assets/app.ico")),
             ToolTipText = "WinOTP",
+            DoubleClickCommand = new RelayCommand(RestoreFromTray)
         };
 
         var contextMenu = new MenuFlyout();
