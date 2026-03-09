@@ -19,6 +19,7 @@ public interface IAppSettingsService
     string CustomBackupFolderPath { get; set; }
     bool IsUpdateCheckEnabled { get; set; }
     UpdateChannel UpdateChannel { get; set; }
+    bool MinimizeOnClose { get; set; }
     event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 }
 
@@ -56,6 +57,7 @@ public sealed class AppSettingsService : IAppSettingsService
     private string _customBackupFolderPath = string.Empty;
     private bool _isUpdateCheckEnabled;
     private UpdateChannel _updateChannel;
+    private bool _minimizeOnClose;
 
     public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 
@@ -83,6 +85,7 @@ public sealed class AppSettingsService : IAppSettingsService
         _customBackupFolderPath = NormalizePathSetting(loadedSettings.CustomBackupFolderPath);
         _isUpdateCheckEnabled = loadedSettings.IsUpdateCheckEnabled;
         _updateChannel = loadedSettings.UpdateChannel;
+        _minimizeOnClose = loadedSettings.MinimizeOnClose;
     }
 
     public bool ShowNextCodeWhenFiveSecondsRemain
@@ -155,6 +158,12 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _updateChannel;
         set => SetEnumProperty(ref _updateChannel, value, nameof(UpdateChannel));
+    }
+
+    public bool MinimizeOnClose
+    {
+        get => _minimizeOnClose;
+        set => SetBooleanProperty(ref _minimizeOnClose, value, nameof(MinimizeOnClose));
     }
 
     private void SetBooleanProperty(ref bool field, bool value, string propertyName)
@@ -282,7 +291,8 @@ public sealed class AppSettingsService : IAppSettingsService
             IsAutomaticBackupEnabled = _isAutomaticBackupEnabled,
             CustomBackupFolderPath = _customBackupFolderPath,
             IsUpdateCheckEnabled = _isUpdateCheckEnabled,
-            UpdateChannel = _updateChannel
+            UpdateChannel = _updateChannel,
+            MinimizeOnClose = _minimizeOnClose
         };
     }
 
@@ -318,5 +328,6 @@ public sealed class AppSettingsService : IAppSettingsService
         public string CustomBackupFolderPath { get; set; } = string.Empty;
         public bool IsUpdateCheckEnabled { get; set; } = true;
         public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
+        public bool MinimizeOnClose { get; set; }
     }
 }

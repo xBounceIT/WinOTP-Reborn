@@ -58,6 +58,7 @@ public sealed partial class SettingsPage : Page
             var viewState = await SettingsProtectionViewStateService.ResolveAsync(_appSettings, _appLock);
 
             ShowNextCodeToggle.IsOn = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
+            MinimizeOnCloseToggle.IsOn = _appSettings.MinimizeOnClose;
             PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
             WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
@@ -134,6 +135,16 @@ public sealed partial class SettingsPage : Page
         _appSettings.ShowNextCodeWhenFiveSecondsRemain = ShowNextCodeToggle.IsOn;
     }
 
+    private void MinimizeOnCloseToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        _appSettings.MinimizeOnClose = MinimizeOnCloseToggle.IsOn;
+    }
+
     private async void UpdateCheckToggle_Toggled(object sender, RoutedEventArgs e)
     {
         if (_isInitializingToggle)
@@ -200,7 +211,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        App.Current.MainWindow?.Close();
+        App.Current.MainWindow?.ForceClose();
     }
 
     private async void AutomaticBackupToggle_Toggled(object sender, RoutedEventArgs e)
