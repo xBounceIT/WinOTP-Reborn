@@ -1,5 +1,7 @@
 # WinOTP
 
+Successor to my previous project: https://github.com/xBounceIT/WinOTP
+
 A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windows 11, built with .NET 10 and WinUI 3.
 
 ![Windows](https://img.shields.io/badge/Windows-11-blue?logo=windows)
