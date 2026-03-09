@@ -22,7 +22,10 @@ A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windo
 
 ## Screenshots
 
-*Screenshots will be added here*
+<img width="731" height="797" alt="immagine" src="https://github.com/user-attachments/assets/dc4ec69c-fb41-4862-9df3-81397f82d0da" />
+<img width="731" height="797" alt="immagine" src="https://github.com/user-attachments/assets/4657af51-8024-474d-ab2a-e824a4ba47d6" />
+
+
 
 ## Requirements
 
