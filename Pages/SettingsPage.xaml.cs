@@ -62,6 +62,7 @@ public sealed partial class SettingsPage : Page
             ShowNextCodeToggle.IsOn = _appSettings.ShowNextCodeWhenFiveSecondsRemain;
             AutoStartToggle.IsOn = _appSettings.AutoStartOnBoot;
             MinimizeOnCloseToggle.IsOn = _appSettings.MinimizeOnClose;
+            MinimizeToTrayOnCloseToggle.IsOn = _appSettings.MinimizeToTrayOnClose;
             PinProtectionToggle.IsOn = viewState.IsPinToggleOn;
             PasswordProtectionToggle.IsOn = viewState.IsPasswordToggleOn;
             WindowsHelloToggle.IsOn = viewState.IsWindowsHelloToggleOn;
@@ -146,6 +147,24 @@ public sealed partial class SettingsPage : Page
         }
 
         _appSettings.MinimizeOnClose = MinimizeOnCloseToggle.IsOn;
+        if (MinimizeOnCloseToggle.IsOn && MinimizeToTrayOnCloseToggle.IsOn)
+        {
+            MinimizeToTrayOnCloseToggle.IsOn = false;
+        }
+    }
+
+    private void MinimizeToTrayOnCloseToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializingToggle)
+        {
+            return;
+        }
+
+        _appSettings.MinimizeToTrayOnClose = MinimizeToTrayOnCloseToggle.IsOn;
+        if (MinimizeToTrayOnCloseToggle.IsOn && MinimizeOnCloseToggle.IsOn)
+        {
+            MinimizeOnCloseToggle.IsOn = false;
+        }
     }
 
     private async void AutoStartToggle_Toggled(object sender, RoutedEventArgs e)

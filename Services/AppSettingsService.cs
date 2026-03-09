@@ -20,6 +20,7 @@ public interface IAppSettingsService
     bool IsUpdateCheckEnabled { get; set; }
     UpdateChannel UpdateChannel { get; set; }
     bool MinimizeOnClose { get; set; }
+    bool MinimizeToTrayOnClose { get; set; }
     bool AutoStartOnBoot { get; set; }
     event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
 }
@@ -59,6 +60,7 @@ public sealed class AppSettingsService : IAppSettingsService
     private bool _isUpdateCheckEnabled;
     private UpdateChannel _updateChannel;
     private bool _minimizeOnClose;
+    private bool _minimizeToTrayOnClose;
     private bool _autoStartOnBoot;
 
     public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
@@ -88,6 +90,7 @@ public sealed class AppSettingsService : IAppSettingsService
         _isUpdateCheckEnabled = loadedSettings.IsUpdateCheckEnabled;
         _updateChannel = loadedSettings.UpdateChannel;
         _minimizeOnClose = loadedSettings.MinimizeOnClose;
+        _minimizeToTrayOnClose = loadedSettings.MinimizeToTrayOnClose;
         _autoStartOnBoot = loadedSettings.AutoStartOnBoot;
     }
 
@@ -167,6 +170,12 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _minimizeOnClose;
         set => SetBooleanProperty(ref _minimizeOnClose, value, nameof(MinimizeOnClose));
+    }
+
+    public bool MinimizeToTrayOnClose
+    {
+        get => _minimizeToTrayOnClose;
+        set => SetBooleanProperty(ref _minimizeToTrayOnClose, value, nameof(MinimizeToTrayOnClose));
     }
 
     public bool AutoStartOnBoot
@@ -302,6 +311,7 @@ public sealed class AppSettingsService : IAppSettingsService
             IsUpdateCheckEnabled = _isUpdateCheckEnabled,
             UpdateChannel = _updateChannel,
             MinimizeOnClose = _minimizeOnClose,
+            MinimizeToTrayOnClose = _minimizeToTrayOnClose,
             AutoStartOnBoot = _autoStartOnBoot
         };
     }
@@ -339,6 +349,7 @@ public sealed class AppSettingsService : IAppSettingsService
         public bool IsUpdateCheckEnabled { get; set; } = true;
         public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
         public bool MinimizeOnClose { get; set; }
+        public bool MinimizeToTrayOnClose { get; set; }
         public bool AutoStartOnBoot { get; set; }
     }
 }
