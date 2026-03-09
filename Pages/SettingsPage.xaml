@@ -90,6 +90,15 @@
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Opacity="0.7"
                         TextWrapping="WrapWholeWords" />
+                    <ToggleSwitch
+                        x:Name="MinimizeOnCloseToggle"
+                        Header="Minimize to tray on close"
+                        Toggled="MinimizeOnCloseToggle_Toggled" />
+                    <TextBlock
+                        Text="When closing the window, minimize the app to the system tray instead of exiting."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
                 </StackPanel>
             </Border>
 

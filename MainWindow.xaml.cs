@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private bool _isSessionNotificationRegistered;
     private bool _isSessionNotificationSubclassInstalled;
     private IntPtr _windowHandle;
+    private bool _forceClose;
     private AppLockProtectionPresentationState _lastResolvedProtectionPresentationState;
     private AppLockTemporaryBypassReason? _lastTemporaryProtectionUnavailableReason;
     private AppLockMode _currentLockMode;
@@ -69,6 +70,7 @@ public sealed partial class MainWindow : Window
         _appUpdate.StateChanged += OnAppUpdateStateChanged;
         Activated += MainWindow_Activated;
         Closed += (_, _) => CleanupSessionChangeMonitoring();
+        AppWindow.Closing += AppWindow_Closing;
 
         // Custom title bar
         this.ExtendsContentIntoTitleBar = true;
@@ -123,6 +125,29 @@ public sealed partial class MainWindow : Window
         }
 
         await HandleProtectionStateReconciliationAsync();
+    }
+
+    private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (_forceClose)
+        {
+            return;
+        }
+
+        if (_appSettings.MinimizeOnClose)
+        {
+            args.Cancel = true;
+            if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+            {
+                presenter.Minimize();
+            }
+        }
+    }
+
+    public void ForceClose()
+    {
+        _forceClose = true;
+        Close();
     }
 
     private void EnsureSessionChangeMonitoring()
