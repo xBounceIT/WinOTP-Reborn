@@ -91,6 +91,15 @@
                         Opacity="0.7"
                         TextWrapping="WrapWholeWords" />
                     <ToggleSwitch
+                        x:Name="AutoStartToggle"
+                        Header="Start WinOTP when I sign in"
+                        Toggled="AutoStartToggle_Toggled" />
+                    <TextBlock
+                        Text="Automatically launch the app in the background when you sign in to Windows."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+                    <ToggleSwitch
                         x:Name="MinimizeOnCloseToggle"
                         Header="Minimize to tray on close"
                         Toggled="MinimizeOnCloseToggle_Toggled" />

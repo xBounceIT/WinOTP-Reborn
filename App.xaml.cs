@@ -14,6 +14,7 @@ public partial class App : Application
     public IAppLockService AppLock { get; } = new AppLockService();
     public IBackupService BackupService { get; }
     public IAppUpdateService AppUpdate { get; }
+    public IAutoStartService AutoStart { get; }
     public IAutoLockService? AutoLock { get; private set; }
 
     public App()
@@ -23,6 +24,7 @@ public partial class App : Application
         AppSettings = new AppSettingsService();
         BackupService = new BackupService(CredentialManager, AppSettings, Logger);
         AppUpdate = new AppUpdateService(AppSettings, Logger);
+        AutoStart = new AutoStartService(Logger);
         UnhandledException += OnUnhandledException;
     }
 
