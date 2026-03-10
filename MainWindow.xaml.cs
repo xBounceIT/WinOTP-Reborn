@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     private AppLockTemporaryBypassReason? _lastTemporaryProtectionUnavailableReason;
     private AppLockMode _currentLockMode;
     private TaskbarIcon? _trayIcon;
+    private volatile bool _isLocked;
 
     private readonly record struct ResolvedProtectionState(
         AppLockResolution Resolution,
@@ -153,21 +154,13 @@ public sealed partial class MainWindow : Window
         };
 
         var contextMenu = new MenuFlyout();
-        contextMenu.Opening += TrayContextMenu_Opening;
+        contextMenu.Opening += (s, e) => BuildTrayContextMenuItems(contextMenu);
         BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
 
         if (_appSettings.MinimizeOnClose || _appSettings.MinimizeToTrayOnClose)
         {
             _trayIcon.ForceCreate();
-        }
-    }
-
-    private void TrayContextMenu_Opening(object? sender, object e)
-    {
-        if (sender is MenuFlyout flyout)
-        {
-            BuildTrayContextMenuItems(flyout);
         }
     }
 
@@ -181,7 +174,7 @@ public sealed partial class MainWindow : Window
             Command = new RelayCommand(RestoreFromTray)
         });
 
-        if (_appSettings.ShowTotpInTrayMenu && LockOverlay.Visibility == Visibility.Collapsed)
+        if (_appSettings.ShowTotpInTrayMenu && !_isLocked)
         {
             var result = _credentialManager.LoadAccountsAsync().GetAwaiter().GetResult();
             if (result.Accounts.Count > 0)
@@ -217,6 +210,14 @@ public sealed partial class MainWindow : Window
             Text = "Exit",
             Command = new RelayCommand(ForceClose)
         });
+    }
+
+    private void UpdateTrayContextMenu()
+    {
+        if (_trayIcon?.ContextFlyout is MenuFlyout flyout)
+        {
+            BuildTrayContextMenuItems(flyout);
+        }
     }
 
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
@@ -447,6 +448,8 @@ public sealed partial class MainWindow : Window
         if (resolution.Mode == AppLockMode.None)
         {
             LockOverlay.Visibility = Visibility.Collapsed;
+            _isLocked = false;
+            UpdateTrayContextMenu();
             _currentLockMode = AppLockMode.None;
             ClearUnlockInputs();
             SetupAutoLockMonitoring();
@@ -455,6 +458,8 @@ public sealed partial class MainWindow : Window
 
         _autoLock.StopMonitoring();
         _currentLockMode = resolution.Mode;
+        _isLocked = true;
+        UpdateTrayContextMenu();
 
         LockOverlay.Visibility = Visibility.Visible;
         UnlockErrorText.Visibility = Visibility.Collapsed;
@@ -645,6 +650,8 @@ public sealed partial class MainWindow : Window
     private void UnlockSuccess()
     {
         LockOverlay.Visibility = Visibility.Collapsed;
+        _isLocked = false;
+        UpdateTrayContextMenu();
         _currentLockMode = AppLockMode.None;
         ClearUnlockInputs();
 
@@ -740,6 +747,11 @@ public sealed partial class MainWindow : Window
                     InitializeTrayIcon();
                 });
             }
+        }
+
+        if (e.PropertyName == nameof(IAppSettingsService.ShowTotpInTrayMenu))
+        {
+            _dispatcherQueue.TryEnqueue(() => UpdateTrayContextMenu());
         }
 
         if (_isApplyingProtectionRecovery || !IsProtectionSetting(e.PropertyName))
@@ -1017,6 +1029,8 @@ public sealed partial class MainWindow : Window
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
+        _isLocked = false;
+        UpdateTrayContextMenu();
         _currentLockMode = AppLockMode.None;
         _hasEffectiveProtection = false;
         ClearUnlockInputs();
@@ -1031,6 +1045,8 @@ public sealed partial class MainWindow : Window
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
+        _isLocked = false;
+        UpdateTrayContextMenu();
         _currentLockMode = AppLockMode.None;
         _hasEffectiveProtection = false;
         ClearUnlockInputs();
