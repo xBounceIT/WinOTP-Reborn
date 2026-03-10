@@ -334,9 +334,11 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 LastError = null
             });
 
-            Directory.CreateDirectory(_updatesDirectoryProvider());
+            var updatesDirectory = _updatesDirectoryProvider();
+            Directory.CreateDirectory(updatesDirectory);
+            CleanupOldInstallers(updatesDirectory, update.InstallerName);
 
-            var finalPath = Path.Combine(_updatesDirectoryProvider(), update.InstallerName);
+            var finalPath = Path.Combine(updatesDirectory, update.InstallerName);
             var tempPath = finalPath + ".download";
 
             TryDeleteFile(tempPath);
@@ -806,6 +808,25 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
         catch
         {
             // Best-effort cleanup only.
+        }
+    }
+
+    private void CleanupOldInstallers(string updatesDirectory, string currentInstallerName)
+    {
+        try
+        {
+            foreach (var file in Directory.GetFiles(updatesDirectory, "*.exe"))
+            {
+                var fileName = Path.GetFileName(file);
+                if (!string.Equals(fileName, currentInstallerName, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDeleteFile(file);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Failed to clean up old installers: {ex.Message}");
         }
     }
 }

@@ -592,6 +592,61 @@ public sealed class AppUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadInstallerAsync_DeletesOldInstallersBeforeDownload()
+    {
+        Directory.CreateDirectory(_updatesDirectoryPath);
+        var oldInstallerPath = Path.Combine(_updatesDirectoryPath, "WinOTP-1.0.0-win-x64-setup.exe");
+        var otherOldInstallerPath = Path.Combine(_updatesDirectoryPath, "WinOTP-0.9.0-win-x64-setup.exe");
+        File.WriteAllBytes(oldInstallerPath, [1, 2, 3]);
+        File.WriteAllBytes(otherOldInstallerPath, [4, 5, 6]);
+        Assert.True(File.Exists(oldInstallerPath));
+        Assert.True(File.Exists(otherOldInstallerPath));
+
+        var installerBytes = Encoding.UTF8.GetBytes("new-installer");
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains("/releases", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse("""
+                [
+                  {
+                    "tag_name": "v1.1.0",
+                    "name": "1.1.0",
+                    "html_url": "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v1.1.0",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "WinOTP-1.1.0-win-x64-setup.exe",
+                        "browser_download_url": "https://example.test/WinOTP-1.1.0-win-x64-setup.exe"
+                      }
+                    ]
+                  }
+                ]
+                """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(installerBytes)
+            };
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(new FakeAppSettingsService(), httpClient, handler);
+
+        await service.CheckForUpdatesAsync(UpdateCheckTrigger.Manual);
+        var result = await service.DownloadInstallerAsync();
+
+        Assert.True(result.Success);
+        Assert.False(File.Exists(oldInstallerPath));
+        Assert.False(File.Exists(otherOldInstallerPath));
+        Assert.True(File.Exists(result.FilePath));
+        var remainingFiles = Directory.GetFiles(_updatesDirectoryPath, "*.exe");
+        Assert.Single(remainingFiles);
+        Assert.Equal(result.FilePath, remainingFiles[0]);
+    }
+
+    [Fact]
     public async Task LaunchInstallerAsync_WithTamperedSignedInstaller_ReturnsFailureAndDoesNotStartProcess()
     {
         var installerBytes = Encoding.UTF8.GetBytes("verified-installer");
@@ -846,6 +901,10 @@ public sealed class AppUpdateServiceTests : IDisposable
         public int AutoLockTimeoutMinutes { get; set; }
         public bool IsAutomaticBackupEnabled { get; set; }
         public string CustomBackupFolderPath { get; set; } = string.Empty;
+        public bool MinimizeOnClose { get; set; }
+        public bool MinimizeToTrayOnClose { get; set; }
+        public bool ShowTotpInTrayMenu { get; set; }
+        public bool AutoStartOnBoot { get; set; }
 
         public bool IsUpdateCheckEnabled
         {
