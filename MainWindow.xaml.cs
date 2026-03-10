@@ -156,7 +156,7 @@ public sealed partial class MainWindow : Window
         };
 
         var contextMenu = new MenuFlyout();
-        contextMenu.Opening += UpdateTrayMenuCodeTexts;
+        contextMenu.Opening += (s, e) => BuildTrayContextMenuItems(contextMenu);
         BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
 
@@ -221,15 +221,6 @@ public sealed partial class MainWindow : Window
         if (_trayIcon?.ContextFlyout is MenuFlyout flyout)
         {
             BuildTrayContextMenuItems(flyout);
-        }
-    }
-
-    private void UpdateTrayMenuCodeTexts(object? sender, object e)
-    {
-        foreach (var kvp in _trayMenuAccountItems)
-        {
-            var freshCode = _totpGenerator.GenerateCode(kvp.Value);
-            kvp.Key.Text = $"{kvp.Value.DisplayLabel}  \u2014  {freshCode}";
         }
     }
 
