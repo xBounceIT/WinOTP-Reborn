@@ -1022,6 +1022,8 @@ public sealed partial class MainWindow : Window
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
+        _isLocked = false;
+        UpdateTrayContextMenu();
         _currentLockMode = AppLockMode.None;
         _hasEffectiveProtection = false;
         ClearUnlockInputs();
@@ -1036,6 +1038,8 @@ public sealed partial class MainWindow : Window
     {
         _autoLock.StopMonitoring();
         LockOverlay.Visibility = Visibility.Collapsed;
+        _isLocked = false;
+        UpdateTrayContextMenu();
         _currentLockMode = AppLockMode.None;
         _hasEffectiveProtection = false;
         ClearUnlockInputs();
