@@ -305,6 +305,10 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 return new UpdateDownloadResult(false, null, false, null, "No update is currently available.");
             }
 
+            var updatesDirectory = _updatesDirectoryProvider();
+            Directory.CreateDirectory(updatesDirectory);
+            CleanupOldInstallers(updatesDirectory, update.InstallerName);
+
             var existingFilePath = current.DownloadedInstallerPath;
             if (!string.IsNullOrWhiteSpace(existingFilePath) && File.Exists(existingFilePath))
             {
@@ -333,10 +337,6 @@ public sealed class AppUpdateService : IAppUpdateService, IDisposable
                 StatusMessage = "Downloading installer...",
                 LastError = null
             });
-
-            var updatesDirectory = _updatesDirectoryProvider();
-            Directory.CreateDirectory(updatesDirectory);
-            CleanupOldInstallers(updatesDirectory, update.InstallerName);
 
             var finalPath = Path.Combine(updatesDirectory, update.InstallerName);
             var tempPath = finalPath + ".download";
