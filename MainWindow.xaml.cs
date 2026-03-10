@@ -10,6 +10,7 @@ using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Pages;
 using WinOTP.Helpers;
 using WinOTP.Services;
+using WinOTP.Models;
 
 namespace WinOTP;
 
@@ -41,6 +42,7 @@ public sealed partial class MainWindow : Window
     private AppLockMode _currentLockMode;
     private TaskbarIcon? _trayIcon;
     private volatile bool _isLocked;
+    private readonly Dictionary<MenuFlyoutItem, OtpAccount> _trayMenuAccountItems = new();
 
     private readonly record struct ResolvedProtectionState(
         AppLockResolution Resolution,
@@ -154,6 +156,7 @@ public sealed partial class MainWindow : Window
         };
 
         var contextMenu = new MenuFlyout();
+        contextMenu.Opening += UpdateTrayMenuCodeTexts;
         BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
 
@@ -166,6 +169,7 @@ public sealed partial class MainWindow : Window
     private void BuildTrayContextMenuItems(MenuFlyout contextMenu)
     {
         contextMenu.Items.Clear();
+        _trayMenuAccountItems.Clear();
 
         contextMenu.Items.Add(new MenuFlyoutItem
         {
@@ -199,6 +203,7 @@ public sealed partial class MainWindow : Window
                     });
 
                     contextMenu.Items.Add(item);
+                    _trayMenuAccountItems[item] = capturedAccount;
                 }
             }
         }
@@ -216,6 +221,15 @@ public sealed partial class MainWindow : Window
         if (_trayIcon?.ContextFlyout is MenuFlyout flyout)
         {
             BuildTrayContextMenuItems(flyout);
+        }
+    }
+
+    private void UpdateTrayMenuCodeTexts(object? sender, object e)
+    {
+        foreach (var kvp in _trayMenuAccountItems)
+        {
+            var freshCode = _totpGenerator.GenerateCode(kvp.Value);
+            kvp.Key.Text = $"{kvp.Value.DisplayLabel}  \u2014  {freshCode}";
         }
     }
 
