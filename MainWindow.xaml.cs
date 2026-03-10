@@ -10,7 +10,6 @@ using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Pages;
 using WinOTP.Helpers;
 using WinOTP.Services;
-using WinOTP.Models;
 
 namespace WinOTP;
 
@@ -42,7 +41,6 @@ public sealed partial class MainWindow : Window
     private AppLockMode _currentLockMode;
     private TaskbarIcon? _trayIcon;
     private volatile bool _isLocked;
-    private readonly Dictionary<MenuFlyoutItem, OtpAccount> _trayMenuAccountItems = new();
 
     private readonly record struct ResolvedProtectionState(
         AppLockResolution Resolution,
@@ -169,7 +167,6 @@ public sealed partial class MainWindow : Window
     private void BuildTrayContextMenuItems(MenuFlyout contextMenu)
     {
         contextMenu.Items.Clear();
-        _trayMenuAccountItems.Clear();
 
         contextMenu.Items.Add(new MenuFlyoutItem
         {
@@ -203,7 +200,6 @@ public sealed partial class MainWindow : Window
                     });
 
                     contextMenu.Items.Add(item);
-                    _trayMenuAccountItems[item] = capturedAccount;
                 }
             }
         }
