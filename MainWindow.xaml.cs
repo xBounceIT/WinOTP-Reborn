@@ -154,6 +154,8 @@ public sealed partial class MainWindow : Window
         };
 
         var contextMenu = new MenuFlyout();
+        var contextMenu = new MenuFlyout();
+        contextMenu.Opening += TrayContextMenu_Opening;
         BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
 
