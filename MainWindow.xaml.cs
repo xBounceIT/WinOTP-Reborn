@@ -762,6 +762,11 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        if (e.PropertyName == nameof(IAppSettingsService.ShowTotpInTrayMenu))
+        {
+            _dispatcherQueue.TryEnqueue(() => UpdateTrayContextMenu());
+        }
+
         if (_isApplyingProtectionRecovery || !IsProtectionSetting(e.PropertyName))
         {
             return;
