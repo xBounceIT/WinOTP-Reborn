@@ -448,6 +448,7 @@ public sealed partial class MainWindow : Window
         {
             LockOverlay.Visibility = Visibility.Collapsed;
             _isLocked = false;
+            UpdateTrayContextMenu();
             _currentLockMode = AppLockMode.None;
             ClearUnlockInputs();
             SetupAutoLockMonitoring();
