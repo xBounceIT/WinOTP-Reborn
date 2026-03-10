@@ -177,6 +177,10 @@ public sealed class SettingsProtectionViewStateServiceTests
         public string CustomBackupFolderPath { get; set; } = string.Empty;
         public bool IsUpdateCheckEnabled { get; set; } = true;
         public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
+        public bool MinimizeOnClose { get; set; }
+        public bool MinimizeToTrayOnClose { get; set; }
+        public bool ShowTotpInTrayMenu { get; set; }
+        public bool AutoStartOnBoot { get; set; }
         public event EventHandler<AppSettingsChangedEventArgs>? SettingsChanged;
     }
 
