@@ -125,51 +125,59 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Action buttons - positioned top right -->
-                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Top">
-                                <Button Background="Transparent"
-                                        BorderBrush="Transparent"
-                                        Padding="8,4"
-                                        MinWidth="0"
-                                        Click="CopyButton_Click"
-                                        Tag="{x:Bind Id}"
-                                        ToolTipService.ToolTip="Copy TOTP code">
-                                    <FontIcon x:Name="CopyButtonIcon" Glyph="&#xE8C8;" FontSize="14"/>
-                                </Button>
-                                <Button Background="Transparent"
-                                        BorderBrush="Transparent"
-                                        Padding="8,4"
-                                        MinWidth="0"
-                                        Click="EditButton_Click"
-                                        Tag="{x:Bind Id}"
-                                        ToolTipService.ToolTip="Edit account">
-                                    <FontIcon Glyph="&#xE70F;" FontSize="14"/>
-                                </Button>
-                                <Button Background="Transparent"
-                                        BorderBrush="Transparent"
-                                        Padding="8,4"
-                                        MinWidth="0"
-                                        Click="DeleteButton_Click"
-                                        Tag="{x:Bind Id}"
-                                        ToolTipService.ToolTip="Delete account">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="14"/>
-                                </Button>
-                            </StackPanel>
+                            <!-- Row 0: Account info and action buttons -->
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                            <!-- Account label -->
-                            <StackPanel Grid.Row="0" Orientation="Vertical" Spacing="2" Margin="0,0,80,0">
-                                <TextBlock Text="{x:Bind IssuerOrAccountName}"
-                                           Style="{StaticResource BodyStrongTextBlockStyle}"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"
-                                           TextWrapping="NoWrap"/>
-                                <TextBlock Text="{x:Bind SecondaryLabel}"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"
-                                           TextWrapping="NoWrap"/>
-                            </StackPanel>
+                                <!-- Account label -->
+                                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2">
+                                    <TextBlock Text="{x:Bind IssuerOrAccountName}"
+                                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap"/>
+                                    <TextBlock Text="{x:Bind SecondaryLabel}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap"/>
+                                </StackPanel>
+
+                                <!-- Action buttons -->
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+                                    <Button Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Padding="8,4"
+                                            MinWidth="0"
+                                            Click="CopyButton_Click"
+                                            Tag="{x:Bind Id}"
+                                            ToolTipService.ToolTip="Copy TOTP code">
+                                        <FontIcon x:Name="CopyButtonIcon" Glyph="&#xE8C8;" FontSize="14"/>
+                                    </Button>
+                                    <Button Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Padding="8,4"
+                                            MinWidth="0"
+                                            Click="EditButton_Click"
+                                            Tag="{x:Bind Id}"
+                                            ToolTipService.ToolTip="Edit account">
+                                        <FontIcon Glyph="&#xE70F;" FontSize="14"/>
+                                    </Button>
+                                    <Button Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Padding="8,4"
+                                            MinWidth="0"
+                                            Click="DeleteButton_Click"
+                                            Tag="{x:Bind Id}"
+                                            ToolTipService.ToolTip="Delete account">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
 
                             <!-- TOTP code and next code -->
                             <StackPanel Grid.Row="2"
