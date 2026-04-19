@@ -26,6 +26,7 @@
     <Compile Include="..\Models\BackupResults.cs" Link="Models\BackupResults.cs" />
     <Compile Include="..\Models\UpdateChannel.cs" Link="Models\UpdateChannel.cs" />
     <Compile Include="..\Helpers\AppPaths.cs" Link="Helpers\AppPaths.cs" />
+    <Compile Include="..\Helpers\OtpUriParser.cs" Link="Helpers\OtpUriParser.cs" />
     <Compile Include="..\Helpers\OtpAccountStorageMapper.cs" Link="Helpers\OtpAccountStorageMapper.cs" />
     <Compile Include="..\Helpers\WinOTPLegacyImportMapper.cs" Link="Helpers\WinOTPLegacyImportMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
