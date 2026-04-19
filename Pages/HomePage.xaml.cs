@@ -33,6 +33,7 @@ public sealed partial class HomePage : Page
     private Dictionary<string, OtpAccount> _accountLookup = new();
     private bool _isShowingVaultLoadError;
     private bool _isPageActive;
+    private bool _isWindowActive = true;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -225,6 +226,7 @@ public sealed partial class HomePage : Page
 
     private void OnWindowActivationChanged(object? sender, bool isActive)
     {
+        _isWindowActive = isActive;
         if (isActive) StartRefreshUpdates();
         else StopRefreshUpdates();
     }
@@ -401,7 +403,8 @@ public sealed partial class HomePage : Page
             ShowOperationError("Unable to load accounts due to an unexpected error.");
         }
 
-        StartRefreshUpdates();
+        if (_isWindowActive)
+            StartRefreshUpdates();
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
