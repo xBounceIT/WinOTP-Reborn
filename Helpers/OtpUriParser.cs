@@ -21,13 +21,12 @@ public static class OtpUriParser
         if (!queryParams.TryGetValue("secret", out var secret) || string.IsNullOrWhiteSpace(secret))
             return null;
 
-        secret = secret.Trim().ToUpperInvariant();
-        if (!IsValidBase32(secret))
+        secret = secret.Trim().Replace(" ", "").ToUpperInvariant();
+        if (!OtpAccountStorageMapper.IsValidBase32(secret))
             return null;
 
         var account = new OtpAccount { Secret = secret };
 
-        // Parse label: "Issuer:AccountName" or just "AccountName"
         var colonIndex = label.IndexOf(':');
         if (colonIndex >= 0)
         {
@@ -39,11 +38,9 @@ public static class OtpUriParser
             account.AccountName = label.Trim();
         }
 
-        // Issuer parameter overrides label issuer
         if (queryParams.TryGetValue("issuer", out var issuer) && !string.IsNullOrWhiteSpace(issuer))
             account.Issuer = issuer.Trim();
 
-        // Algorithm
         if (queryParams.TryGetValue("algorithm", out var algo))
         {
             account.Algorithm = algo.ToUpperInvariant() switch
@@ -54,13 +51,11 @@ public static class OtpUriParser
             };
         }
 
-        // Digits
         if (queryParams.TryGetValue("digits", out var digitsStr) && int.TryParse(digitsStr, out var digits))
         {
             account.Digits = digits is 6 or 8 ? digits : 6;
         }
 
-        // Period
         if (queryParams.TryGetValue("period", out var periodStr) && int.TryParse(periodStr, out var period))
         {
             account.Period = period > 0 ? period : 30;
@@ -87,9 +82,4 @@ public static class OtpUriParser
         return result;
     }
 
-    private static bool IsValidBase32(string input)
-    {
-        var trimmed = input.TrimEnd('=');
-        return trimmed.Length > 0 && trimmed.All(c => (c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7'));
-    }
 }

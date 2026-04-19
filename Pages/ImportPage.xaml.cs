@@ -27,43 +27,17 @@ public sealed partial class ImportPage : Page
     {
         _logger.Info("Starting import from WinOTP (old) backup file");
 
-        var window = App.Current.MainWindow!;
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        var file = await PickFileAsync(".json");
+        if (file is null) return;
 
-        var picker = new Windows.Storage.Pickers.FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-        picker.FileTypeFilter.Add(".json");
-        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+        var jsonContent = await ReadFileContentAsync(file);
+        if (jsonContent is null) return;
 
-        var file = await picker.PickSingleFileAsync();
-        if (file is null)
-        {
-            _logger.Info("User cancelled file picker");
-            return;
-        }
-
-        _logger.Info($"Selected file: {file.Path}");
-
-        string jsonContent;
-        try
-        {
-            jsonContent = await Windows.Storage.FileIO.ReadTextAsync(file);
-            _logger.Info($"Read {jsonContent.Length} characters from file");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("Failed to read the selected file", ex);
-            await ShowErrorAsync("Failed to read the selected file.");
-            return;
-        }
-
-        // Parse the WinOTP old format: {"uuid": {"issuer": "...", "name": "...", "secret": "...", "created": "..."}, ...}
         Dictionary<string, WinOTPLegacyAccount?>? oldAccounts;
         try
         {
             oldAccounts = JsonSerializer.Deserialize<Dictionary<string, WinOTPLegacyAccount?>>(
-                jsonContent,
-                WinOTPLegacyImportMapper.JsonOptions);
+                jsonContent, WinOTPLegacyImportMapper.JsonOptions);
             _logger.Info($"Parsed {oldAccounts?.Count ?? 0} accounts from JSON");
         }
         catch (Exception ex)
@@ -80,27 +54,85 @@ public sealed partial class ImportPage : Page
             return;
         }
 
-        int successCount = 0;
-        int failCount = 0;
+        var accounts = new List<OtpAccount>();
         int skippedCount = 0;
         foreach (var kvp in oldAccounts)
         {
-            var uuid = kvp.Key;
-            if (!WinOTPLegacyImportMapper.TryCreateDraftAccount(
-                uuid,
-                kvp.Value,
-                out var newAccount,
-                out var failureReason))
+            if (WinOTPLegacyImportMapper.TryCreateDraftAccount(kvp.Key, kvp.Value, out var newAccount, out var failureReason))
             {
-                _logger.Warn($"Skipping account {uuid}: {failureReason}");
+                accounts.Add(newAccount);
+            }
+            else
+            {
+                _logger.Warn($"Skipping account {kvp.Key}: {failureReason}");
+                skippedCount++;
+            }
+        }
+
+        await ExecuteImportAsync(accounts, skippedCount, "invalid data");
+    }
+
+    private async void ImportFromWinAuthButton_Click(object sender, RoutedEventArgs e)
+    {
+        _logger.Info("Starting import from WinAuth export file");
+
+        var file = await PickFileAsync(".txt");
+        if (file is null) return;
+
+        var fileContent = await ReadFileContentAsync(file);
+        if (fileContent is null) return;
+
+        var lines = fileContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0)
+        {
+            _logger.Warn("File is empty or contains no valid lines");
+            await ShowErrorAsync("The selected file is empty.");
+            return;
+        }
+
+        var accounts = new List<OtpAccount>();
+        int skippedCount = 0;
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+
+            // WinAuth encodes spaces as '+' in both the label and query string portions.
+            // Normalize to percent-encoding before parsing since '+' is literal per RFC 3986.
+            if (line.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+            {
+                line = line.Replace("+", "%20");
+            }
+
+            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+            {
                 skippedCount++;
                 continue;
             }
 
-            _logger.Info($"Processing account: {newAccount.Issuer} ({newAccount.AccountName})");
+            var account = OtpUriParser.TryParse(line);
+            if (account is null)
+            {
+                _logger.Warn($"Failed to parse otpauth URI (line skipped)");
+                skippedCount++;
+                continue;
+            }
 
-            // Validate and save
-            if (OtpAccountStorageMapper.TrySanitizeForStorage(newAccount, newAccount.Id, out var sanitized, out var validationError))
+            accounts.Add(account);
+        }
+
+        await ExecuteImportAsync(accounts, skippedCount, "invalid or unsupported");
+    }
+
+    private async Task ExecuteImportAsync(List<OtpAccount> accounts, int skippedCount, string skippedLabel)
+    {
+        int successCount = 0;
+        int failCount = 0;
+
+        foreach (var account in accounts)
+        {
+            _logger.Info($"Processing account: {account.Issuer} ({account.AccountName})");
+
+            if (OtpAccountStorageMapper.TrySanitizeForStorage(account, account.Id, out var sanitized, out var validationError))
             {
                 _logger.Info($"Account sanitized successfully: {sanitized.DisplayLabel}");
                 var result = await _credentialManager.SaveAccountAsync(sanitized);
@@ -117,30 +149,25 @@ public sealed partial class ImportPage : Page
             }
             else
             {
-                _logger.Error($"Failed to sanitize account: {newAccount.Issuer} ({newAccount.AccountName}) - {validationError}");
+                _logger.Error($"Failed to sanitize account: {account.Issuer} ({account.AccountName}) - {validationError}");
                 failCount++;
             }
         }
 
         _logger.Info($"Import completed: {successCount} success, {failCount} failed, {skippedCount} skipped");
 
-        // Show import results
         var message = $"Import completed:\n• {successCount} account(s) imported successfully";
         if (failCount > 0)
-        {
             message += $"\n• {failCount} account(s) failed to import";
-        }
         if (skippedCount > 0)
-        {
-            message += $"\n• {skippedCount} account(s) skipped (invalid data)";
-        }
+            message += $"\n• {skippedCount} account(s) skipped ({skippedLabel})";
 
         if (successCount > 0 && _appSettings.IsAutomaticBackupEnabled)
         {
             var backupResult = await _backupService.CreateAutomaticBackupAsync();
             if (!backupResult.Success)
             {
-                _logger.Warn($"Automatic backup failed after legacy import: {backupResult.ErrorCode} - {backupResult.Message}");
+                _logger.Warn($"Automatic backup failed after import: {backupResult.ErrorCode} - {backupResult.Message}");
                 message += $"\n\nAutomatic backup failed: {backupResult.Message}";
             }
         }
@@ -154,10 +181,44 @@ public sealed partial class ImportPage : Page
         };
         await dialog.ShowAsync();
 
-        // Navigate back to home if at least one account was imported
         if (successCount > 0)
-        {
             Frame.Navigate(typeof(HomePage), AddFlowNavigationHelper.CleanupCompletedAddFlowParameter);
+    }
+
+    private async Task<Windows.Storage.StorageFile?> PickFileAsync(string fileExtension)
+    {
+        var window = App.Current.MainWindow!;
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeFilter.Add(fileExtension);
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            _logger.Info("User cancelled file picker");
+            return null;
+        }
+
+        _logger.Info($"Selected file: {file.Path}");
+        return file;
+    }
+
+    private async Task<string?> ReadFileContentAsync(Windows.Storage.StorageFile file)
+    {
+        try
+        {
+            var content = await Windows.Storage.FileIO.ReadTextAsync(file);
+            _logger.Info($"Read {content.Length} characters from file");
+            return content;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Failed to read the selected file", ex);
+            await ShowErrorAsync("Failed to read the selected file.");
+            return null;
         }
     }
 

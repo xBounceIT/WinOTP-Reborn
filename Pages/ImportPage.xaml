@@ -42,6 +42,28 @@
                 </StackPanel>
             </Button>
 
+            <!-- Import from WinAuth -->
+            <Button
+                Click="ImportFromWinAuthButton_Click"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Left"
+                Padding="16"
+                CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <FontIcon Glyph="&#xE7C3;" FontSize="24" />
+                    <StackPanel Spacing="2">
+                        <TextBlock
+                            Text="Import from WinAuth"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Import tokens from WinAuth exported text file"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Button>
+
         </StackPanel>
     </Grid>
 

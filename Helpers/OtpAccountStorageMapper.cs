@@ -104,7 +104,7 @@ public static class OtpAccountStorageMapper
         return algorithm is OtpAlgorithm.SHA1 or OtpAlgorithm.SHA256 or OtpAlgorithm.SHA512;
     }
 
-    private static bool IsValidBase32(string input)
+    public static bool IsValidBase32(string input)
     {
         var trimmed = input.TrimEnd('=');
         return trimmed.Length > 0 && trimmed.All(c => (c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7'));

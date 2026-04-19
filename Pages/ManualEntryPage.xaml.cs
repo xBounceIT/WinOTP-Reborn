@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using WinOTP.Helpers;
 using WinOTP.Models;
 
 namespace WinOTP.Pages;
@@ -30,7 +31,7 @@ public sealed partial class ManualEntryPage : Page
             return;
         }
 
-        if (!IsValidBase32(secret))
+        if (!OtpAccountStorageMapper.IsValidBase32(secret))
         {
             ShowError("Secret key must be valid Base32 (A-Z, 2-7).");
             return;
@@ -47,12 +48,6 @@ public sealed partial class ManualEntryPage : Page
         };
 
         Frame.Navigate(typeof(HomePage), account);
-    }
-
-    private static bool IsValidBase32(string input)
-    {
-        var trimmed = input.TrimEnd('=');
-        return trimmed.Length > 0 && trimmed.All(c => (c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7'));
     }
 
     private void ShowError(string message)
