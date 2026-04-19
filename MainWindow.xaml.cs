@@ -192,13 +192,17 @@ public sealed partial class MainWindow : Window
                     var capturedAccount = account;
                     item.Command = new RelayCommand(() =>
                     {
-                        _dispatcherQueue.TryEnqueue(() =>
+                        _dispatcherQueue.TryEnqueue(async () =>
                         {
-                            var currentCode = _totpGenerator.GenerateCode(capturedAccount);
-                            var dataPackage = new DataPackage();
-                            dataPackage.SetText(currentCode);
-                            Clipboard.SetContent(dataPackage);
-                            Clipboard.Flush();
+                            try
+                            {
+                                var currentCode = _totpGenerator.GenerateCode(capturedAccount);
+                                await ClipboardHelper.SetContentWithRetryAsync(currentCode);
+                            }
+                            catch (Exception ex)
+                            {
+                                App.Current.Logger.Error("Failed to copy TOTP code to clipboard from tray menu", ex);
+                            }
                         });
                     });
 

@@ -493,10 +493,7 @@ public sealed partial class HomePage : Page
         try
         {
             var totpCode = _totpGenerator.GenerateCode(account);
-            var dataPackage = new DataPackage();
-            dataPackage.SetText(totpCode);
-            Clipboard.SetContent(dataPackage);
-            Clipboard.Flush();
+            await ClipboardHelper.SetContentWithRetryAsync(totpCode);
 
             // Visual feedback: change button icon to checkmark
             var copyIcon = FindChild<FontIcon>(button, "CopyButtonIcon");
