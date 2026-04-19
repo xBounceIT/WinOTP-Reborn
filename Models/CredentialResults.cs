@@ -35,8 +35,9 @@ public sealed class VaultOperationResult
     public bool Success => ErrorCode == VaultOperationErrorCode.None;
     public VaultOperationErrorCode ErrorCode { get; init; } = VaultOperationErrorCode.None;
     public string Message { get; init; } = string.Empty;
+    public string? PersistedId { get; init; }
 
-    public static VaultOperationResult Ok() => new();
+    public static VaultOperationResult Ok(string? persistedId = null) => new() { PersistedId = persistedId };
 
     public static VaultOperationResult Fail(VaultOperationErrorCode errorCode, string message) => new()
     {

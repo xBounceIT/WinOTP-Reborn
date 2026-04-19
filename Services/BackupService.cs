@@ -364,28 +364,30 @@ public sealed class BackupService : IBackupService
 
         foreach (var source in payload.Accounts ?? [])
         {
-            if (!OtpAccountStorageMapper.TrySanitizeForStorage(source, source.Id, out var sanitized, out _))
-            {
-                skippedCount++;
-                _logger.Warn($"Skipped invalid backup account '{source.Id}'.");
-                continue;
-            }
-
-            var saveResult = await _credentialManager.SaveAccountAsync(sanitized);
+            var saveResult = await _credentialManager.SaveAccountAsync(source);
             if (!saveResult.Success)
             {
-                failedCount++;
-                _logger.Error($"Failed to import backup account '{sanitized.Id}': {saveResult.Message}");
+                if (saveResult.ErrorCode == VaultOperationErrorCode.ValidationFailed)
+                {
+                    skippedCount++;
+                    _logger.Warn($"Skipped invalid backup account '{source.Id}'.");
+                }
+                else
+                {
+                    failedCount++;
+                    _logger.Error($"Failed to import backup account '{source.Id}': {saveResult.Message}");
+                }
                 continue;
             }
 
-            if (existingIds.Contains(sanitized.Id))
+            var persistedId = saveResult.PersistedId!;
+            if (existingIds.Contains(persistedId))
             {
                 replacedCount++;
             }
             else
             {
-                existingIds.Add(sanitized.Id);
+                existingIds.Add(persistedId);
             }
 
             importedCount++;
