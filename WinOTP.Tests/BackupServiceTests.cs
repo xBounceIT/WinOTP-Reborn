@@ -601,7 +601,7 @@ public sealed class BackupServiceTests : IDisposable
         public Task<VaultOperationResult> SaveAccountAsync(OtpAccount account)
         {
             _accounts[account.Id] = Clone(account);
-            return Task.FromResult(VaultOperationResult.Ok());
+            return Task.FromResult(VaultOperationResult.Ok(account.Id));
         }
 
         public Task<VaultOperationResult> DeleteAccountAsync(string id)

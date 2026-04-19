@@ -131,25 +131,14 @@ public sealed partial class ImportPage : Page
         foreach (var account in accounts)
         {
             _logger.Info($"Processing account: {account.Issuer} ({account.AccountName})");
-
-            if (OtpAccountStorageMapper.TrySanitizeForStorage(account, account.Id, out var sanitized, out var validationError))
+            var result = await _credentialManager.SaveAccountAsync(account);
+            if (result.Success)
             {
-                _logger.Info($"Account sanitized successfully: {sanitized.DisplayLabel}");
-                var result = await _credentialManager.SaveAccountAsync(sanitized);
-                if (result.Success)
-                {
-                    _logger.Info($"Account saved successfully: {sanitized.DisplayLabel}");
-                    successCount++;
-                }
-                else
-                {
-                    _logger.Error($"Failed to save account: {sanitized.DisplayLabel} - {result.Message}");
-                    failCount++;
-                }
+                successCount++;
             }
             else
             {
-                _logger.Error($"Failed to sanitize account: {account.Issuer} ({account.AccountName}) - {validationError}");
+                _logger.Error($"Failed to import account: {account.Issuer} ({account.AccountName}) - {result.Message}");
                 failCount++;
             }
         }

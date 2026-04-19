@@ -151,7 +151,7 @@ public class CredentialManagerService : ICredentialManagerService
             }
 
             _vault.Add(credential);
-            return Task.FromResult(VaultOperationResult.Ok());
+            return Task.FromResult(VaultOperationResult.Ok(sanitized.Id));
         }
         catch (Exception ex)
         {
