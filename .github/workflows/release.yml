@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          cache: 'nuget'
+
+      - name: Verify tag matches csproj <Version>
+        shell: pwsh
+        run: |
+          [xml]$p = Get-Content WinOTP.csproj
+          $csprojVersion = ($p.Project.PropertyGroup.Version | Select-Object -First 1).Trim()
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          if ($csprojVersion -ne $tagVersion) {
+            throw "Tag '${{ github.ref_name }}' does not match <Version> '$csprojVersion' in WinOTP.csproj. Bump the version first."
+          }
+
+      - name: Install Inno Setup 6
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer (${{ matrix.arch }})
+        shell: pwsh
+        run: ./scripts/Build-Installer.ps1 -Architecture ${{ matrix.arch }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.arch }}
+          path: installer/output/WinOTP-*-win-${{ matrix.arch }}-setup.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft release with auto-generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --draft \
+            --generate-notes \
+            dist/WinOTP-*-setup.exe
