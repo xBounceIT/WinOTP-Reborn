@@ -104,7 +104,17 @@ public sealed partial class HomePage : Page
                 _elementCache[account.Id] = cache;
 
                 UpdateCardValues(account, cache, _appSettings.ShowNextCodeWhenFiveSecondsRemain);
+                args.RegisterUpdateCallback(UpdateProgressBarAfterLayout);
             }
+        }
+    }
+
+    private void UpdateProgressBarAfterLayout(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is OtpAccount account &&
+            _elementCache.TryGetValue(account.Id, out var cache))
+        {
+            UpdateCardValues(account, cache, _appSettings.ShowNextCodeWhenFiveSecondsRemain);
         }
     }
 
@@ -308,7 +318,7 @@ public sealed partial class HomePage : Page
     {
         if (cached == null)
         {
-            var animation = new DoubleAnimation { Duration = duration };
+            var animation = new DoubleAnimation { Duration = duration, EnableDependentAnimation = true };
             if (easing != null) animation.EasingFunction = easing;
             Storyboard.SetTarget(animation, target);
             Storyboard.SetTargetProperty(animation, property);

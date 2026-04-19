@@ -12,9 +12,7 @@ public interface ITotpCodeGenerator
 
 public class TotpCodeGenerator : ITotpCodeGenerator
 {
-    private record struct CachedTotp(long Timestep, string Code);
-
-    private readonly Dictionary<string, CachedTotp> _cache = new();
+    private readonly Dictionary<(string AccountId, long Timestep), string> _cache = new();
 
     public string GenerateCode(OtpAccount account)
     {
@@ -34,9 +32,10 @@ public class TotpCodeGenerator : ITotpCodeGenerator
 
             var timestep = new DateTimeOffset(normalizedTimestamp).ToUnixTimeSeconds() / account.Period;
 
-            if (_cache.TryGetValue(account.Id, out var cached) && cached.Timestep == timestep)
+            var cacheKey = (account.Id, timestep);
+            if (_cache.TryGetValue(cacheKey, out var cachedCode))
             {
-                return cached.Code;
+                return cachedCode;
             }
 
             var secret = Base32Encoding.ToBytes(account.Secret);
@@ -46,7 +45,8 @@ public class TotpCodeGenerator : ITotpCodeGenerator
                 mode: GetHashMode(account.Algorithm));
 
             var code = totp.ComputeTotp(normalizedTimestamp);
-            _cache[account.Id] = new CachedTotp(timestep, code);
+            _cache[cacheKey] = code;
+            _cache.Remove((account.Id, timestep - 2));
             return code;
         }
         catch
