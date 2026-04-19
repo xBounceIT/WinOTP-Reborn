@@ -95,6 +95,18 @@ public sealed partial class ImportPage : Page
         foreach (var rawLine in lines)
         {
             var line = rawLine.Trim();
+
+            // WinAuth encodes spaces as '+' in the label portion. Normalize to percent-encoding
+            // before parsing since '+' is literal in URI paths per RFC 3986.
+            if (line.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+            {
+                var queryStart = line.IndexOf('?');
+                if (queryStart >= 0)
+                    line = line[..queryStart].Replace("+", "%20") + line[queryStart..];
+                else
+                    line = line.Replace("+", "%20");
+            }
+
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
             {
                 skippedCount++;

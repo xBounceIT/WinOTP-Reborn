@@ -7,9 +7,9 @@ namespace WinOTP.Tests;
 public sealed class OtpUriParserTests
 {
     [Fact]
-    public void TryParse_WinAuthFormat_ParsesCorrectly()
+    public void TryParse_LabelWithPercentEncodedSpace_ParsesCorrectly()
     {
-        var uri = "otpauth://totp/%5bDemo%5d+TestService?secret=JBSWY3DPEHPK3PXP&digits=6&icon=WinAuth";
+        var uri = "otpauth://totp/%5bDemo%5d%20TestService?secret=JBSWY3DPEHPK3PXP&digits=6&icon=WinAuth";
         var result = OtpUriParser.TryParse(uri);
 
         Assert.NotNull(result);
@@ -18,6 +18,16 @@ public sealed class OtpUriParserTests
         Assert.Equal(6, result.Digits);
         Assert.Equal(OtpAlgorithm.SHA1, result.Algorithm);
         Assert.Equal(30, result.Period);
+    }
+
+    [Fact]
+    public void TryParse_PlusInLabel_IsLiteralNotSpace()
+    {
+        var uri = "otpauth://totp/My+Service?secret=JBSWY3DPEHPK3PXP";
+        var result = OtpUriParser.TryParse(uri);
+
+        Assert.NotNull(result);
+        Assert.Equal("My+Service", result.AccountName);
     }
 
     [Fact]
@@ -113,7 +123,7 @@ public sealed class OtpUriParserTests
     {
         var lines = new[]
         {
-            "otpauth://totp/%5bDemo%5d+TestService?secret=JBSWY3DPEHPK3PXP&digits=6&icon=WinAuth",
+            "otpauth://totp/%5bDemo%5d%20TestService?secret=JBSWY3DPEHPK3PXP&digits=6&icon=WinAuth",
             "otpauth://totp/GitHub:user%40example.com?secret=HXDMVJECJJWSRB3H",
             "otpauth://totp/AWS:admin?secret=GEZDGNBVGY3TQOJQ&algorithm=SHA512&digits=8&period=30",
         };

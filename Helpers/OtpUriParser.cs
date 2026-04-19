@@ -15,7 +15,7 @@ public static class OtpUriParser
         if (!string.Equals(parsed.Host, "totp", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var label = Uri.UnescapeDataString(parsed.AbsolutePath.TrimStart('/').Replace('+', ' '));
+        var label = Uri.UnescapeDataString(parsed.AbsolutePath.TrimStart('/'));
         var queryParams = ParseQuery(parsed.Query);
 
         if (!queryParams.TryGetValue("secret", out var secret) || string.IsNullOrWhiteSpace(secret))
