@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window
     private const uint NotifyForThisSession = 0;
     private const nuint SessionNotificationSubclassId = 1;
 
+    public event EventHandler<bool>? WindowActivationChanged;
+
     private readonly IAppSettingsService _appSettings;
     private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
@@ -128,8 +130,11 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
+            WindowActivationChanged?.Invoke(this, false);
             return;
         }
+
+        WindowActivationChanged?.Invoke(this, true);
 
         EnsureSessionChangeMonitoring();
 

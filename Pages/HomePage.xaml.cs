@@ -181,6 +181,7 @@ public sealed partial class HomePage : Page
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
         _isPageActive = false;
+        UnsubscribeWindowActivation();
         StopRefreshUpdates();
     }
 
@@ -220,6 +221,29 @@ public sealed partial class HomePage : Page
         _refreshTimer = null;
 
         StopActiveStoryboards();
+    }
+
+    private void OnWindowActivationChanged(object? sender, bool isActive)
+    {
+        if (isActive) StartRefreshUpdates();
+        else StopRefreshUpdates();
+    }
+
+    private void SubscribeWindowActivation()
+    {
+        UnsubscribeWindowActivation();
+        if (App.Current.MainWindow is { } mw)
+        {
+            mw.WindowActivationChanged += OnWindowActivationChanged;
+        }
+    }
+
+    private void UnsubscribeWindowActivation()
+    {
+        if (App.Current.MainWindow is { } mw)
+        {
+            mw.WindowActivationChanged -= OnWindowActivationChanged;
+        }
     }
 
     private void StopActiveStoryboards()
@@ -345,6 +369,8 @@ public sealed partial class HomePage : Page
         base.OnNavigatedTo(e);
         _isPageActive = true;
 
+        SubscribeWindowActivation();
+
         try
         {
             if (e.Parameter is OtpAccount newAccount)
@@ -381,6 +407,7 @@ public sealed partial class HomePage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         _isPageActive = false;
+        UnsubscribeWindowActivation();
         StopRefreshUpdates();
         base.OnNavigatedFrom(e);
     }
