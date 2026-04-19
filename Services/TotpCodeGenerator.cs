@@ -8,11 +8,12 @@ public interface ITotpCodeGenerator
     string GenerateCode(OtpAccount account);
     string GenerateCodeAt(OtpAccount account, DateTime utcTimestamp);
     int GetRemainingSeconds(OtpAccount account);
-    double GetProgressPercentage(OtpAccount account);
 }
 
 public class TotpCodeGenerator : ITotpCodeGenerator
 {
+    private readonly Dictionary<(string AccountId, long Timestep), string> _cache = new();
+
     public string GenerateCode(OtpAccount account)
     {
         return GenerateCodeAt(account, DateTime.UtcNow);
@@ -22,12 +23,6 @@ public class TotpCodeGenerator : ITotpCodeGenerator
     {
         try
         {
-            var secret = Base32Encoding.ToBytes(account.Secret);
-            var totp = new Totp(secret, 
-                step: account.Period,
-                totpSize: account.Digits,
-                mode: GetHashMode(account.Algorithm));
-
             var normalizedTimestamp = utcTimestamp.Kind switch
             {
                 DateTimeKind.Utc => utcTimestamp,
@@ -35,7 +30,24 @@ public class TotpCodeGenerator : ITotpCodeGenerator
                 _ => DateTime.SpecifyKind(utcTimestamp, DateTimeKind.Utc)
             };
 
-            return totp.ComputeTotp(normalizedTimestamp);
+            var timestep = new DateTimeOffset(normalizedTimestamp).ToUnixTimeSeconds() / account.Period;
+
+            var cacheKey = (account.Id, timestep);
+            if (_cache.TryGetValue(cacheKey, out var cachedCode))
+            {
+                return cachedCode;
+            }
+
+            var secret = Base32Encoding.ToBytes(account.Secret);
+            var totp = new Totp(secret,
+                step: account.Period,
+                totpSize: account.Digits,
+                mode: GetHashMode(account.Algorithm));
+
+            var code = totp.ComputeTotp(normalizedTimestamp);
+            _cache[cacheKey] = code;
+            _cache.Remove((account.Id, timestep - 2));
+            return code;
         }
         catch
         {
@@ -58,19 +70,6 @@ public class TotpCodeGenerator : ITotpCodeGenerator
         {
             return 0;
         }
-    }
-
-    public double GetProgressPercentage(OtpAccount account)
-    {
-        if (account.Period <= 0) return 0;
-
-        // Use millisecond precision for smooth progress animation
-        var unixTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var periodMs = (long)account.Period * 1000;
-        var elapsedInPeriod = unixTimeMs % periodMs;
-        var remainingMs = periodMs - elapsedInPeriod;
-
-        return (double)remainingMs / periodMs;
     }
 
     private static OtpHashMode GetHashMode(OtpAlgorithm algorithm)

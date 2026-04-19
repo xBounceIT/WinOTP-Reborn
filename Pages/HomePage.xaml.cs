@@ -29,9 +29,11 @@ public sealed partial class HomePage : Page
     private ItemsWrapGrid? _itemsPanel;
     private SortOption _currentSortOption = SortOption.DateAddedDesc;
     private string _searchText = string.Empty;
-    private bool _isRefreshSubscribed;
+    private DispatcherTimer? _refreshTimer;
+    private Dictionary<string, OtpAccount> _accountLookup = new();
     private bool _isShowingVaultLoadError;
     private bool _isPageActive;
+    private bool _isWindowActive = true;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -40,6 +42,16 @@ public sealed partial class HomePage : Page
         TextBlock NextCodeTextBlock)
     {
         public bool IsNextCodeVisible { get; set; }
+        public Storyboard? ActiveProgressStoryboard { get; set; }
+        public Storyboard? ActiveOpacityStoryboard { get; set; }
+
+        public void StopAnimations()
+        {
+            ActiveProgressStoryboard?.Stop();
+            ActiveProgressStoryboard = null;
+            ActiveOpacityStoryboard?.Stop();
+            ActiveOpacityStoryboard = null;
+        }
     }
 
     public HomePage()
@@ -71,28 +83,39 @@ public sealed partial class HomePage : Page
 
         if (args.InRecycleQueue)
         {
-            // Container is being recycled, remove from cache
+            if (_elementCache.TryGetValue(account.Id, out var recycled))
+            {
+                recycled.StopAnimations();
+            }
             _elementCache.Remove(account.Id);
             return;
         }
 
-        // Container is being realized, cache the UI elements
         if (args.ItemContainer is GridViewItem container &&
             OtpCardTemplateRootPolicy.TryGetSearchRoot(container.ContentTemplateRoot, out var searchRoot))
         {
-            var codeBlock = FindTemplateChild<TextBlock>(searchRoot, "CodeTextBlock");
-            var progressBarFill = FindTemplateChild<Rectangle>(searchRoot, "ProgressBarFill");
-            var remainingBlock = FindTemplateChild<TextBlock>(searchRoot, "RemainingTextBlock");
-            var nextCodeBlock = FindTemplateChild<TextBlock>(searchRoot, "NextCodeTextBlock");
+            var codeBlock = FindChild<TextBlock>(searchRoot, "CodeTextBlock");
+            var progressBarFill = FindChild<Rectangle>(searchRoot, "ProgressBarFill");
+            var remainingBlock = FindChild<TextBlock>(searchRoot, "RemainingTextBlock");
+            var nextCodeBlock = FindChild<TextBlock>(searchRoot, "NextCodeTextBlock");
 
             if (codeBlock != null && progressBarFill != null && remainingBlock != null && nextCodeBlock != null)
             {
                 var cache = new CardElementCache(codeBlock, progressBarFill, remainingBlock, nextCodeBlock);
                 _elementCache[account.Id] = cache;
 
-                // Initial update
                 UpdateCardValues(account, cache, _appSettings.ShowNextCodeWhenFiveSecondsRemain);
+                args.RegisterUpdateCallback(UpdateProgressBarAfterLayout);
             }
+        }
+    }
+
+    private void UpdateProgressBarAfterLayout(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is OtpAccount account &&
+            _elementCache.TryGetValue(account.Id, out var cache))
+        {
+            UpdateCardValues(account, cache, _appSettings.ShowNextCodeWhenFiveSecondsRemain);
         }
     }
 
@@ -115,8 +138,7 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        // Calculate how many cards can fit in the available width
-        double availableWidth = OtpGridView.ActualWidth - 32; // Account for padding
+        double availableWidth = OtpGridView.ActualWidth - 32;
         int columns = Math.Max(1, (int)(availableWidth / CardWidth));
 
         _itemsPanel.MaximumRowsOrColumns = columns;
@@ -142,10 +164,11 @@ public sealed partial class HomePage : Page
         return null;
     }
 
-    private void CompositionTarget_Rendering(object? sender, object e)
+    private void RefreshTimer_Tick(object? sender, object e)
     {
         try
         {
+            _refreshTimer!.Interval = GetIntervalToNextSecond();
             UpdateAllCodes();
         }
         catch (Exception ex)
@@ -158,31 +181,79 @@ public sealed partial class HomePage : Page
 
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
-        // Ensure refresh loop is stopped when page leaves visual tree.
         _isPageActive = false;
+        UnsubscribeWindowActivation();
         StopRefreshUpdates();
+    }
+
+    private static TimeSpan GetIntervalToNextSecond()
+    {
+        var ms = 1000 - DateTimeOffset.UtcNow.Millisecond;
+        // Floor at 100ms to avoid near-zero intervals that cause back-to-back ticks
+        return TimeSpan.FromMilliseconds(Math.Max(100, ms));
     }
 
     private void StartRefreshUpdates()
     {
-        if (_isRefreshSubscribed)
+        if (_refreshTimer != null)
         {
             return;
         }
 
-        CompositionTarget.Rendering += CompositionTarget_Rendering;
-        _isRefreshSubscribed = true;
+        _refreshTimer = new DispatcherTimer
+        {
+            Interval = GetIntervalToNextSecond()
+        };
+        _refreshTimer.Tick += RefreshTimer_Tick;
+        _refreshTimer.Start();
+
+        UpdateAllCodes();
     }
 
     private void StopRefreshUpdates()
     {
-        if (!_isRefreshSubscribed)
+        if (_refreshTimer == null)
         {
             return;
         }
 
-        CompositionTarget.Rendering -= CompositionTarget_Rendering;
-        _isRefreshSubscribed = false;
+        _refreshTimer.Tick -= RefreshTimer_Tick;
+        _refreshTimer.Stop();
+        _refreshTimer = null;
+
+        StopActiveStoryboards();
+    }
+
+    private void OnWindowActivationChanged(object? sender, bool isActive)
+    {
+        _isWindowActive = isActive;
+        if (isActive) StartRefreshUpdates();
+        else StopRefreshUpdates();
+    }
+
+    private void SubscribeWindowActivation()
+    {
+        UnsubscribeWindowActivation();
+        if (App.Current.MainWindow is { } mw)
+        {
+            mw.WindowActivationChanged += OnWindowActivationChanged;
+        }
+    }
+
+    private void UnsubscribeWindowActivation()
+    {
+        if (App.Current.MainWindow is { } mw)
+        {
+            mw.WindowActivationChanged -= OnWindowActivationChanged;
+        }
+    }
+
+    private void StopActiveStoryboards()
+    {
+        foreach (var cache in _elementCache.Values)
+        {
+            cache.StopAnimations();
+        }
     }
 
     private void UpdateAllCodes()
@@ -191,8 +262,7 @@ public sealed partial class HomePage : Page
 
         foreach (var (accountId, cache) in _elementCache)
         {
-            var account = _accounts.FirstOrDefault(a => a.Id == accountId);
-            if (account == null)
+            if (!_accountLookup.TryGetValue(accountId, out var account))
             {
                 continue;
             }
@@ -203,10 +273,11 @@ public sealed partial class HomePage : Page
 
     private void UpdateCardValues(OtpAccount account, CardElementCache cache, bool showNextCodeHint)
     {
-        cache.CodeTextBlock.Text = _totpGenerator.GenerateCode(account);
+        var newCode = _totpGenerator.GenerateCode(account);
+        SetTextIfChanged(cache.CodeTextBlock, newCode);
 
         var remainingSeconds = _totpGenerator.GetRemainingSeconds(account);
-        cache.RemainingTextBlock.Text = $"{remainingSeconds}s";
+        SetTextIfChanged(cache.RemainingTextBlock, $"{remainingSeconds}s");
 
         var shouldShowNextCode = showNextCodeHint &&
             remainingSeconds > 0 &&
@@ -214,8 +285,8 @@ public sealed partial class HomePage : Page
 
         if (shouldShowNextCode)
         {
-            var nextCodeTimestamp = DateTime.UtcNow.AddSeconds(remainingSeconds);
-            cache.NextCodeTextBlock.Text = _totpGenerator.GenerateCodeAt(account, nextCodeTimestamp);
+            var nextCode = _totpGenerator.GenerateCodeAt(account, DateTime.UtcNow.AddSeconds(remainingSeconds));
+            SetTextIfChanged(cache.NextCodeTextBlock, nextCode);
 
             if (!cache.IsNextCodeVisible)
             {
@@ -232,58 +303,79 @@ public sealed partial class HomePage : Page
             }
         }
 
-        // Calculate progress bar fill width based on parent Grid's actual width
-        var progress = _totpGenerator.GetProgressPercentage(account);
-        var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
-        if (parentGrid != null)
+        if (account.Period > 0)
         {
-            cache.ProgressBarFill.Width = Math.Max(0, parentGrid.ActualWidth * progress);
+            var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
+            if (parentGrid != null)
+            {
+                var trackWidth = parentGrid.ActualWidth;
+                if (trackWidth > 0)
+                {
+                    var widthFrom = trackWidth * Math.Max(0, (double)remainingSeconds / account.Period);
+                    var widthTo = trackWidth * Math.Max(0, (double)(remainingSeconds - 1) / account.Period);
+
+                    cache.ActiveProgressStoryboard = PlayCachedAnimation(
+                        cache.ActiveProgressStoryboard, cache.ProgressBarFill, "Width",
+                        widthFrom, widthTo, TimeSpan.FromMilliseconds(300),
+                        new QuadraticEase { EasingMode = EasingMode.EaseOut });
+                }
+            }
         }
     }
+
+    private static readonly QuadraticEase OpacityEase = new() { EasingMode = EasingMode.EaseOut };
 
     private void AnimateNextCodeOpacity(CardElementCache cache, double targetOpacity)
     {
-        var animation = new DoubleAnimation
-        {
-            From = cache.NextCodeTextBlock.Opacity,
-            To = targetOpacity,
-            Duration = TimeSpan.FromMilliseconds(200),
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-        };
-
-        Storyboard.SetTarget(animation, cache.NextCodeTextBlock);
-        Storyboard.SetTargetProperty(animation, "Opacity");
-
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(animation);
-        storyboard.Begin();
+        cache.ActiveOpacityStoryboard = PlayCachedAnimation(
+            cache.ActiveOpacityStoryboard, cache.NextCodeTextBlock, "Opacity",
+            cache.NextCodeTextBlock.Opacity, targetOpacity,
+            TimeSpan.FromMilliseconds(200), OpacityEase);
     }
 
-    private static T? FindTemplateChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+    private static void SetTextIfChanged(TextBlock block, string value)
     {
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        if (block.Text != value)
         {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T t && t.Name == name)
-            {
-                return t;
-            }
+            block.Text = value;
+        }
+    }
 
-            var result = FindTemplateChild<T>(child, name);
-            if (result != null)
-            {
-                return result;
-            }
+    private static Storyboard PlayCachedAnimation(
+        Storyboard? cached, DependencyObject target, string property,
+        double from, double to, Duration duration,
+        EasingFunctionBase? easing = null)
+    {
+        if (cached == null)
+        {
+            var animation = new DoubleAnimation { Duration = duration, EnableDependentAnimation = true };
+            if (easing != null) animation.EasingFunction = easing;
+            Storyboard.SetTarget(animation, target);
+            Storyboard.SetTargetProperty(animation, property);
+            var sb = new Storyboard();
+            sb.Children.Add(animation);
+            cached = sb;
         }
 
-        return null;
+        var anim = (DoubleAnimation)cached.Children[0];
+        if (anim.From == from && anim.To == to && cached.GetCurrentState() == ClockState.Active)
+        {
+            return cached;
+        }
+
+        cached.Stop();
+        anim.From = from;
+        anim.To = to;
+        cached.Begin();
+        return cached;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         _isPageActive = true;
-        StartRefreshUpdates();
+
+        SubscribeWindowActivation();
 
         try
         {
@@ -314,11 +406,15 @@ public sealed partial class HomePage : Page
             _logger.Error("Unhandled exception while navigating to HomePage.", ex);
             ShowOperationError("Unable to load accounts due to an unexpected error.");
         }
+
+        if (_isWindowActive)
+            StartRefreshUpdates();
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         _isPageActive = false;
+        UnsubscribeWindowActivation();
         StopRefreshUpdates();
         base.OnNavigatedFrom(e);
     }
@@ -453,6 +549,8 @@ public sealed partial class HomePage : Page
 
         // Update the list and rebind ItemsSource for a single UI update
         _accounts = sorted.ToList();
+        _accountLookup = _accounts.ToDictionary(a => a.Id);
+        StopActiveStoryboards();
         _elementCache.Clear();
         OtpGridView.ItemsSource = _accounts;
 
@@ -477,15 +575,20 @@ public sealed partial class HomePage : Page
         Frame.Navigate(typeof(AddAccountPage));
     }
 
-    private async void CopyButton_Click(object sender, RoutedEventArgs e)
+    private bool TryGetAccountFromButton(object sender, out OtpAccount account)
     {
+        account = null!;
         if (sender is not Button button || button.Tag is not string id)
         {
-            return;
+            return false;
         }
 
-        var account = _accounts.FirstOrDefault(a => a.Id == id);
-        if (account == null)
+        return _accountLookup.TryGetValue(id, out account!);
+    }
+
+    private async void CopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetAccountFromButton(sender, out var account))
         {
             return;
         }
@@ -496,7 +599,7 @@ public sealed partial class HomePage : Page
             await ClipboardHelper.SetContentWithRetryAsync(totpCode);
 
             // Visual feedback: change button icon to checkmark
-            var copyIcon = FindChild<FontIcon>(button, "CopyButtonIcon");
+            var copyIcon = FindChild<FontIcon>((Button)sender, "CopyButtonIcon");
             if (copyIcon != null)
             {
                 copyIcon.Glyph = "\uE73E"; // Checkmark icon
@@ -518,13 +621,7 @@ public sealed partial class HomePage : Page
 
     private async void EditButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || button.Tag is not string id)
-        {
-            return;
-        }
-
-        var account = _accounts.FirstOrDefault(a => a.Id == id);
-        if (account == null)
+        if (!TryGetAccountFromButton(sender, out var account))
         {
             return;
         }
@@ -587,13 +684,7 @@ public sealed partial class HomePage : Page
 
     private async void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || button.Tag is not string id)
-        {
-            return;
-        }
-
-        var account = _accounts.FirstOrDefault(a => a.Id == id);
-        if (account == null)
+        if (!TryGetAccountFromButton(sender, out var account))
         {
             return;
         }
@@ -614,7 +705,7 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var deleteResult = await _credentialManager.DeleteAccountAsync(id);
+        var deleteResult = await _credentialManager.DeleteAccountAsync(account.Id);
         if (!deleteResult.Success)
         {
             ShowOperationError(deleteResult.Message);

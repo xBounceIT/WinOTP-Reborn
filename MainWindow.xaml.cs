@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window
     private const uint NotifyForThisSession = 0;
     private const nuint SessionNotificationSubclassId = 1;
 
+    public event EventHandler<bool>? WindowActivationChanged;
+
     private readonly IAppSettingsService _appSettings;
     private readonly IAppUpdateService _appUpdate;
     private readonly IAppLockService _appLock;
@@ -84,6 +86,7 @@ public sealed partial class MainWindow : Window
             _trayIcon?.Dispose();
         };
         AppWindow.Closing += AppWindow_Closing;
+        AppWindow.Changed += AppWindow_Changed;
 
         // System tray icon
         InitializeTrayIcon();
@@ -130,6 +133,8 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+
+        WindowActivationChanged?.Invoke(this, true);
 
         EnsureSessionChangeMonitoring();
 
@@ -249,6 +254,14 @@ public sealed partial class MainWindow : Window
             {
                 presenter.Minimize();
             }
+        }
+    }
+
+    private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+    {
+        if (args.DidVisibilityChange)
+        {
+            WindowActivationChanged?.Invoke(this, sender.IsVisible);
         }
     }
 
