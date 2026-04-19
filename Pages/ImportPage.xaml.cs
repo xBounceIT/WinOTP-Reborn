@@ -104,7 +104,7 @@ public sealed partial class ImportPage : Page
             var account = OtpUriParser.TryParse(line);
             if (account is null)
             {
-                _logger.Warn($"Failed to parse otpauth URI: {line}");
+                _logger.Warn($"Failed to parse otpauth URI (line skipped)");
                 skippedCount++;
                 continue;
             }
