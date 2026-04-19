@@ -75,8 +75,8 @@ public static class OtpUriParser
         {
             var eqIndex = pair.IndexOf('=');
             if (eqIndex < 0) continue;
-            var key = Uri.UnescapeDataString(pair[..eqIndex].Replace('+', ' '));
-            var value = Uri.UnescapeDataString(pair[(eqIndex + 1)..].Replace('+', ' '));
+            var key = Uri.UnescapeDataString(pair[..eqIndex]);
+            var value = Uri.UnescapeDataString(pair[(eqIndex + 1)..]);
             result[key] = value;
         }
         return result;
