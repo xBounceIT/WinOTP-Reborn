@@ -7,28 +7,6 @@
 
     <Page.Resources>
         <x:Double x:Key="CardColumnWidth">360</x:Double>
-
-        <Storyboard x:Name="NextCodeFadeInAnimation">
-            <DoubleAnimation Storyboard.TargetName="NextCodeTextBlock"
-                             Storyboard.TargetProperty="Opacity"
-                             From="0" To="1"
-                             Duration="0:0:0.2">
-                <DoubleAnimation.EasingFunction>
-                    <QuadraticEase EasingMode="EaseOut"/>
-                </DoubleAnimation.EasingFunction>
-            </DoubleAnimation>
-        </Storyboard>
-
-        <Storyboard x:Name="NextCodeFadeOutAnimation">
-            <DoubleAnimation Storyboard.TargetName="NextCodeTextBlock"
-                             Storyboard.TargetProperty="Opacity"
-                             From="1" To="0"
-                             Duration="0:0:0.2">
-                <DoubleAnimation.EasingFunction>
-                    <QuadraticEase EasingMode="EaseOut"/>
-                </DoubleAnimation.EasingFunction>
-            </DoubleAnimation>
-        </Storyboard>
     </Page.Resources>
 
     <Grid Padding="16">
