@@ -303,18 +303,22 @@ public sealed partial class HomePage : Page
             }
         }
 
-        var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
-        if (parentGrid != null && account.Period > 0)
+        if (account.Period > 0)
         {
-            var trackWidth = parentGrid.ActualWidth;
-            if (trackWidth > 0)
+            var parentGrid = cache.ProgressBarFill.Parent as FrameworkElement;
+            if (parentGrid != null)
             {
-                var widthFrom = trackWidth * Math.Max(0, (double)remainingSeconds / account.Period);
-                var widthTo = trackWidth * Math.Max(0, (double)(remainingSeconds - 1) / account.Period);
+                var trackWidth = parentGrid.ActualWidth;
+                if (trackWidth > 0)
+                {
+                    var widthFrom = trackWidth * Math.Max(0, (double)remainingSeconds / account.Period);
+                    var widthTo = trackWidth * Math.Max(0, (double)(remainingSeconds - 1) / account.Period);
 
-                cache.ActiveProgressStoryboard = PlayCachedAnimation(
-                    cache.ActiveProgressStoryboard, cache.ProgressBarFill, "Width",
-                    widthFrom, widthTo, TimeSpan.FromSeconds(1));
+                    cache.ActiveProgressStoryboard = PlayCachedAnimation(
+                        cache.ActiveProgressStoryboard, cache.ProgressBarFill, "Width",
+                        widthFrom, widthTo, TimeSpan.FromMilliseconds(300),
+                        new QuadraticEase { EasingMode = EasingMode.EaseOut });
+                }
             }
         }
     }

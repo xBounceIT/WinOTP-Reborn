@@ -86,6 +86,7 @@ public sealed partial class MainWindow : Window
             _trayIcon?.Dispose();
         };
         AppWindow.Closing += AppWindow_Closing;
+        AppWindow.Changed += AppWindow_Changed;
 
         // System tray icon
         InitializeTrayIcon();
@@ -130,7 +131,6 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            WindowActivationChanged?.Invoke(this, false);
             return;
         }
 
@@ -254,6 +254,14 @@ public sealed partial class MainWindow : Window
             {
                 presenter.Minimize();
             }
+        }
+    }
+
+    private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+    {
+        if (args.DidVisibilityChange)
+        {
+            WindowActivationChanged?.Invoke(this, sender.IsVisible);
         }
     }
 
