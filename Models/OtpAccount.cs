@@ -34,7 +34,11 @@ public sealed class OtpAccount
     public string SecondaryLabel => HasIssuer ? AccountName : string.Empty;
 
     public string DisplayLabel =>
-        string.IsNullOrWhiteSpace(Issuer) ? AccountName : $"{Issuer} ({AccountName})";
+        string.IsNullOrWhiteSpace(Issuer)
+            ? AccountName
+            : string.IsNullOrWhiteSpace(AccountName)
+                ? Issuer
+                : $"{Issuer} ({AccountName})";
 
     public string ResourceKey => $"WinOTP:{Id}";
 }

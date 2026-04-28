@@ -6,10 +6,8 @@ This is a C# .NET 10 Windows 11 Desktop TOTP manager App built with WinUI3.
 - Make sure to always respect WinUI3 guidelines
 
 ## Tooling
-- Always use the host Windows .NET install from WSL.
-- Run `dotnet` as `"/mnt/c/Program Files/dotnet/dotnet.exe"` for restore/build/test/run.
-- Do not rely on a Linux/WSL `dotnet` shim/path.
-- Quick check command: `"/mnt/c/Program Files/dotnet/dotnet.exe" --info`
+- Use the Windows `dotnet` available from PowerShell for restore/build/test/run.
+- Quick check command: `dotnet --info`
 
 ## Releases
 - For GitHub releases, publish the installer assets produced by `scripts/Build-Installer.ps1`, not the raw `dotnet publish` folders.
