@@ -49,4 +49,19 @@ public sealed class OtpAccountTests
         Assert.Equal(string.Empty, account.SecondaryLabel);
         Assert.Equal("jdoe@example.com", account.DisplayLabel);
     }
+
+    [Fact]
+    public void DisplayLabel_WithIssuerOnly_ReturnsIssuer()
+    {
+        var account = new OtpAccount
+        {
+            Issuer = "[Demo] TestService",
+            AccountName = string.Empty
+        };
+
+        Assert.Equal("[Demo] TestService", account.IssuerOrAccountName);
+        Assert.True(account.HasIssuer);
+        Assert.Equal(string.Empty, account.SecondaryLabel);
+        Assert.Equal("[Demo] TestService", account.DisplayLabel);
+    }
 }
