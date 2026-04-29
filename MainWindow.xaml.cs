@@ -99,8 +99,17 @@ public sealed partial class MainWindow : Window
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Window size - fixed at 480x650 (fits one TOTP card with padding)
-        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(480, 650));
+        // Window size - fixed at 480x650 effective pixels (fits one TOTP card with padding).
+        // AppWindow.Resize takes physical pixels, so scale by the window's DPI to preserve
+        // the intended logical size on monitors at >100% display scaling.
+        const int LogicalWidth = 480;
+        const int LogicalHeight = 650;
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        uint dpi = GetDpiForWindow(hwnd);
+        double scale = dpi == 0 ? 1.0 : dpi / 96.0;
+        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(
+            (int)Math.Round(LogicalWidth * scale),
+            (int)Math.Round(LogicalHeight * scale)));
 
         // Disable resizing - fixed window size
         if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
@@ -1237,4 +1246,7 @@ public sealed partial class MainWindow : Window
     [DllImport("wtsapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 }
