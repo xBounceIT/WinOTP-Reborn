@@ -94,30 +94,14 @@ public sealed partial class ImportPage : Page
         int skippedCount = 0;
         foreach (var rawLine in lines)
         {
-            var line = rawLine.Trim();
-
-            // WinAuth encodes spaces as '+' in both the label and query string portions.
-            // Normalize to percent-encoding before parsing since '+' is literal per RFC 3986.
-            if (line.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+            if (WinAuthImportMapper.TryCreateDraftAccount(rawLine, out var account, out var failureReason))
             {
-                line = line.Replace("+", "%20");
-            }
-
-            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
-            {
-                skippedCount++;
+                accounts.Add(account);
                 continue;
             }
 
-            var account = OtpUriParser.TryParse(line);
-            if (account is null)
-            {
-                _logger.Warn($"Failed to parse otpauth URI (line skipped)");
-                skippedCount++;
-                continue;
-            }
-
-            accounts.Add(account);
+            _logger.Warn($"Skipping WinAuth line: {failureReason}");
+            skippedCount++;
         }
 
         await ExecuteImportAsync(accounts, skippedCount, "invalid or unsupported");
