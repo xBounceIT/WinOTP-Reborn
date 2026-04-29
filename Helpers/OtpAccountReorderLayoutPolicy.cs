@@ -21,6 +21,8 @@ public static class OtpAccountReorderLayoutPolicy
         public double Top { get; set; }
         public double Bottom { get; set; }
         public List<(ItemBounds Bounds, int Index)> Items { get; } = [];
+        public int MinEffectiveIndex { get; set; } = int.MaxValue;
+        public int MaxEffectiveIndex { get; set; } = int.MinValue;
     }
 
     public static int GetDropInsertionIndex(
@@ -38,7 +40,7 @@ public static class OtpAccountReorderLayoutPolicy
         {
             if (y < row.Top)
             {
-                return row.Items.Min(GetEffectiveIndex);
+                return row.MinEffectiveIndex;
             }
 
             if (y > row.Bottom)
@@ -55,7 +57,7 @@ public static class OtpAccountReorderLayoutPolicy
                     : itemIndex + 1;
             }
 
-            foreach (var item in row.Items.OrderBy(item => item.Bounds.Left))
+            foreach (var item in row.Items)
             {
                 if (x < item.Bounds.CenterX)
                 {
@@ -63,12 +65,10 @@ public static class OtpAccountReorderLayoutPolicy
                 }
             }
 
-            return row.Items.Max(GetEffectiveIndex) + 1;
+            return row.MaxEffectiveIndex + 1;
         }
 
-        return itemBounds
-            .Select((bounds, index) => bounds.SourceIndex >= 0 ? bounds.SourceIndex : index)
-            .Max() + 1;
+        return rows[^1].MaxEffectiveIndex + 1;
     }
 
     public static int GetTargetIndex(int currentIndex, int insertionIndex, int count)
@@ -125,9 +125,13 @@ public static class OtpAccountReorderLayoutPolicy
             row.Top = Math.Min(row.Top, item.Bounds.Top);
             row.Bottom = Math.Max(row.Bottom, item.Bounds.Bottom);
             row.Items.Add(item);
+
+            var effectiveIndex = GetEffectiveIndex(item);
+            row.MinEffectiveIndex = Math.Min(row.MinEffectiveIndex, effectiveIndex);
+            row.MaxEffectiveIndex = Math.Max(row.MaxEffectiveIndex, effectiveIndex);
         }
 
-        return rows; // Already in Top-ascending order because we only append new rows
+        return rows;
     }
 
     private static int GetEffectiveIndex((ItemBounds Bounds, int Index) item)

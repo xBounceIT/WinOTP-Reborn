@@ -127,7 +127,7 @@
                                         PointerExited="ReorderHandle_PointerExited"
                                         PointerPressed="ReorderHandle_PointerPressed"
                                         PointerReleased="ReorderHandle_PointerReleased"
-                                        PointerCanceled="ReorderHandle_PointerCanceled"
+                                        PointerCanceled="ReorderHandle_PointerReleased"
                                         ToolTipService.ToolTip="Drag to reorder"
                                         AutomationProperties.Name="Drag to reorder">
                                     <Grid Width="14"

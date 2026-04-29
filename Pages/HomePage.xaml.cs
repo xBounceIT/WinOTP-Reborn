@@ -46,16 +46,17 @@ public sealed partial class HomePage : Page
     private bool _isWindowActive = true;
     private string? _reorderDragHandleAccountId;
     private string? _draggedReorderAccountId;
-    private string? _hiddenReorderSourceAccountId;
     private GridViewItem? _hiddenReorderSourceContainer;
     private int? _pendingReorderDropIndex;
     private ScrollViewerState? _reorderDragStartScrollState;
     private ScrollViewerState? _lastReorderScrollRestoreState;
     private bool _isReorderDragInProgress;
     private bool _isRestoringReorderScroll;
-    private bool _isReorderScrollLockActive;
     private int _consecutiveStableScrollPasses;
     private long _reorderScrollLockEpoch;
+
+    private bool IsReorderScrollLockActive =>
+        _isReorderDragInProgress || _lastReorderScrollRestoreState != null;
 
     private record CardElementCache(
         TextBlock CodeTextBlock,
@@ -119,7 +120,6 @@ public sealed partial class HomePage : Page
                 if (ReferenceEquals(_hiddenReorderSourceContainer, recycledContainer))
                 {
                     _hiddenReorderSourceContainer = null;
-                    _hiddenReorderSourceAccountId = null;
                 }
             }
 
@@ -133,7 +133,7 @@ public sealed partial class HomePage : Page
 
         if (args.ItemContainer is GridViewItem container)
         {
-            ApplyReorderContainerVisualState(account, container);
+            ApplyReorderContainerVisualState(container);
             if (TryCacheCardElements(account, container.ContentTemplateRoot))
             {
                 args.RegisterUpdateCallback(UpdateProgressBarAfterLayout);
@@ -143,8 +143,7 @@ public sealed partial class HomePage : Page
 
     private readonly record struct ScrollViewerState(
         double HorizontalOffset,
-        double VerticalOffset,
-        float ZoomFactor);
+        double VerticalOffset);
 
     private void UpdateProgressBarAfterLayout(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
@@ -158,7 +157,6 @@ public sealed partial class HomePage : Page
 
     private void OtpGridView_Loaded(object? sender, RoutedEventArgs e)
     {
-        // Get the ItemsWrapGrid from the visual tree
         _itemsPanel = FindChild<ItemsWrapGrid>(OtpGridView, "OtpItemsWrapGrid");
         SetOtpGridScrollViewer(FindFirstChild<ScrollViewer>(OtpGridView));
         UpdateGridColumns();
@@ -274,8 +272,7 @@ public sealed partial class HomePage : Page
 
         return new ScrollViewerState(
             _otpGridScrollViewer.HorizontalOffset,
-            _otpGridScrollViewer.VerticalOffset,
-            _otpGridScrollViewer.ZoomFactor);
+            _otpGridScrollViewer.VerticalOffset);
     }
 
     private void SetOtpGridScrollViewer(ScrollViewer? scrollViewer)
@@ -303,7 +300,7 @@ public sealed partial class HomePage : Page
 
     private void OtpGridScrollViewer_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
-        if ((!_isReorderDragInProgress && !_isReorderScrollLockActive) || _isRestoringReorderScroll)
+        if (!IsReorderScrollLockActive || _isRestoringReorderScroll)
         {
             return;
         }
@@ -319,7 +316,7 @@ public sealed partial class HomePage : Page
 
     private void OtpGridView_BringIntoViewRequested(UIElement sender, BringIntoViewRequestedEventArgs args)
     {
-        if (_isReorderScrollLockActive)
+        if (IsReorderScrollLockActive)
         {
             args.Handled = true;
         }
@@ -348,7 +345,7 @@ public sealed partial class HomePage : Page
             _otpGridScrollViewer.ChangeView(
                 state.Value.HorizontalOffset,
                 state.Value.VerticalOffset,
-                state.Value.ZoomFactor,
+                zoomFactor: null,
                 disableAnimation: true);
         }
         finally
@@ -361,8 +358,7 @@ public sealed partial class HomePage : Page
     {
         return _otpGridScrollViewer != null &&
             Math.Abs(_otpGridScrollViewer.HorizontalOffset - state.HorizontalOffset) < 0.5 &&
-            Math.Abs(_otpGridScrollViewer.VerticalOffset - state.VerticalOffset) < 0.5 &&
-            Math.Abs(_otpGridScrollViewer.ZoomFactor - state.ZoomFactor) < 0.001;
+            Math.Abs(_otpGridScrollViewer.VerticalOffset - state.VerticalOffset) < 0.5;
     }
 
     private void RefreshTimer_Tick(object? sender, object e)
@@ -543,18 +539,9 @@ public sealed partial class HomePage : Page
 
         _reorderDragHandleAccountId = accountId;
         handle.Background = GetThemeBrush("SubtleFillColorTertiaryBrush");
-        UpdateReorderState();
     }
 
     private void ReorderHandle_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        if (!_isReorderDragInProgress && sender is Border handle)
-        {
-            ResetReorderHandlePress(handle);
-        }
-    }
-
-    private void ReorderHandle_PointerCanceled(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (!_isReorderDragInProgress && sender is Border handle)
         {
@@ -566,7 +553,6 @@ public sealed partial class HomePage : Page
     {
         _reorderDragHandleAccountId = null;
         handle.Background = TransparentBrush;
-        UpdateReorderState();
     }
 
     private void OtpGridView_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
@@ -586,7 +572,6 @@ public sealed partial class HomePage : Page
         _pendingReorderDropIndex = null;
         _isReorderDragInProgress = true;
         _lastReorderScrollRestoreState = null;
-        _isReorderScrollLockActive = true;
         _consecutiveStableScrollPasses = 0;
         _reorderScrollLockEpoch++;
         e.Data.RequestedOperation = DataPackageOperation.Move;
@@ -608,14 +593,14 @@ public sealed partial class HomePage : Page
         }
 
         e.AcceptedOperation = DataPackageOperation.Move;
-        var insertionIndex = GetDropInsertionIndex(e.GetPosition(OtpGridView));
+        var itemBounds = CaptureVisibleReorderItemBounds();
+        var insertionIndex = GetDropInsertionIndex(itemBounds, e.GetPosition(OtpGridView));
         if (_pendingReorderDropIndex != insertionIndex)
         {
             _pendingReorderDropIndex = insertionIndex;
-            ApplyReorderPreview(insertionIndex);
+            ApplyReorderPreview(insertionIndex, itemBounds);
         }
 
-        RestoreOtpGridScrollState(_reorderDragStartScrollState);
         e.Handled = true;
     }
 
@@ -633,7 +618,7 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var currentIndex = FindAccountIndexById(_draggedReorderAccountId!);
+        var currentIndex = FindAccountIndexById(_draggedReorderAccountId);
 
         if (currentIndex < 0)
         {
@@ -641,7 +626,8 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var insertionIndex = _pendingReorderDropIndex ?? GetDropInsertionIndex(e.GetPosition(OtpGridView));
+        var insertionIndex = _pendingReorderDropIndex
+            ?? GetDropInsertionIndex(CaptureVisibleReorderItemBounds(), e.GetPosition(OtpGridView));
         RestoreHiddenReorderSourceContainer();
         StopReorderPreviewAnimations();
         MoveDraggedAccountToInsertionIndex(insertionIndex);
@@ -651,9 +637,8 @@ public sealed partial class HomePage : Page
         e.Handled = true;
     }
 
-    private int GetDropInsertionIndex(Point point)
+    private int GetDropInsertionIndex(IReadOnlyList<OtpAccountReorderLayoutPolicy.ItemBounds> itemBounds, Point point)
     {
-        var itemBounds = CaptureVisibleReorderItemBounds();
         if (itemBounds.Count == 0)
         {
             return _accounts.Count;
@@ -729,10 +714,9 @@ public sealed partial class HomePage : Page
 
         _accounts.Move(currentIndex, targetIndex);
         _accountLookup = _accounts.ToDictionary(a => a.Id);
-        UpdateReorderState();
     }
 
-    private void ApplyReorderPreview(int insertionIndex)
+    private void ApplyReorderPreview(int insertionIndex, IReadOnlyList<OtpAccountReorderLayoutPolicy.ItemBounds> itemBounds)
     {
         if (_draggedReorderAccountId == null)
         {
@@ -744,34 +728,25 @@ public sealed partial class HomePage : Page
             currentIds,
             _draggedReorderAccountId,
             insertionIndex);
-        AnimateVisibleReorderPreview(projectedIds);
+        AnimateVisibleReorderPreview(currentIds, projectedIds, itemBounds);
     }
 
-    private Dictionary<string, Point> CaptureVisibleReorderLayoutPositions()
-    {
-        var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
-
-        foreach (var account in _accounts)
-        {
-            if (OtpGridView.ContainerFromItem(account) is GridViewItem container &&
-                TryGetUntranslatedTopLeft(container, out var topLeft))
-            {
-                positions[account.Id] = topLeft;
-            }
-        }
-
-        return positions;
-    }
-
-    private void AnimateVisibleReorderPreview(IReadOnlyList<string> projectedIds)
+    private void AnimateVisibleReorderPreview(
+        IReadOnlyList<string> currentIds,
+        IReadOnlyList<string> projectedIds,
+        IReadOnlyList<OtpAccountReorderLayoutPolicy.ItemBounds> itemBounds)
     {
         if (_draggedReorderAccountId == null)
         {
             return;
         }
 
-        var layoutPositions = CaptureVisibleReorderLayoutPositions();
-        var currentIds = _accounts.Select(account => account.Id).ToList();
+        var layoutPositions = new Dictionary<string, Point>(itemBounds.Count, StringComparer.Ordinal);
+        foreach (var bounds in itemBounds)
+        {
+            layoutPositions[bounds.Id] = new Point(bounds.Left, bounds.Top);
+        }
+
         var projectedIndexById = projectedIds
             .Select((id, index) => (id, index))
             .ToDictionary(item => item.id, item => item.index, StringComparer.Ordinal);
@@ -876,7 +851,6 @@ public sealed partial class HomePage : Page
 
         RestoreHiddenReorderSourceContainer();
         container.Opacity = 0;
-        _hiddenReorderSourceAccountId = accountId;
         _hiddenReorderSourceContainer = container;
     }
 
@@ -885,23 +859,13 @@ public sealed partial class HomePage : Page
         if (_hiddenReorderSourceContainer != null)
         {
             _hiddenReorderSourceContainer.Opacity = 1;
+            _hiddenReorderSourceContainer = null;
         }
-        else if (_hiddenReorderSourceAccountId != null &&
-            _accountLookup.TryGetValue(_hiddenReorderSourceAccountId, out var account) &&
-            OtpGridView.ContainerFromItem(account) is GridViewItem container)
-        {
-            container.Opacity = 1;
-        }
-
-        _hiddenReorderSourceContainer = null;
-        _hiddenReorderSourceAccountId = null;
     }
 
-    private void ApplyReorderContainerVisualState(OtpAccount account, GridViewItem container)
+    private void ApplyReorderContainerVisualState(GridViewItem container)
     {
-        if (_isReorderDragInProgress &&
-            string.Equals(account.Id, _hiddenReorderSourceAccountId, StringComparison.Ordinal) &&
-            ReferenceEquals(container, _hiddenReorderSourceContainer))
+        if (_isReorderDragInProgress && ReferenceEquals(container, _hiddenReorderSourceContainer))
         {
             container.Opacity = 0;
             ResetReorderContainerTransform(container);
@@ -942,11 +906,8 @@ public sealed partial class HomePage : Page
     private void ResetReorderDragState()
     {
         var wasReorderDragInProgress = _isReorderDragInProgress;
-        var scrollState = _reorderDragStartScrollState ?? _lastReorderScrollRestoreState;
-        if (scrollState != null)
-        {
-            _lastReorderScrollRestoreState = scrollState;
-        }
+        var scrollState = GetActiveReorderScrollState();
+        _lastReorderScrollRestoreState = scrollState;
 
         RestoreHiddenReorderSourceContainer();
         StopReorderPreviewAnimations();
@@ -1014,7 +975,6 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        _isReorderScrollLockActive = false;
         _lastReorderScrollRestoreState = null;
         _consecutiveStableScrollPasses = 0;
     }
@@ -1031,7 +991,7 @@ public sealed partial class HomePage : Page
             return themeBrush;
         }
 
-        return new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        return TransparentBrush;
     }
 
     private void ResetReorderHandleBackgrounds()
