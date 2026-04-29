@@ -112,26 +112,27 @@ public sealed partial class ImportPage : Page
         int successCount = 0;
         int failCount = 0;
 
-        await using ImportProgressDialog? progress = accounts.Count > 0
+        await using (ImportProgressDialog? progress = accounts.Count > 0
             ? new ImportProgressDialog(this.XamlRoot, accounts.Count)
-            : null;
-
-        for (int i = 0; i < accounts.Count; i++)
+            : null)
         {
-            var account = accounts[i];
-            _logger.Info($"Processing account: {account.Issuer} ({account.AccountName})");
-            var result = await _credentialManager.SaveAccountAsync(account);
-            if (result.Success)
+            for (int i = 0; i < accounts.Count; i++)
             {
-                successCount++;
-            }
-            else
-            {
-                _logger.Error($"Failed to import account: {account.Issuer} ({account.AccountName}) - {result.Message}");
-                failCount++;
-            }
+                var account = accounts[i];
+                _logger.Info($"Processing account: {account.Issuer} ({account.AccountName})");
+                var result = await _credentialManager.SaveAccountAsync(account);
+                if (result.Success)
+                {
+                    successCount++;
+                }
+                else
+                {
+                    _logger.Error($"Failed to import account: {account.Issuer} ({account.AccountName}) - {result.Message}");
+                    failCount++;
+                }
 
-            progress?.UpdateProgress(i + 1, accounts.Count);
+                progress?.UpdateProgress(i + 1, accounts.Count);
+            }
         }
 
         _logger.Info($"Import completed: {successCount} success, {failCount} failed, {skippedCount} skipped");
