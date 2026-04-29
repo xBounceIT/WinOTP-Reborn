@@ -19,6 +19,10 @@ public sealed partial class MainWindow : Window
     private const uint NotifyForThisSession = 0;
     private const nuint SessionNotificationSubclassId = 1;
 
+    // Fits one TOTP card with padding.
+    private const int MainWindowLogicalWidth = 480;
+    private const int MainWindowLogicalHeight = 650;
+
     public event EventHandler<bool>? WindowActivationChanged;
 
     private readonly IAppSettingsService _appSettings;
@@ -37,6 +41,7 @@ public sealed partial class MainWindow : Window
     private bool _isSessionNotificationRegistered;
     private bool _isSessionNotificationSubclassInstalled;
     private IntPtr _windowHandle;
+    private uint _lastAppliedDpi;
     private bool _forceClose;
     private AppLockProtectionPresentationState _lastResolvedProtectionPresentationState;
     private AppLockTemporaryBypassReason? _lastTemporaryProtectionUnavailableReason;
@@ -99,17 +104,12 @@ public sealed partial class MainWindow : Window
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Window size - fixed at 480x650 effective pixels (fits one TOTP card with padding).
         // AppWindow.Resize takes physical pixels, so scale by the window's DPI to preserve
         // the intended logical size on monitors at >100% display scaling.
-        const int LogicalWidth = 480;
-        const int LogicalHeight = 650;
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        uint dpi = GetDpiForWindow(hwnd);
-        double scale = dpi == 0 ? 1.0 : dpi / 96.0;
-        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(
-            (int)Math.Round(LogicalWidth * scale),
-            (int)Math.Round(LogicalHeight * scale)));
+        _lastAppliedDpi = WindowDpiHelper.GetDpiForWindow(hwnd);
+        this.AppWindow.Resize(WindowDpiHelper.ScaleLogicalSize(
+            _lastAppliedDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
 
         // Disable resizing - fixed window size
         if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
@@ -271,6 +271,21 @@ public sealed partial class MainWindow : Window
         if (args.DidVisibilityChange)
         {
             WindowActivationChanged?.Invoke(this, sender.IsVisible);
+        }
+
+        if (args.DidPositionChange)
+        {
+            // Window may have moved to a monitor with a different DPI; rescale to keep
+            // the effective size constant. Skip when DPI is unchanged to avoid redundant
+            // Resize calls on every drag event.
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            uint currentDpi = WindowDpiHelper.GetDpiForWindow(hwnd);
+            if (currentDpi != 0 && currentDpi != _lastAppliedDpi)
+            {
+                _lastAppliedDpi = currentDpi;
+                sender.Resize(WindowDpiHelper.ScaleLogicalSize(
+                    currentDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
+            }
         }
     }
 
@@ -1246,7 +1261,4 @@ public sealed partial class MainWindow : Window
     [DllImport("wtsapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
 }

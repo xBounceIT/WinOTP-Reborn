@@ -1,0 +1,19 @@
+using System;
+using System.Runtime.InteropServices;
+using Windows.Graphics;
+
+namespace WinOTP.Helpers;
+
+public static class WindowDpiHelper
+{
+    public static SizeInt32 ScaleLogicalSize(uint dpi, int logicalWidth, int logicalHeight)
+    {
+        double scale = dpi == 0 ? 1.0 : dpi / 96.0;
+        return new SizeInt32(
+            (int)Math.Round(logicalWidth * scale),
+            (int)Math.Round(logicalHeight * scale));
+    }
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
+}
