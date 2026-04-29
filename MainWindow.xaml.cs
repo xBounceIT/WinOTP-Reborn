@@ -19,6 +19,10 @@ public sealed partial class MainWindow : Window
     private const uint NotifyForThisSession = 0;
     private const nuint SessionNotificationSubclassId = 1;
 
+    // Fits one TOTP card with padding.
+    private const int MainWindowLogicalWidth = 480;
+    private const int MainWindowLogicalHeight = 650;
+
     public event EventHandler<bool>? WindowActivationChanged;
 
     private readonly IAppSettingsService _appSettings;
@@ -37,6 +41,7 @@ public sealed partial class MainWindow : Window
     private bool _isSessionNotificationRegistered;
     private bool _isSessionNotificationSubclassInstalled;
     private IntPtr _windowHandle;
+    private uint _lastAppliedDpi;
     private bool _forceClose;
     private AppLockProtectionPresentationState _lastResolvedProtectionPresentationState;
     private AppLockTemporaryBypassReason? _lastTemporaryProtectionUnavailableReason;
@@ -99,8 +104,10 @@ public sealed partial class MainWindow : Window
         // Acrylic backdrop
         this.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Window size - fixed at 480x650 (fits one TOTP card with padding)
-        this.AppWindow.Resize(new Windows.Graphics.SizeInt32(480, 650));
+        // AppWindow.Resize takes physical pixels, so scale by the window's DPI to preserve
+        // the intended logical size on monitors at >100% display scaling.
+        _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        RescaleWindowForCurrentDpi(forceResize: true);
 
         // Disable resizing - fixed window size
         if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
@@ -140,6 +147,11 @@ public sealed partial class MainWindow : Window
 
         if (!_hasStartedStartupInitialization)
         {
+            // The ctor reads DPI before the window is shown; the OS may place it on a
+            // monitor with different DPI before first paint. Re-check now that the window
+            // is on its real monitor. No-op if DPI matches what the ctor saw.
+            RescaleWindowForCurrentDpi(forceResize: false);
+
             _hasStartedStartupInitialization = true;
             await InitializeAsync();
             return;
@@ -263,6 +275,41 @@ public sealed partial class MainWindow : Window
         {
             WindowActivationChanged?.Invoke(this, sender.IsVisible);
         }
+
+        if (args.DidPositionChange)
+        {
+            // Window may have moved to a monitor with a different DPI. We don't intercept
+            // WM_DPICHANGED, and OverlappedPresenter.IsResizable=false suppresses the OS's
+            // own auto-resize on cross-monitor drag, so this is the only path that keeps
+            // the window correctly sized. Do not remove without adding WM_DPICHANGED handling.
+            RescaleWindowForCurrentDpi(forceResize: false);
+        }
+    }
+
+    private void RescaleWindowForCurrentDpi(bool forceResize)
+    {
+        if (_windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        uint currentDpi = WindowDpiHelper.GetDpiForWindow(_windowHandle);
+        if (currentDpi == 0)
+        {
+            // GetDpiForWindow returns 0 for an invalid hwnd. The helper falls back to
+            // 1.0 scale, but log so we're not silently undersized on a high-DPI monitor.
+            App.Current.Logger.Warn(
+                "GetDpiForWindow returned 0 for the main window; falling back to 1.0 scale.");
+        }
+
+        if (!forceResize && currentDpi == _lastAppliedDpi)
+        {
+            return;
+        }
+
+        _lastAppliedDpi = currentDpi;
+        AppWindow.Resize(WindowDpiHelper.ScaleLogicalSize(
+            currentDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
     }
 
     private void RestoreFromTray()

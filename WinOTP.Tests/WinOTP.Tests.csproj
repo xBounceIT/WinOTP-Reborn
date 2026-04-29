@@ -32,6 +32,7 @@
     <Compile Include="..\Helpers\WinOTPLegacyImportMapper.cs" Link="Helpers\WinOTPLegacyImportMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
     <Compile Include="..\Helpers\VersionHelper.cs" Link="Helpers\VersionHelper.cs" />
+    <Compile Include="..\Helpers\WindowDpiHelper.cs" Link="Helpers\WindowDpiHelper.cs" />
     <Compile Include="..\Services\AppLockOperationResults.cs" Link="Services\AppLockOperationResults.cs" />
     <Compile Include="..\Services\AppSettingsService.cs" Link="Services\AppSettingsService.cs" />
     <Compile Include="..\Services\AppUpdateService.cs" Link="Services\AppUpdateService.cs" />
