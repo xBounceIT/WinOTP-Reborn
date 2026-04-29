@@ -278,7 +278,9 @@ public sealed partial class MainWindow : Window
             // Window may have moved to a monitor with a different DPI; rescale to keep
             // the effective size constant. Skip when DPI is unchanged to avoid redundant
             // Resize calls on every drag event.
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var hwnd = _windowHandle != IntPtr.Zero
+                ? _windowHandle
+                : WinRT.Interop.WindowNative.GetWindowHandle(this);
             uint currentDpi = WindowDpiHelper.GetDpiForWindow(hwnd);
             if (currentDpi != 0 && currentDpi != _lastAppliedDpi)
             {

@@ -6,9 +6,11 @@ namespace WinOTP.Helpers;
 
 public static class WindowDpiHelper
 {
+    private const double ReferenceDpi = 96.0;
+
     public static SizeInt32 ScaleLogicalSize(uint dpi, int logicalWidth, int logicalHeight)
     {
-        double scale = dpi == 0 ? 1.0 : dpi / 96.0;
+        double scale = dpi == 0 ? 1.0 : dpi / ReferenceDpi;
         return new SizeInt32(
             (int)Math.Round(logicalWidth * scale),
             (int)Math.Round(logicalHeight * scale));
