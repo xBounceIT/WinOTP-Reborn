@@ -515,6 +515,19 @@ public sealed partial class HomePage : Page
         _reorderAutoScrollTimer.Tick -= ReorderAutoScrollTimer_Tick;
         _reorderAutoScrollTimer.Stop();
         _reorderAutoScrollTimer = null;
+
+        // After the view settles, let the preview catch up to the post-scroll cursor position.
+        // Guarded so teardown paths (drop, reset) don't re-trigger preview work.
+        if (_isReorderDragInProgress && _lastDragOverPointInGridView is Point point)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_isReorderDragInProgress && _reorderAutoScrollTimer == null)
+                {
+                    UpdateReorderDropPreviewFor(point);
+                }
+            });
+        }
     }
 
     private void UpdateReorderDropPreviewFor(Point pointerInGridView)
@@ -615,7 +628,6 @@ public sealed partial class HomePage : Page
         SetOtpGridScrollViewer(null);
         UnsubscribeWindowActivation();
         StopRefreshUpdates();
-        OtpGridView.BringIntoViewRequested -= OtpGridView_BringIntoViewRequested;
     }
 
     private static TimeSpan GetIntervalToNextSecond()
@@ -827,7 +839,19 @@ public sealed partial class HomePage : Page
 
         e.AcceptedOperation = DataPackageOperation.Move;
         var pointerInGridView = e.GetPosition(OtpGridView);
-        UpdateReorderDropPreviewFor(pointerInGridView);
+
+        // Skip preview reprojection when (a) the pointer hasn't meaningfully moved (sub-2px jitter)
+        // or (b) auto-scroll is active. Both conditions are the bottom-gap shake's root causes — the
+        // visible projected layout stays put while the view scrolls, and snaps to the post-scroll
+        // pointer once the user moves out of the edge zone.
+        var pointerMoved = _lastDragOverPointInGridView is not Point last ||
+            Math.Abs(last.X - pointerInGridView.X) >= 2 ||
+            Math.Abs(last.Y - pointerInGridView.Y) >= 2;
+
+        if (pointerMoved && _reorderAutoScrollTimer == null)
+        {
+            UpdateReorderDropPreviewFor(pointerInGridView);
+        }
 
         _lastDragOverPointInGridView = pointerInGridView;
         _lastDragOverPointInScrollViewer = _otpGridScrollViewer is null
@@ -840,10 +864,11 @@ public sealed partial class HomePage : Page
 
     private void OtpGridView_DragLeave(object sender, DragEventArgs e)
     {
-        _pendingReorderDropIndex = null;
-        _pendingReorderDropIndexCandidate = null;
+        // Don't tear down preview state on transient DragLeave — pointer jitter at the GridView's
+        // pixel boundary fires Leave/Over cycles that previously snapped cards back to origin and
+        // then re-animated, producing visible shake. Real cleanup happens in DragItemsCompleted →
+        // ResetReorderDragState.
         StopReorderPreviewDebounce();
-        StopReorderPreviewAnimations();
         StopReorderAutoScroll();
     }
 
@@ -866,9 +891,10 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var insertionIndex = GetDropInsertionIndex(
-            CaptureVisibleReorderItemBounds(),
-            e.GetPosition(OtpGridView));
+        // Honor the most-recently committed preview if one is active; otherwise compute from the cursor.
+        // This keeps "drop where I see the preview" consistent even when the debounce timer hasn't fired yet.
+        var insertionIndex = _pendingReorderDropIndex
+            ?? GetDropInsertionIndex(CaptureVisibleReorderItemBounds(), e.GetPosition(OtpGridView));
         RestoreHiddenReorderSourceContainer();
         StopReorderPreviewAnimations();
         MoveDraggedAccountToInsertionIndex(insertionIndex);
@@ -947,8 +973,7 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var targetIndex = OtpAccountReorderLayoutPolicy.GetTargetIndex(currentIndex, insertionIndex, _accounts.Count);
-        if (targetIndex < 0)
+        if (!OtpAccountReorderLayoutPolicy.TryGetTargetIndex(currentIndex, insertionIndex, _accounts.Count, out var targetIndex))
         {
             return;
         }
@@ -1536,8 +1561,24 @@ public sealed partial class HomePage : Page
         StopActiveStoryboards();
         _elementCache.Clear();
         UpdateReorderState();
+        PruneStoredCustomOrderIds();
 
         UpdateEmptyState();
+    }
+
+    private void PruneStoredCustomOrderIds()
+    {
+        var savedIds = _appSettings.AccountCustomOrderIds;
+        if (savedIds.Count == 0)
+        {
+            return;
+        }
+
+        var pruned = OtpAccountCustomOrderPolicy.Prune(savedIds, _allAccounts);
+        if (!savedIds.SequenceEqual(pruned, StringComparer.Ordinal))
+        {
+            _appSettings.AccountCustomOrderIds = pruned;
+        }
     }
 
     private void ApplySortSelectionToMenu()

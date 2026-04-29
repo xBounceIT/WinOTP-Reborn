@@ -50,6 +50,32 @@ public sealed class OtpAccountCustomOrderPolicyTests
         Assert.Equal(["saved-account", "new-new-account", "old-new-account"], ordered.Select(a => a.Id));
     }
 
+    [Fact]
+    public void Prune_RemovesIdsForDeletedAccountsAndPreservesOrder()
+    {
+        var accounts = new[]
+        {
+            CreateAccount("acct-1", 1),
+            CreateAccount("acct-3", 3)
+        };
+
+        var pruned = OtpAccountCustomOrderPolicy.Prune(
+            ["acct-2", "acct-1", "acct-2", "", " ", "acct-3"],
+            accounts);
+
+        Assert.Equal(["acct-1", "acct-3"], pruned);
+    }
+
+    [Fact]
+    public void Prune_ReturnsEmptyWhenSavedIdsNull()
+    {
+        var accounts = new[] { CreateAccount("acct-1", 1) };
+
+        var pruned = OtpAccountCustomOrderPolicy.Prune(null, accounts);
+
+        Assert.Empty(pruned);
+    }
+
     private static OtpAccount CreateAccount(string id, int createdAtDay)
     {
         return new OtpAccount

@@ -71,22 +71,28 @@ public static class OtpAccountReorderLayoutPolicy
         return rows[^1].MaxEffectiveIndex + 1;
     }
 
-    public static int GetTargetIndex(int currentIndex, int insertionIndex, int count)
+    public static bool TryGetTargetIndex(int currentIndex, int insertionIndex, int count, out int targetIndex)
     {
         if (currentIndex < 0 || currentIndex >= count)
         {
-            return -1;
+            targetIndex = -1;
+            return false;
         }
 
-        var targetIndex = Math.Clamp(insertionIndex, 0, count);
-        if (currentIndex < targetIndex)
+        var candidate = Math.Clamp(insertionIndex, 0, count);
+        if (currentIndex < candidate)
         {
-            targetIndex--;
+            candidate--;
         }
 
-        return targetIndex == currentIndex || targetIndex < 0 || targetIndex >= count
-            ? -1
-            : targetIndex;
+        if (candidate == currentIndex || candidate < 0 || candidate >= count)
+        {
+            targetIndex = -1;
+            return false;
+        }
+
+        targetIndex = candidate;
+        return true;
     }
 
     public static IReadOnlyList<string> ProjectOrder(
@@ -96,8 +102,7 @@ public static class OtpAccountReorderLayoutPolicy
     {
         var projectedIds = orderedIds.ToList();
         var currentIndex = projectedIds.FindIndex(id => string.Equals(id, draggedId, StringComparison.Ordinal));
-        var targetIndex = GetTargetIndex(currentIndex, insertionIndex, projectedIds.Count);
-        if (targetIndex < 0)
+        if (!TryGetTargetIndex(currentIndex, insertionIndex, projectedIds.Count, out var targetIndex))
         {
             return projectedIds;
         }
@@ -115,7 +120,7 @@ public static class OtpAccountReorderLayoutPolicy
             .OrderBy(item => item.Bounds.Top)
             .ThenBy(item => item.Bounds.Left))
         {
-            var row = rows.Count > 0 && item.Bounds.Top <= rows[^1].Bottom ? rows[^1] : null;
+            var row = rows.Count > 0 && item.Bounds.CenterY <= rows[^1].Bottom ? rows[^1] : null;
             if (row == null)
             {
                 row = new VisualRow { Top = item.Bounds.Top, Bottom = item.Bounds.Bottom };

@@ -36,4 +36,33 @@ public static class OtpAccountCustomOrderPolicy
 
         return ordered;
     }
+
+    public static IReadOnlyList<string> Prune(
+        IEnumerable<string>? savedOrderIds,
+        IEnumerable<OtpAccount> currentAccounts)
+    {
+        var existingIds = new HashSet<string>(
+            currentAccounts
+                .Select(a => a.Id)
+                .Where(id => !string.IsNullOrWhiteSpace(id)),
+            StringComparer.Ordinal);
+
+        var pruned = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var id in savedOrderIds ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(id) || !seen.Add(id))
+            {
+                continue;
+            }
+
+            if (existingIds.Contains(id))
+            {
+                pruned.Add(id);
+            }
+        }
+
+        return pruned;
+    }
 }

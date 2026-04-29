@@ -63,18 +63,47 @@ public sealed class OtpAccountReorderLayoutPolicyTests
         Assert.Equal(6, OtpAccountReorderLayoutPolicy.GetDropInsertionIndex(bounds, 10, 450));
     }
 
+    [Fact]
+    public void GetDropInsertionIndex_SeparatesRowsWithSlightOverlap()
+    {
+        var bounds = new[]
+        {
+            Item("acct-1", 0, 0),
+            Item("acct-2", 0, 130)
+        };
+
+        Assert.Equal(1, OtpAccountReorderLayoutPolicy.GetDropInsertionIndex(bounds, 10, 100));
+        Assert.Equal(1, OtpAccountReorderLayoutPolicy.GetDropInsertionIndex(bounds, 10, 180));
+        Assert.Equal(2, OtpAccountReorderLayoutPolicy.GetDropInsertionIndex(bounds, 10, 240));
+    }
+
+    [Fact]
+    public void GetDropInsertionIndex_HandlesMixedRowHeights()
+    {
+        var bounds = new[]
+        {
+            Item("acct-1", 0, 0, height: 140),
+            Item("acct-2", 370, 0, height: 145),
+            Item("acct-3", 0, 160, height: 140)
+        };
+
+        Assert.Equal(2, OtpAccountReorderLayoutPolicy.GetDropInsertionIndex(bounds, 10, 200));
+    }
+
     [Theory]
-    [InlineData(3, 1, 1)]
-    [InlineData(1, 4, 3)]
-    [InlineData(1, 1, -1)]
-    [InlineData(1, 2, -1)]
-    public void GetTargetIndex_NormalizesInsertionIndexAfterRemovingDraggedItem(
+    [InlineData(3, 1, true, 1)]
+    [InlineData(1, 4, true, 3)]
+    [InlineData(1, 1, false, -1)]
+    [InlineData(1, 2, false, -1)]
+    public void TryGetTargetIndex_NormalizesInsertionIndexAfterRemovingDraggedItem(
         int currentIndex,
         int insertionIndex,
+        bool expectedResult,
         int expectedTargetIndex)
     {
-        var targetIndex = OtpAccountReorderLayoutPolicy.GetTargetIndex(currentIndex, insertionIndex, 4);
+        var result = OtpAccountReorderLayoutPolicy.TryGetTargetIndex(currentIndex, insertionIndex, 4, out var targetIndex);
 
+        Assert.Equal(expectedResult, result);
         Assert.Equal(expectedTargetIndex, targetIndex);
     }
 
@@ -93,8 +122,9 @@ public sealed class OtpAccountReorderLayoutPolicyTests
         string id,
         double left,
         double top,
-        int sourceIndex = -1)
+        int sourceIndex = -1,
+        double height = 140)
     {
-        return new OtpAccountReorderLayoutPolicy.ItemBounds(id, left, top, 360, 140, sourceIndex);
+        return new OtpAccountReorderLayoutPolicy.ItemBounds(id, left, top, 360, height, sourceIndex);
     }
 }
