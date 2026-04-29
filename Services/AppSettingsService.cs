@@ -9,6 +9,7 @@ public interface IAppSettingsService
 {
     bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
     SortOption AccountSortOption { get; set; }
+    IReadOnlyList<string> AccountCustomOrderIds { get; set; }
     bool IsPinProtectionEnabled { get; set; }
     bool IsPasswordProtectionEnabled { get; set; }
     bool IsWindowsHelloEnabled { get; set; }
@@ -50,6 +51,7 @@ public sealed class AppSettingsService : IAppSettingsService
     private readonly string _settingsFilePath;
     private bool _showNextCodeWhenFiveSecondsRemain;
     private SortOption _accountSortOption;
+    private List<string> _accountCustomOrderIds = [];
     private bool _isPinProtectionEnabled;
     private bool _isPasswordProtectionEnabled;
     private bool _isWindowsHelloEnabled;
@@ -81,6 +83,7 @@ public sealed class AppSettingsService : IAppSettingsService
         var loadedSettings = LoadSettings();
         _showNextCodeWhenFiveSecondsRemain = loadedSettings.ShowNextCodeWhenFiveSecondsRemain;
         _accountSortOption = loadedSettings.AccountSortOption;
+        _accountCustomOrderIds = NormalizeAccountCustomOrderIds(loadedSettings.AccountCustomOrderIds);
         _isPinProtectionEnabled = loadedSettings.IsPinProtectionEnabled;
         _isPasswordProtectionEnabled = loadedSettings.IsPasswordProtectionEnabled;
         _isWindowsHelloEnabled = loadedSettings.IsWindowsHelloEnabled;
@@ -107,6 +110,15 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         get => _accountSortOption;
         set => SetEnumProperty(ref _accountSortOption, value, nameof(AccountSortOption));
+    }
+
+    public IReadOnlyList<string> AccountCustomOrderIds
+    {
+        get => _accountCustomOrderIds.AsReadOnly();
+        set => SetStringListProperty(
+            ref _accountCustomOrderIds,
+            NormalizeAccountCustomOrderIds(value),
+            nameof(AccountCustomOrderIds));
     }
 
     public bool IsPinProtectionEnabled
@@ -259,6 +271,28 @@ public sealed class AppSettingsService : IAppSettingsService
         }
     }
 
+    private void SetStringListProperty(ref List<string> field, List<string> value, string propertyName)
+    {
+        var changed = false;
+
+        lock (Sync)
+        {
+            if (field.SequenceEqual(value, StringComparer.Ordinal))
+            {
+                return;
+            }
+
+            field = value;
+            SaveSettings(CreateSnapshot());
+            changed = true;
+        }
+
+        if (changed)
+        {
+            SettingsChanged?.Invoke(this, new AppSettingsChangedEventArgs(propertyName));
+        }
+    }
+
     private void SetEnumProperty<TEnum>(ref TEnum field, TEnum value, string propertyName)
         where TEnum : struct, Enum
     {
@@ -309,6 +343,7 @@ public sealed class AppSettingsService : IAppSettingsService
         {
             ShowNextCodeWhenFiveSecondsRemain = _showNextCodeWhenFiveSecondsRemain,
             AccountSortOption = _accountSortOption,
+            AccountCustomOrderIds = _accountCustomOrderIds.ToList(),
             IsPinProtectionEnabled = _isPinProtectionEnabled,
             IsPasswordProtectionEnabled = _isPasswordProtectionEnabled,
             IsWindowsHelloEnabled = _isWindowsHelloEnabled,
@@ -331,6 +366,25 @@ public sealed class AppSettingsService : IAppSettingsService
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
+    private static List<string> NormalizeAccountCustomOrderIds(IEnumerable<string>? value)
+    {
+        var ids = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var id in value ?? [])
+        {
+            var normalized = id?.Trim();
+            if (string.IsNullOrWhiteSpace(normalized) || !seen.Add(normalized))
+            {
+                continue;
+            }
+
+            ids.Add(normalized);
+        }
+
+        return ids;
+    }
+
     private void SaveSettings(AppSettingsData settings)
     {
         try
@@ -348,6 +402,7 @@ public sealed class AppSettingsService : IAppSettingsService
     {
         public bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
         public SortOption AccountSortOption { get; set; } = SortOption.DateAddedDesc;
+        public List<string> AccountCustomOrderIds { get; set; } = [];
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
