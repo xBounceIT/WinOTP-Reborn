@@ -24,6 +24,11 @@ public sealed partial class HomePage : Page
     private static readonly SolidColorBrush TransparentBrush = new(Microsoft.UI.Colors.Transparent);
     private const int MaxReorderScrollRestorePasses = 8;
     private const int RequiredStableScrollPasses = 2;
+    private const double ReorderAutoScrollEdgeZone = 60.0;
+    private const double ReorderAutoScrollMaxVelocity = 18.0;
+    private const int ReorderAutoScrollTickMs = 16;
+    private const double ReorderAutoScrollDeadZone = 0.1;
+    private const int ReorderPreviewDebounceMs = 300;
 
     private readonly ICredentialManagerService _credentialManager;
     private readonly IAppSettingsService _appSettings;
@@ -54,6 +59,11 @@ public sealed partial class HomePage : Page
     private bool _isRestoringReorderScroll;
     private int _consecutiveStableScrollPasses;
     private long _reorderScrollLockEpoch;
+    private DispatcherTimer? _reorderAutoScrollTimer;
+    private DispatcherTimer? _reorderPreviewDebounceTimer;
+    private int? _pendingReorderDropIndexCandidate;
+    private Point? _lastDragOverPointInGridView;
+    private Point? _lastDragOverPointInScrollViewer;
 
     private bool IsReorderScrollLockActive =>
         _isReorderDragInProgress || _lastReorderScrollRestoreState != null;
@@ -293,6 +303,11 @@ public sealed partial class HomePage : Page
         {
             _otpGridScrollViewer.ViewChanged += OtpGridScrollViewer_ViewChanged;
         }
+        else
+        {
+            StopReorderAutoScroll();
+            StopReorderPreviewDebounce();
+        }
     }
 
     private ScrollViewerState? GetActiveReorderScrollState() =>
@@ -302,6 +317,17 @@ public sealed partial class HomePage : Page
     {
         if (!IsReorderScrollLockActive || _isRestoringReorderScroll)
         {
+            return;
+        }
+
+        if (_isReorderDragInProgress)
+        {
+            if (_otpGridScrollViewer != null)
+            {
+                _reorderDragStartScrollState = new ScrollViewerState(
+                    _otpGridScrollViewer.HorizontalOffset,
+                    _otpGridScrollViewer.VerticalOffset);
+            }
             return;
         }
 
@@ -361,6 +387,211 @@ public sealed partial class HomePage : Page
             Math.Abs(_otpGridScrollViewer.VerticalOffset - state.VerticalOffset) < 0.5;
     }
 
+    private void UpdateReorderAutoScroll()
+    {
+        if (TryComputeAutoScrollVelocity(out _))
+        {
+            StartReorderAutoScroll();
+        }
+        else
+        {
+            StopReorderAutoScroll();
+        }
+    }
+
+    private bool TryComputeAutoScrollVelocity(out double velocity)
+    {
+        velocity = 0.0;
+        if (_otpGridScrollViewer == null ||
+            _lastDragOverPointInScrollViewer is not Point pointer ||
+            _otpGridScrollViewer.ScrollableHeight <= 0.5)
+        {
+            return false;
+        }
+
+        var topDistance = pointer.Y;
+        var bottomDistance = _otpGridScrollViewer.ViewportHeight - pointer.Y;
+
+        if (topDistance > ReorderAutoScrollEdgeZone &&
+            bottomDistance > ReorderAutoScrollEdgeZone)
+        {
+            return false;
+        }
+
+        var sign = topDistance < bottomDistance ? -1.0 : 1.0;
+        var nearestDistance = Math.Min(topDistance, bottomDistance);
+        var t = Math.Clamp(
+            (ReorderAutoScrollEdgeZone - nearestDistance) / ReorderAutoScrollEdgeZone,
+            0.0,
+            1.0);
+
+        if (t < ReorderAutoScrollDeadZone)
+        {
+            return false;
+        }
+
+        velocity = sign * t * ReorderAutoScrollMaxVelocity;
+        return true;
+    }
+
+    private void ReorderAutoScrollTimer_Tick(object? sender, object e)
+    {
+        if (!_isReorderDragInProgress ||
+            _otpGridScrollViewer == null ||
+            !TryComputeAutoScrollVelocity(out var velocity))
+        {
+            StopReorderAutoScroll();
+            return;
+        }
+
+        var current = _otpGridScrollViewer.VerticalOffset;
+        var target = Math.Clamp(
+            current + velocity,
+            0.0,
+            _otpGridScrollViewer.ScrollableHeight);
+
+        if (Math.Abs(target - current) < 0.5)
+        {
+            StopReorderAutoScroll();
+            return;
+        }
+
+        _isRestoringReorderScroll = true;
+        bool applied;
+        try
+        {
+            applied = _otpGridScrollViewer.ChangeView(
+                horizontalOffset: null,
+                verticalOffset: target,
+                zoomFactor: null,
+                disableAnimation: true);
+        }
+        finally
+        {
+            _isRestoringReorderScroll = false;
+        }
+
+        if (!applied)
+        {
+            StopReorderAutoScroll();
+            return;
+        }
+
+        var actualVerticalOffset = _otpGridScrollViewer.VerticalOffset;
+        var verticalDelta = actualVerticalOffset - current;
+
+        _reorderDragStartScrollState = new ScrollViewerState(
+            _otpGridScrollViewer.HorizontalOffset,
+            actualVerticalOffset);
+
+        if (_lastDragOverPointInGridView is Point gridPoint)
+        {
+            _lastDragOverPointInGridView = new Point(gridPoint.X, gridPoint.Y + verticalDelta);
+        }
+    }
+
+    private void StartReorderAutoScroll()
+    {
+        if (_reorderAutoScrollTimer != null)
+        {
+            return;
+        }
+
+        _reorderAutoScrollTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(ReorderAutoScrollTickMs)
+        };
+        _reorderAutoScrollTimer.Tick += ReorderAutoScrollTimer_Tick;
+        _reorderAutoScrollTimer.Start();
+    }
+
+    private void StopReorderAutoScroll()
+    {
+        if (_reorderAutoScrollTimer == null)
+        {
+            return;
+        }
+
+        _reorderAutoScrollTimer.Tick -= ReorderAutoScrollTimer_Tick;
+        _reorderAutoScrollTimer.Stop();
+        _reorderAutoScrollTimer = null;
+    }
+
+    private void UpdateReorderDropPreviewFor(Point pointerInGridView)
+    {
+        var insertionIndex = GetDropInsertionIndex(
+            CaptureVisibleReorderItemBounds(),
+            pointerInGridView);
+
+        if (_pendingReorderDropIndex == insertionIndex)
+        {
+            StopReorderPreviewDebounce();
+            _pendingReorderDropIndexCandidate = null;
+            return;
+        }
+
+        if (_pendingReorderDropIndexCandidate == insertionIndex)
+        {
+            return;
+        }
+
+        _pendingReorderDropIndexCandidate = insertionIndex;
+        StartReorderPreviewDebounce();
+    }
+
+    private void StartReorderPreviewDebounce()
+    {
+        StopReorderPreviewDebounce();
+        _reorderPreviewDebounceTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(ReorderPreviewDebounceMs)
+        };
+        _reorderPreviewDebounceTimer.Tick += ReorderPreviewDebounceTimer_Tick;
+        _reorderPreviewDebounceTimer.Start();
+    }
+
+    private void StopReorderPreviewDebounce()
+    {
+        if (_reorderPreviewDebounceTimer == null)
+        {
+            return;
+        }
+
+        _reorderPreviewDebounceTimer.Tick -= ReorderPreviewDebounceTimer_Tick;
+        _reorderPreviewDebounceTimer.Stop();
+        _reorderPreviewDebounceTimer = null;
+    }
+
+    private void ReorderPreviewDebounceTimer_Tick(object? sender, object e)
+    {
+        StopReorderPreviewDebounce();
+
+        if (!_isReorderDragInProgress ||
+            _pendingReorderDropIndexCandidate is not int candidate)
+        {
+            _pendingReorderDropIndexCandidate = null;
+            return;
+        }
+
+        CommitReorderPreviewImmediate(candidate, CaptureVisibleReorderItemBounds());
+    }
+
+    private void CommitReorderPreviewImmediate(
+        int insertionIndex,
+        IReadOnlyList<OtpAccountReorderLayoutPolicy.ItemBounds> itemBounds)
+    {
+        StopReorderPreviewDebounce();
+        _pendingReorderDropIndexCandidate = null;
+
+        if (_pendingReorderDropIndex == insertionIndex)
+        {
+            return;
+        }
+
+        _pendingReorderDropIndex = insertionIndex;
+        ApplyReorderPreview(insertionIndex, itemBounds);
+    }
+
     private void RefreshTimer_Tick(object? sender, object e)
     {
         try
@@ -379,6 +610,8 @@ public sealed partial class HomePage : Page
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
         _isPageActive = false;
+        StopReorderAutoScroll();
+        StopReorderPreviewDebounce();
         SetOtpGridScrollViewer(null);
         UnsubscribeWindowActivation();
         StopRefreshUpdates();
@@ -593,13 +826,14 @@ public sealed partial class HomePage : Page
         }
 
         e.AcceptedOperation = DataPackageOperation.Move;
-        var itemBounds = CaptureVisibleReorderItemBounds();
-        var insertionIndex = GetDropInsertionIndex(itemBounds, e.GetPosition(OtpGridView));
-        if (_pendingReorderDropIndex != insertionIndex)
-        {
-            _pendingReorderDropIndex = insertionIndex;
-            ApplyReorderPreview(insertionIndex, itemBounds);
-        }
+        var pointerInGridView = e.GetPosition(OtpGridView);
+        UpdateReorderDropPreviewFor(pointerInGridView);
+
+        _lastDragOverPointInGridView = pointerInGridView;
+        _lastDragOverPointInScrollViewer = _otpGridScrollViewer is null
+            ? null
+            : e.GetPosition(_otpGridScrollViewer);
+        UpdateReorderAutoScroll();
 
         e.Handled = true;
     }
@@ -607,11 +841,17 @@ public sealed partial class HomePage : Page
     private void OtpGridView_DragLeave(object sender, DragEventArgs e)
     {
         _pendingReorderDropIndex = null;
+        _pendingReorderDropIndexCandidate = null;
+        StopReorderPreviewDebounce();
         StopReorderPreviewAnimations();
+        StopReorderAutoScroll();
     }
 
     private void OtpGridView_Drop(object sender, DragEventArgs e)
     {
+        StopReorderAutoScroll();
+        StopReorderPreviewDebounce();
+
         if (!IsCustomOrderReorderEnabled || _draggedReorderAccountId == null)
         {
             ResetReorderDragState();
@@ -626,8 +866,9 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var insertionIndex = _pendingReorderDropIndex
-            ?? GetDropInsertionIndex(CaptureVisibleReorderItemBounds(), e.GetPosition(OtpGridView));
+        var insertionIndex = GetDropInsertionIndex(
+            CaptureVisibleReorderItemBounds(),
+            e.GetPosition(OtpGridView));
         RestoreHiddenReorderSourceContainer();
         StopReorderPreviewAnimations();
         MoveDraggedAccountToInsertionIndex(insertionIndex);
@@ -905,6 +1146,8 @@ public sealed partial class HomePage : Page
 
     private void ResetReorderDragState()
     {
+        StopReorderAutoScroll();
+        StopReorderPreviewDebounce();
         var wasReorderDragInProgress = _isReorderDragInProgress;
         var scrollState = GetActiveReorderScrollState();
         _lastReorderScrollRestoreState = scrollState;
@@ -914,7 +1157,10 @@ public sealed partial class HomePage : Page
         _reorderDragHandleAccountId = null;
         _draggedReorderAccountId = null;
         _pendingReorderDropIndex = null;
+        _pendingReorderDropIndexCandidate = null;
         _reorderDragStartScrollState = null;
+        _lastDragOverPointInGridView = null;
+        _lastDragOverPointInScrollViewer = null;
         _isReorderDragInProgress = false;
         if (wasReorderDragInProgress)
         {
