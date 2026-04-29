@@ -66,6 +66,11 @@ public sealed partial class ScreenCaptureOverlay : Window
         // this AttachThreadInput dance the overlay is topmost-but-unfocused.
         ForceForeground(hwnd);
 
+        // Register Closed before installing the hook so the unhook path is
+        // wired up even if hook installation throws or a future refactor
+        // inserts a throwing call between the two.
+        this.Closed += OnClosed;
+
         // ESC is handled by a low-level keyboard hook rather than the WinUI3
         // input island. The island only fires KeyDown when it actually owns
         // OS keyboard focus, which doesn't reliably happen here (the parent
@@ -74,8 +79,6 @@ public sealed partial class ScreenCaptureOverlay : Window
         // suppresses propagation, so the background app never sees the key.
         _keyboardHookProc = OnLowLevelKey;
         _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardHookProc, GetModuleHandle(null), 0);
-
-        this.Closed += OnClosed;
 
         return await _resultTcs.Task;
     }
@@ -192,12 +195,17 @@ public sealed partial class ScreenCaptureOverlay : Window
         if (code >= 0)
         {
             var msg = wParam.ToInt32();
-            if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            var isDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+            var isUp = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+            if (isDown || isUp)
             {
+                // KBDLLHOOKSTRUCT.vkCode is a DWORD at offset 0.
                 var vk = Marshal.ReadInt32(lParam);
                 if (vk == VK_ESCAPE)
                 {
-                    DispatcherQueue.TryEnqueue(this.Close);
+                    // Suppress both edges so the underlying app sees no part
+                    // of the keystroke; only schedule close on key-down.
+                    if (isDown) DispatcherQueue.TryEnqueue(this.Close);
                     return new IntPtr(1);
                 }
             }
@@ -290,7 +298,9 @@ public sealed partial class ScreenCaptureOverlay : Window
     // Low-level keyboard hook
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
+    private const int WM_KEYUP = 0x0101;
     private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_SYSKEYUP = 0x0105;
     private const int VK_ESCAPE = 0x1B;
 
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
