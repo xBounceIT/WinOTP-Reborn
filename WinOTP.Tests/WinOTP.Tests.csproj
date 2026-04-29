@@ -28,6 +28,8 @@
     <Compile Include="..\Helpers\AppPaths.cs" Link="Helpers\AppPaths.cs" />
     <Compile Include="..\Helpers\OtpUriParser.cs" Link="Helpers\OtpUriParser.cs" />
     <Compile Include="..\Helpers\OtpAccountStorageMapper.cs" Link="Helpers\OtpAccountStorageMapper.cs" />
+    <Compile Include="..\Helpers\OtpAccountCustomOrderPolicy.cs" Link="Helpers\OtpAccountCustomOrderPolicy.cs" />
+    <Compile Include="..\Helpers\OtpAccountReorderLayoutPolicy.cs" Link="Helpers\OtpAccountReorderLayoutPolicy.cs" />
     <Compile Include="..\Helpers\WinOTPLegacyImportMapper.cs" Link="Helpers\WinOTPLegacyImportMapper.cs" />
     <Compile Include="..\Helpers\OtpCardTemplateRootPolicy.cs" Link="Helpers\OtpCardTemplateRootPolicy.cs" />
     <Compile Include="..\Helpers\VersionHelper.cs" Link="Helpers\VersionHelper.cs" />

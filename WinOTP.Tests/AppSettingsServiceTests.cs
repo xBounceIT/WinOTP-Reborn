@@ -37,6 +37,52 @@ public sealed class AppSettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void AccountCustomOrderIds_DefaultsToEmpty()
+    {
+        var settings = new AppSettingsService(_settingsFilePath);
+
+        Assert.Empty(settings.AccountCustomOrderIds);
+    }
+
+    [Fact]
+    public void AccountCustomOrderIds_PersistsAcrossInstances()
+    {
+        var first = new AppSettingsService(_settingsFilePath)
+        {
+            AccountCustomOrderIds = ["acct-2", "acct-1"]
+        };
+
+        var second = new AppSettingsService(_settingsFilePath);
+
+        Assert.Equal(["acct-2", "acct-1"], second.AccountCustomOrderIds);
+    }
+
+    [Fact]
+    public void AccountCustomOrderIds_TrimsAndRemovesEmptyAndDuplicateIds()
+    {
+        var settings = new AppSettingsService(_settingsFilePath)
+        {
+            AccountCustomOrderIds = [" acct-2 ", "", "acct-1", "acct-2", " "]
+        };
+
+        Assert.Equal(["acct-2", "acct-1"], settings.AccountCustomOrderIds);
+    }
+
+    [Fact]
+    public void AccountCustomOrderIds_ReturnsDefensiveCopy()
+    {
+        var settings = new AppSettingsService(_settingsFilePath)
+        {
+            AccountCustomOrderIds = ["acct-2", "acct-1"]
+        };
+
+        var ids = settings.AccountCustomOrderIds;
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)ids).Add("acct-3"));
+
+        Assert.Equal(["acct-2", "acct-1"], settings.AccountCustomOrderIds);
+    }
+
+    [Fact]
     public void IsAutomaticBackupEnabled_PersistsAcrossInstances()
     {
         var first = new AppSettingsService(_settingsFilePath)

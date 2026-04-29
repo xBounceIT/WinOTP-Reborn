@@ -47,6 +47,7 @@
                             <RadioMenuFlyoutItem x:Name="SortOldestFirst" Text="Date Added (Oldest)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="DateAddedAsc"/>
                             <RadioMenuFlyoutItem x:Name="SortNameAsc" Text="Name (A → Z)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="AlphabeticalAsc"/>
                             <RadioMenuFlyoutItem x:Name="SortNameDesc" Text="Name (Z → A)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="AlphabeticalDesc"/>
+                            <RadioMenuFlyoutItem x:Name="SortCustomOrder" Text="Custom order" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="CustomOrder"/>
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
@@ -72,7 +73,14 @@
         </StackPanel>
 
         <!-- Account list -->
-        <GridView x:Name="OtpGridView" Grid.Row="2" SelectionMode="None" HorizontalContentAlignment="Left" Padding="4,0,4,0">
+        <GridView x:Name="OtpGridView"
+                  Grid.Row="2"
+                  SelectionMode="None"
+                  HorizontalContentAlignment="Left"
+                  Padding="4,0,4,0"
+                  AllowDrop="False"
+                  CanDragItems="False"
+                  CanReorderItems="False">
             <GridView.ItemContainerStyle>
                 <Style TargetType="GridViewItem">
                     <Setter Property="Padding" Value="0"/>
@@ -92,10 +100,64 @@
                 <DataTemplate x:DataType="local:OtpAccount">
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             CornerRadius="8"
-                            Padding="16"
                             Width="{StaticResource CardColumnWidth}"
                             MinHeight="140">
                         <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel x:Name="ReorderControlsPanel"
+                                        Grid.Column="0"
+                                        Width="40"
+                                        MinWidth="40"
+                                        Margin="4,8,0,8"
+                                        Orientation="Vertical"
+                                        VerticalAlignment="Center"
+                                        Visibility="Collapsed"
+                                        Spacing="4">
+                                <Border x:Name="ReorderHandle"
+                                        Width="32"
+                                        Height="32"
+                                        Background="Transparent"
+                                        CornerRadius="8"
+                                        Tag="{x:Bind Id}"
+                                        PointerEntered="ReorderHandle_PointerEntered"
+                                        PointerExited="ReorderHandle_PointerExited"
+                                        PointerPressed="ReorderHandle_PointerPressed"
+                                        PointerReleased="ReorderHandle_PointerReleased"
+                                        PointerCanceled="ReorderHandle_PointerCanceled"
+                                        ToolTipService.ToolTip="Drag to reorder"
+                                        AutomationProperties.Name="Drag to reorder">
+                                    <Grid Width="14"
+                                          Height="14"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Column="1" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Column="2" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Row="1" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Row="1" Grid.Column="1" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Row="1" Grid.Column="2" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Row="2" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Row="2" Grid.Column="1" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Grid.Row="2" Grid.Column="2" Width="2.5" Height="2.5" Fill="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+
+                            <Grid Grid.Column="1" Padding="16">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
@@ -203,6 +265,7 @@
                                            VerticalAlignment="Center"
                                            Opacity="0.7"/>
                             </Grid>
+                        </Grid>
                         </Grid>
                     </Border>
                 </DataTemplate>

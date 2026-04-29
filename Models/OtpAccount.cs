@@ -12,7 +12,8 @@ public enum SortOption
     DateAddedDesc,
     DateAddedAsc,
     AlphabeticalAsc,
-    AlphabeticalDesc
+    AlphabeticalDesc,
+    CustomOrder
 }
 
 public sealed class OtpAccount

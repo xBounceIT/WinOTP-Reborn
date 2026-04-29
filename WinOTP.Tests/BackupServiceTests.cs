@@ -560,6 +560,7 @@ public sealed class BackupServiceTests : IDisposable
     {
         public bool ShowNextCodeWhenFiveSecondsRemain { get; set; }
         public SortOption AccountSortOption { get; set; } = SortOption.DateAddedDesc;
+        public IReadOnlyList<string> AccountCustomOrderIds { get; set; } = [];
         public bool IsPinProtectionEnabled { get; set; }
         public bool IsPasswordProtectionEnabled { get; set; }
         public bool IsWindowsHelloEnabled { get; set; }
