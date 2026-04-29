@@ -1129,23 +1129,18 @@ public sealed partial class MainWindow : Window
         SetupAutoLockMonitoring();
     }
 
-    private async Task ShowProtectionRecoveryDialogAsync()
+    private Task ShowProtectionRecoveryDialogAsync()
     {
         var rootElement = Content as FrameworkElement
             ?? throw new InvalidOperationException("Main window content is not ready for dialog hosting.");
 
-        var dialog = new ContentDialog
-        {
-            Title = "App protection unavailable",
-            Content = "One or more configured protection methods are no longer available and were turned off. Choose a PIN, password, or Windows Hello in Settings to keep the app protected.",
-            CloseButtonText = "OK",
-            XamlRoot = rootElement.XamlRoot
-        };
-
-        await dialog.ShowAsync();
+        return DialogHelper.ShowOkAsync(
+            rootElement.XamlRoot,
+            "App protection unavailable",
+            "One or more configured protection methods are no longer available and were turned off. Choose a PIN, password, or Windows Hello in Settings to keep the app protected.");
     }
 
-    private async Task ShowTemporaryProtectionUnavailableDialogAsync(AppLockTemporaryBypassReason reason)
+    private Task ShowTemporaryProtectionUnavailableDialogAsync(AppLockTemporaryBypassReason reason)
     {
         var rootElement = Content as FrameworkElement
             ?? throw new InvalidOperationException("Main window content is not ready for dialog hosting.");
@@ -1160,15 +1155,7 @@ public sealed partial class MainWindow : Window
                 "WinOTP could not verify your configured protection because Windows security services are temporarily unavailable. Your protection settings were kept and the app will remain unlocked until protection becomes available again.")
         };
 
-        var dialog = new ContentDialog
-        {
-            Title = title,
-            Content = content,
-            CloseButtonText = "OK",
-            XamlRoot = rootElement.XamlRoot
-        };
-
-        await dialog.ShowAsync();
+        return DialogHelper.ShowOkAsync(rootElement.XamlRoot, title, content);
     }
 
     private static AppLockTemporaryBypassReason? GetTemporaryBypassReason(AppLockResolution resolution)

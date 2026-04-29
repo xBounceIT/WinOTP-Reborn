@@ -17,7 +17,10 @@ public interface IBackupService
     Task<BackupPasswordOperationResult> ClearAutomaticBackupPasswordAsync();
     Task<BackupOperationResult> CreateAutomaticBackupAsync();
     Task<BackupOperationResult> ExportBackupAsync(string destinationFilePath, string? passwordOverride = null);
-    Task<BackupImportResult> ImportBackupAsync(string sourceFilePath, string password);
+    Task<BackupImportResult> ImportBackupAsync(
+        string sourceFilePath,
+        string password,
+        IProgress<(int current, int total)>? progress = null);
 }
 
 public sealed class BackupService : IBackupService
@@ -261,7 +264,10 @@ public sealed class BackupService : IBackupService
         return ExportBackupCoreAsync(destinationFilePath, password);
     }
 
-    public async Task<BackupImportResult> ImportBackupAsync(string sourceFilePath, string password)
+    public async Task<BackupImportResult> ImportBackupAsync(
+        string sourceFilePath,
+        string password,
+        IProgress<(int current, int total)>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(sourceFilePath))
         {
@@ -362,8 +368,12 @@ public sealed class BackupService : IBackupService
         int skippedCount = 0;
         int failedCount = 0;
 
-        foreach (var source in payload.Accounts ?? [])
+        var accountsToImport = payload.Accounts ?? [];
+        int total = accountsToImport.Count;
+
+        for (int i = 0; i < total; i++)
         {
+            var source = accountsToImport[i];
             var saveResult = await _credentialManager.SaveAccountAsync(source);
             if (!saveResult.Success)
             {
@@ -377,20 +387,23 @@ public sealed class BackupService : IBackupService
                     failedCount++;
                     _logger.Error($"Failed to import backup account '{source.Id}': {saveResult.Message}");
                 }
-                continue;
-            }
-
-            var persistedId = saveResult.PersistedId!;
-            if (existingIds.Contains(persistedId))
-            {
-                replacedCount++;
             }
             else
             {
-                existingIds.Add(persistedId);
+                var persistedId = saveResult.PersistedId!;
+                if (existingIds.Contains(persistedId))
+                {
+                    replacedCount++;
+                }
+                else
+                {
+                    existingIds.Add(persistedId);
+                }
+
+                importedCount++;
             }
 
-            importedCount++;
+            progress?.Report((i + 1, total));
         }
 
         _logger.Info($"Imported backup '{sourceFilePath}' with {importedCount} account(s), {replacedCount} replacement(s), {skippedCount} skipped, {failedCount} failed.");

@@ -112,47 +112,49 @@ public sealed partial class ImportPage : Page
         int successCount = 0;
         int failCount = 0;
 
-        foreach (var account in accounts)
+        await using (ImportProgressDialog? progress = accounts.Count > 0
+            ? new ImportProgressDialog(this.XamlRoot, accounts.Count)
+            : null)
         {
-            _logger.Info($"Processing account: {account.Issuer} ({account.AccountName})");
-            var result = await _credentialManager.SaveAccountAsync(account);
-            if (result.Success)
+            for (int i = 0; i < accounts.Count; i++)
             {
-                successCount++;
-            }
-            else
-            {
-                _logger.Error($"Failed to import account: {account.Issuer} ({account.AccountName}) - {result.Message}");
-                failCount++;
+                var account = accounts[i];
+                _logger.Info($"Processing account: {account.Issuer} ({account.AccountName})");
+                var result = await _credentialManager.SaveAccountAsync(account);
+                if (result.Success)
+                {
+                    successCount++;
+                }
+                else
+                {
+                    _logger.Error($"Failed to import account: {account.Issuer} ({account.AccountName}) - {result.Message}");
+                    failCount++;
+                }
+
+                progress?.UpdateProgress(i + 1, accounts.Count);
             }
         }
 
         _logger.Info($"Import completed: {successCount} success, {failCount} failed, {skippedCount} skipped");
 
-        var message = $"Import completed:\n• {successCount} account(s) imported successfully";
-        if (failCount > 0)
-            message += $"\n• {failCount} account(s) failed to import";
-        if (skippedCount > 0)
-            message += $"\n• {skippedCount} account(s) skipped ({skippedLabel})";
-
+        string? additionalMessage = null;
         if (successCount > 0 && _appSettings.IsAutomaticBackupEnabled)
         {
             var backupResult = await _backupService.CreateAutomaticBackupAsync();
             if (!backupResult.Success)
             {
                 _logger.Warn($"Automatic backup failed after import: {backupResult.ErrorCode} - {backupResult.Message}");
-                message += $"\n\nAutomatic backup failed: {backupResult.Message}";
+                additionalMessage = $"Automatic backup failed: {backupResult.Message}";
             }
         }
 
-        var dialog = new ContentDialog
-        {
-            Title = "Import Results",
-            Content = message,
-            CloseButtonText = "OK",
-            XamlRoot = this.XamlRoot
-        };
-        await dialog.ShowAsync();
+        await ImportDialogHelper.ShowImportSummaryAsync(
+            this.XamlRoot,
+            successCount,
+            failCount,
+            skippedCount,
+            skippedLabel,
+            additionalMessage: additionalMessage);
 
         if (successCount > 0)
             Frame.Navigate(typeof(HomePage), AddFlowNavigationHelper.CleanupCompletedAddFlowParameter);
@@ -195,15 +197,5 @@ public sealed partial class ImportPage : Page
         }
     }
 
-    private async Task ShowErrorAsync(string message)
-    {
-        var dialog = new ContentDialog
-        {
-            Title = "Error",
-            Content = message,
-            CloseButtonText = "OK",
-            XamlRoot = this.XamlRoot
-        };
-        await dialog.ShowAsync();
-    }
+    private Task ShowErrorAsync(string message) => DialogHelper.ShowErrorAsync(this.XamlRoot, message);
 }

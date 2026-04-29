@@ -120,15 +120,5 @@ public sealed partial class AddAccountPage : Page
         Frame.Navigate(typeof(ImportPage));
     }
 
-    private async Task ShowErrorAsync(string message)
-    {
-        var dialog = new ContentDialog
-        {
-            Title = "Error",
-            Content = message,
-            CloseButtonText = "OK",
-            XamlRoot = this.XamlRoot
-        };
-        await dialog.ShowAsync();
-    }
+    private Task ShowErrorAsync(string message) => DialogHelper.ShowErrorAsync(this.XamlRoot, message);
 }
