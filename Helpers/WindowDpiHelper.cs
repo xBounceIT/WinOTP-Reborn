@@ -16,6 +16,11 @@ public static class WindowDpiHelper
             (int)Math.Round(logicalHeight * scale));
     }
 
-    [DllImport("user32.dll")]
-    public static extern uint GetDpiForWindow(IntPtr hwnd);
+    public static uint GetDpiForWindow(IntPtr hwnd) => NativeMethods.GetDpiForWindow(hwnd);
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr hwnd);
+    }
 }

@@ -16,40 +16,20 @@ public sealed class WindowDpiHelperTests
         Assert.Equal(height, result.Height);
     }
 
-    [Fact]
-    public void ScaleLogicalSize_Scales125Percent()
+    [Theory]
+    // Math.Round defaults to banker's rounding (round-half-to-even):
+    //   125%: 650 * 1.25  = 812.5  → 812
+    //   175%: 650 * 1.75  = 1137.5 → 1138
+    [InlineData(120u, 480, 650, 600, 812)]
+    [InlineData(144u, 480, 650, 720, 975)]
+    [InlineData(168u, 480, 650, 840, 1138)]
+    [InlineData(192u, 480, 650, 960, 1300)]
+    public void ScaleLogicalSize_ScalesByDpi(
+        uint dpi, int width, int height, int expectedWidth, int expectedHeight)
     {
-        var result = WindowDpiHelper.ScaleLogicalSize(120, 480, 650);
+        var result = WindowDpiHelper.ScaleLogicalSize(dpi, width, height);
 
-        // 650 * 1.25 = 812.5 → Math.Round uses banker's rounding (round-half-to-even) → 812
-        Assert.Equal(600, result.Width);
-        Assert.Equal(812, result.Height);
-    }
-
-    [Fact]
-    public void ScaleLogicalSize_Scales150Percent()
-    {
-        var result = WindowDpiHelper.ScaleLogicalSize(144, 480, 650);
-
-        Assert.Equal(720, result.Width);
-        Assert.Equal(975, result.Height);
-    }
-
-    [Fact]
-    public void ScaleLogicalSize_Scales175PercentAndRounds()
-    {
-        var result = WindowDpiHelper.ScaleLogicalSize(168, 480, 650);
-
-        Assert.Equal(840, result.Width);
-        Assert.Equal(1138, result.Height);
-    }
-
-    [Fact]
-    public void ScaleLogicalSize_Scales200Percent()
-    {
-        var result = WindowDpiHelper.ScaleLogicalSize(192, 480, 650);
-
-        Assert.Equal(960, result.Width);
-        Assert.Equal(1300, result.Height);
+        Assert.Equal(expectedWidth, result.Width);
+        Assert.Equal(expectedHeight, result.Height);
     }
 }
