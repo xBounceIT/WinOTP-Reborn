@@ -21,7 +21,7 @@
             Background="#99000000">
             <TextBlock
                 x:Name="InstructionText"
-                Text="Click and drag to select a region. Press ESC to cancel."
+                Text="Click and drag to select a region. Press ESC or right-click to cancel."
                 Foreground="White"
                 FontSize="16" />
         </Border>
