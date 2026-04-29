@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI;
-using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -22,6 +21,10 @@ public sealed partial class ScreenCaptureOverlay : Window
     private Windows.Foundation.Point _startPoint;
     private Rectangle? _selectionRect;
     private bool _isDragging;
+    // Hold the delegate as a field so the GC doesn't collect it while the
+    // unmanaged hook is still calling into it.
+    private LowLevelKeyboardProc? _keyboardHookProc;
+    private IntPtr _keyboardHook = IntPtr.Zero;
 
     public ScreenCaptureOverlay()
     {
@@ -55,12 +58,24 @@ public sealed partial class ScreenCaptureOverlay : Window
         OverlayCanvas.PointerPressed += OnPointerPressed;
         OverlayCanvas.PointerMoved += OnPointerMoved;
         OverlayCanvas.PointerReleased += OnPointerReleased;
-        RootGrid.KeyDown += OnKeyDown;
-
-        // Ensure the overlay gets keyboard focus
-        RootGrid.Focus(FocusState.Programmatic);
 
         this.Activate();
+
+        // MainWindow was minimized before this opened, so this process is no
+        // longer foreground and SetForegroundWindow is restricted. Without
+        // this AttachThreadInput dance the overlay is topmost-but-unfocused.
+        ForceForeground(hwnd);
+
+        // ESC is handled by a low-level keyboard hook rather than the WinUI3
+        // input island. The island only fires KeyDown when it actually owns
+        // OS keyboard focus, which doesn't reliably happen here (the parent
+        // HWND becomes foreground but focus doesn't always propagate to the
+        // child island HWND). The LL hook intercepts ESC at the OS level and
+        // suppresses propagation, so the background app never sees the key.
+        _keyboardHookProc = OnLowLevelKey;
+        _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardHookProc, GetModuleHandle(null), 0);
+
+        this.Closed += OnClosed;
 
         return await _resultTcs.Task;
     }
@@ -79,6 +94,12 @@ public sealed partial class ScreenCaptureOverlay : Window
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         var point = e.GetCurrentPoint(OverlayCanvas);
+        if (point.Properties.IsRightButtonPressed)
+        {
+            e.Handled = true;
+            this.Close();
+            return;
+        }
         if (point.Properties.IsLeftButtonPressed)
         {
             _isDragging = true;
@@ -150,7 +171,6 @@ public sealed partial class ScreenCaptureOverlay : Window
         var croppedPixels = CropPixels(_capture.Pixels, _capture.Width, _capture.Height, x, y, width, height);
         if (croppedPixels == null)
         {
-            _resultTcs.TrySetResult(null);
             this.Close();
             return;
         }
@@ -163,19 +183,37 @@ public sealed partial class ScreenCaptureOverlay : Window
         }
         catch
         {
-            _resultTcs.TrySetResult(null);
         }
         this.Close();
     }
 
-    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private IntPtr OnLowLevelKey(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (e.Key == Windows.System.VirtualKey.Escape)
+        if (code >= 0)
         {
-            _resultTcs.TrySetResult(null);
-            this.Close();
-            e.Handled = true;
+            var msg = wParam.ToInt32();
+            if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            {
+                var vk = Marshal.ReadInt32(lParam);
+                if (vk == VK_ESCAPE)
+                {
+                    DispatcherQueue.TryEnqueue(this.Close);
+                    return new IntPtr(1);
+                }
+            }
         }
+        return CallNextHookEx(_keyboardHook, code, wParam, lParam);
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        if (_keyboardHook != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_keyboardHook);
+            _keyboardHook = IntPtr.Zero;
+        }
+        _keyboardHookProc = null;
+        _resultTcs.TrySetResult(null);
     }
 
     private static byte[]? CropPixels(byte[] source, int sourceWidth, int sourceHeight,
@@ -200,6 +238,29 @@ public sealed partial class ScreenCaptureOverlay : Window
         return cropped;
     }
 
+    private static void ForceForeground(IntPtr hwnd)
+    {
+        var foreground = GetForegroundWindow();
+        if (foreground == hwnd)
+        {
+            return;
+        }
+        var fgThread = GetWindowThreadProcessId(foreground, out _);
+        var currentThread = GetCurrentThreadId();
+        // Attach our input queue to the foreground thread so SetForegroundWindow
+        // is permitted (the OS otherwise blocks foreground steals from a non-
+        // foreground process). Don't SetFocus on hwnd: the WinUI3 content island
+        // is a child HWND and SetForegroundWindow routes focus there via
+        // WM_ACTIVATE — explicitly focusing the parent breaks island KeyDown.
+        var attached = fgThread != 0 && fgThread != currentThread
+            && AttachThreadInput(fgThread, currentThread, true);
+        SetForegroundWindow(hwnd);
+        if (attached)
+        {
+            AttachThreadInput(fgThread, currentThread, false);
+        }
+    }
+
     // P/Invoke for window positioning
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_SHOWWINDOW = 0x0040;
@@ -208,4 +269,42 @@ public sealed partial class ScreenCaptureOverlay : Window
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter,
         int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    // Low-level keyboard hook
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100;
+    private const int WM_SYSKEYDOWN = 0x0104;
+    private const int VK_ESCAPE = 0x1B;
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? lpModuleName);
 }
