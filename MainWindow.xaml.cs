@@ -106,8 +106,8 @@ public sealed partial class MainWindow : Window
 
         // AppWindow.Resize takes physical pixels, so scale by the window's DPI to preserve
         // the intended logical size on monitors at >100% display scaling.
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        _lastAppliedDpi = WindowDpiHelper.GetDpiForWindow(hwnd);
+        _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _lastAppliedDpi = WindowDpiHelper.GetDpiForWindow(_windowHandle);
         this.AppWindow.Resize(WindowDpiHelper.ScaleLogicalSize(
             _lastAppliedDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
 
@@ -273,15 +273,12 @@ public sealed partial class MainWindow : Window
             WindowActivationChanged?.Invoke(this, sender.IsVisible);
         }
 
-        if (args.DidPositionChange)
+        if (args.DidPositionChange && _windowHandle != IntPtr.Zero)
         {
             // Window may have moved to a monitor with a different DPI; rescale to keep
             // the effective size constant. Skip when DPI is unchanged to avoid redundant
             // Resize calls on every drag event.
-            var hwnd = _windowHandle != IntPtr.Zero
-                ? _windowHandle
-                : WinRT.Interop.WindowNative.GetWindowHandle(this);
-            uint currentDpi = WindowDpiHelper.GetDpiForWindow(hwnd);
+            uint currentDpi = WindowDpiHelper.GetDpiForWindow(_windowHandle);
             if (currentDpi != 0 && currentDpi != _lastAppliedDpi)
             {
                 _lastAppliedDpi = currentDpi;
