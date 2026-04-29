@@ -1379,6 +1379,7 @@ public sealed partial class HomePage : Page
 
         SubscribeWindowActivation();
 
+        bool showSingleAccountImportSummary = false;
         try
         {
             if (e.Parameter is OtpAccount newAccount)
@@ -1393,6 +1394,7 @@ public sealed partial class HomePage : Page
                 {
                     AddFlowNavigationHelper.RemoveCompletedAddFlowEntries(Frame);
                     StartAutomaticBackup("account save");
+                    showSingleAccountImportSummary = true;
                 }
             }
             else if (e.Parameter is string parameter &&
@@ -1402,6 +1404,15 @@ public sealed partial class HomePage : Page
             }
 
             await LoadAccountsAsync();
+
+            if (showSingleAccountImportSummary)
+            {
+                await ImportDialogHelper.ShowImportSummaryAsync(
+                    this.XamlRoot,
+                    successCount: 1,
+                    failCount: 0,
+                    skippedCount: 0);
+            }
         }
         catch (Exception ex)
         {

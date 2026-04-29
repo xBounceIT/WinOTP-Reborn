@@ -418,37 +418,38 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var importResult = await _backupService.ImportBackupAsync(file.Path, password);
+        BackupImportResult importResult;
+        await using (var progressDialog = new ImportProgressDialog(this.XamlRoot, total: 0))
+        {
+            var progress = new Progress<(int current, int total)>(update =>
+                progressDialog.UpdateProgress(update.current, update.total));
+
+            importResult = await _backupService.ImportBackupAsync(file.Path, password, progress);
+        }
+
         if (!importResult.Success)
         {
             await ShowErrorDialog(importResult.Message);
             return;
         }
 
-        var message = $"Import completed:\n• {importResult.ImportedCount} account(s) imported";
-        if (importResult.ReplacedCount > 0)
-        {
-            message += $"\n• {importResult.ReplacedCount} existing account(s) replaced";
-        }
-        if (importResult.SkippedCount > 0)
-        {
-            message += $"\n• {importResult.SkippedCount} account(s) skipped";
-        }
-        if (importResult.FailedCount > 0)
-        {
-            message += $"\n• {importResult.FailedCount} account(s) failed to save";
-        }
-
+        string? additionalMessage = null;
         if (importResult.ImportedCount > 0 && _appSettings.IsAutomaticBackupEnabled)
         {
             var backupResult = await _backupService.CreateAutomaticBackupAsync();
             if (!backupResult.Success)
             {
-                message += $"\n\nAutomatic backup failed after import: {backupResult.Message}";
+                additionalMessage = $"Automatic backup failed after import: {backupResult.Message}";
             }
         }
 
-        await ShowInfoDialog(message);
+        await ImportDialogHelper.ShowImportSummaryAsync(
+            this.XamlRoot,
+            successCount: importResult.ImportedCount,
+            failCount: importResult.FailedCount,
+            skippedCount: importResult.SkippedCount,
+            replacedCount: importResult.ReplacedCount,
+            additionalMessage: additionalMessage);
     }
 
     private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)
@@ -1424,29 +1425,7 @@ public sealed partial class SettingsPage : Page
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
-    private async Task ShowErrorDialog(string message)
-    {
-        var dialog = new ContentDialog
-        {
-            Title = "Error",
-            Content = message,
-            CloseButtonText = "OK",
-            XamlRoot = this.XamlRoot
-        };
+    private Task ShowErrorDialog(string message) => DialogHelper.ShowErrorAsync(this.XamlRoot, message);
 
-        await dialog.ShowAsync();
-    }
-
-    private async Task ShowInfoDialog(string message)
-    {
-        var dialog = new ContentDialog
-        {
-            Title = "Information",
-            Content = message,
-            CloseButtonText = "OK",
-            XamlRoot = this.XamlRoot
-        };
-
-        await dialog.ShowAsync();
-    }
+    private Task ShowInfoDialog(string message) => DialogHelper.ShowInfoAsync(this.XamlRoot, message);
 }
