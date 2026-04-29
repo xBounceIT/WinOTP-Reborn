@@ -107,9 +107,7 @@ public sealed partial class MainWindow : Window
         // AppWindow.Resize takes physical pixels, so scale by the window's DPI to preserve
         // the intended logical size on monitors at >100% display scaling.
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        _lastAppliedDpi = WindowDpiHelper.GetDpiForWindow(_windowHandle);
-        this.AppWindow.Resize(WindowDpiHelper.ScaleLogicalSize(
-            _lastAppliedDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
+        RescaleWindowForCurrentDpi(forceResize: true);
 
         // Disable resizing - fixed window size
         if (this.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
@@ -149,6 +147,11 @@ public sealed partial class MainWindow : Window
 
         if (!_hasStartedStartupInitialization)
         {
+            // The ctor reads DPI before the window is shown; the OS may place it on a
+            // monitor with different DPI before first paint. Re-check now that the window
+            // is on its real monitor. No-op if DPI matches what the ctor saw.
+            RescaleWindowForCurrentDpi(forceResize: false);
+
             _hasStartedStartupInitialization = true;
             await InitializeAsync();
             return;
@@ -273,19 +276,40 @@ public sealed partial class MainWindow : Window
             WindowActivationChanged?.Invoke(this, sender.IsVisible);
         }
 
-        if (args.DidPositionChange && _windowHandle != IntPtr.Zero)
+        if (args.DidPositionChange)
         {
-            // Window may have moved to a monitor with a different DPI; rescale to keep
-            // the effective size constant. Skip when DPI is unchanged to avoid redundant
-            // Resize calls on every drag event.
-            uint currentDpi = WindowDpiHelper.GetDpiForWindow(_windowHandle);
-            if (currentDpi != 0 && currentDpi != _lastAppliedDpi)
-            {
-                _lastAppliedDpi = currentDpi;
-                sender.Resize(WindowDpiHelper.ScaleLogicalSize(
-                    currentDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
-            }
+            // Window may have moved to a monitor with a different DPI. We don't intercept
+            // WM_DPICHANGED, and OverlappedPresenter.IsResizable=false suppresses the OS's
+            // own auto-resize on cross-monitor drag, so this is the only path that keeps
+            // the window correctly sized. Do not remove without adding WM_DPICHANGED handling.
+            RescaleWindowForCurrentDpi(forceResize: false);
         }
+    }
+
+    private void RescaleWindowForCurrentDpi(bool forceResize)
+    {
+        if (_windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        uint currentDpi = WindowDpiHelper.GetDpiForWindow(_windowHandle);
+        if (currentDpi == 0)
+        {
+            // GetDpiForWindow returns 0 for an invalid hwnd. The helper falls back to
+            // 1.0 scale, but log so we're not silently undersized on a high-DPI monitor.
+            App.Current.Logger.Warn(
+                "GetDpiForWindow returned 0 for the main window; falling back to 1.0 scale.");
+        }
+
+        if (!forceResize && currentDpi == _lastAppliedDpi)
+        {
+            return;
+        }
+
+        _lastAppliedDpi = currentDpi;
+        AppWindow.Resize(WindowDpiHelper.ScaleLogicalSize(
+            currentDpi, MainWindowLogicalWidth, MainWindowLogicalHeight));
     }
 
     private void RestoreFromTray()
