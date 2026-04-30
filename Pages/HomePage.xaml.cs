@@ -35,6 +35,7 @@ public sealed partial class HomePage : Page
     private readonly ITotpCodeGenerator _totpGenerator;
     private readonly IAppLogger _logger;
     private readonly IBackupService _backupService;
+    private readonly IAccountUsageService _accountUsage;
 
     private readonly List<OtpAccount> _allAccounts = new();
     private readonly ObservableCollection<OtpAccount> _accounts = new();
@@ -97,6 +98,7 @@ public sealed partial class HomePage : Page
         _totpGenerator = App.Current.TotpGenerator;
         _logger = App.Current.Logger;
         _backupService = App.Current.BackupService;
+        _accountUsage = App.Current.AccountUsage;
         _currentSortOption = _appSettings.AccountSortOption;
 
         ApplySortSelectionToMenu();
@@ -1436,6 +1438,14 @@ public sealed partial class HomePage : Page
         _allAccounts.Clear();
         _allAccounts.AddRange(loadResult.Accounts);
 
+        // Only prune usage stats when the load was clean. Vault access failures or
+        // per-credential retrieve/parse failures hide accounts that still exist,
+        // and treating them as deleted would erase their usage counters permanently.
+        if (loadResult.Issues.Count == 0)
+        {
+            _accountUsage.PruneMissingAccounts(_allAccounts.Select(a => a.Id));
+        }
+
         ApplyFilterAndSort();
         UpdateLoadIssuesState(loadResult.Issues);
     }
@@ -1548,10 +1558,19 @@ public sealed partial class HomePage : Page
             : _allAccounts.Where(a => a.DisplayLabel.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
 
         // Apply sorting
+        IReadOnlyDictionary<string, (long Count, DateTime LastUsed)>? usageSnapshot = null;
+        if (_currentSortOption == SortOption.UsageBased)
+        {
+            usageSnapshot = filtered.ToDictionary(
+                a => a.Id,
+                a => (Count: _accountUsage.GetUsageCount(a.Id), LastUsed: _accountUsage.GetLastUsedAt(a.Id) ?? DateTime.MinValue));
+        }
+
         var sorted = OtpAccountSortPolicy.Apply(
             filtered,
             _currentSortOption,
-            _appSettings.AccountCustomOrderIds);
+            _appSettings.AccountCustomOrderIds,
+            usageSnapshot);
 
         _accounts.Clear();
         foreach (var account in sorted)
@@ -1590,6 +1609,7 @@ public sealed partial class HomePage : Page
         SortNameAsc.IsChecked = _currentSortOption == SortOption.AlphabeticalAsc;
         SortNameDesc.IsChecked = _currentSortOption == SortOption.AlphabeticalDesc;
         SortCustomOrder.IsChecked = _currentSortOption == SortOption.CustomOrder;
+        SortUsageBased.IsChecked = _currentSortOption == SortOption.UsageBased;
     }
 
     private static bool TryGetSortOption(string tag, out SortOption sortOption)
@@ -1624,6 +1644,7 @@ public sealed partial class HomePage : Page
         {
             var totpCode = _totpGenerator.GenerateCode(account);
             await ClipboardHelper.SetContentWithRetryAsync(totpCode);
+            _accountUsage.RecordUsage(account.Id);
 
             // Visual feedback: change button icon to checkmark
             var copyIcon = FindChild<FontIcon>((Button)sender, "CopyButtonIcon");

@@ -10,6 +10,7 @@ public partial class App : Application
     public IAppLogger Logger { get; } = new AppLogger();
     public ICredentialManagerService CredentialManager { get; }
     public IAppSettingsService AppSettings { get; }
+    public IAccountUsageService AccountUsage { get; }
     public ITotpCodeGenerator TotpGenerator { get; } = new TotpCodeGenerator();
     public IAppLockService AppLock { get; } = new AppLockService();
     public IBackupService BackupService { get; }
@@ -22,6 +23,7 @@ public partial class App : Application
         this.InitializeComponent();
         CredentialManager = new CredentialManagerService(Logger);
         AppSettings = new AppSettingsService();
+        AccountUsage = new AccountUsageService();
         BackupService = new BackupService(CredentialManager, AppSettings, Logger);
         AppUpdate = new AppUpdateService(AppSettings, Logger);
         AutoStart = new AutoStartService(Logger);

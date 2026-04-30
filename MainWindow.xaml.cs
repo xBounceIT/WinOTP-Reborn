@@ -9,6 +9,7 @@ using Windows.Security.Credentials.UI;
 using Windows.ApplicationModel.DataTransfer;
 using WinOTP.Pages;
 using WinOTP.Helpers;
+using WinOTP.Models;
 using WinOTP.Services;
 
 namespace WinOTP;
@@ -204,10 +205,20 @@ public sealed partial class MainWindow : Window
             {
                 contextMenu.Items.Add(new MenuFlyoutSeparator());
 
+                IReadOnlyDictionary<string, (long Count, DateTime LastUsed)>? usageSnapshot = null;
+                if (_appSettings.AccountSortOption == SortOption.UsageBased)
+                {
+                    var usage = App.Current.AccountUsage;
+                    usageSnapshot = result.Accounts.ToDictionary(
+                        a => a.Id,
+                        a => (Count: usage.GetUsageCount(a.Id), LastUsed: usage.GetLastUsedAt(a.Id) ?? DateTime.MinValue));
+                }
+
                 var orderedAccounts = OtpAccountSortPolicy.Apply(
                     result.Accounts,
                     _appSettings.AccountSortOption,
-                    _appSettings.AccountCustomOrderIds);
+                    _appSettings.AccountCustomOrderIds,
+                    usageSnapshot);
 
                 foreach (var account in orderedAccounts)
                 {
@@ -226,6 +237,7 @@ public sealed partial class MainWindow : Window
                             {
                                 var currentCode = _totpGenerator.GenerateCode(capturedAccount);
                                 await ClipboardHelper.SetContentWithRetryAsync(currentCode);
+                                App.Current.AccountUsage.RecordUsage(capturedAccount.Id);
                             }
                             catch (Exception ex)
                             {

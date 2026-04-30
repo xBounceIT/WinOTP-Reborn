@@ -48,6 +48,7 @@
                             <RadioMenuFlyoutItem x:Name="SortNameAsc" Text="Name (A → Z)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="AlphabeticalAsc"/>
                             <RadioMenuFlyoutItem x:Name="SortNameDesc" Text="Name (Z → A)" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="AlphabeticalDesc"/>
                             <RadioMenuFlyoutItem x:Name="SortCustomOrder" Text="Custom order" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="CustomOrder"/>
+                            <RadioMenuFlyoutItem x:Name="SortUsageBased" Text="Most used" GroupName="SortGroup" Click="SortMenuItem_Click" Tag="UsageBased"/>
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
