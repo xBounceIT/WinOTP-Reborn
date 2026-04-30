@@ -1438,7 +1438,13 @@ public sealed partial class HomePage : Page
         _allAccounts.Clear();
         _allAccounts.AddRange(loadResult.Accounts);
 
-        _accountUsage.PruneMissingAccounts(_allAccounts.Select(a => a.Id));
+        // Only prune usage stats when the load was clean. Vault access failures or
+        // per-credential retrieve/parse failures hide accounts that still exist,
+        // and treating them as deleted would erase their usage counters permanently.
+        if (loadResult.Issues.Count == 0)
+        {
+            _accountUsage.PruneMissingAccounts(_allAccounts.Select(a => a.Id));
+        }
 
         ApplyFilterAndSort();
         UpdateLoadIssuesState(loadResult.Issues);
