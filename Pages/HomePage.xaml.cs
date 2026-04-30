@@ -1548,15 +1548,10 @@ public sealed partial class HomePage : Page
             : _allAccounts.Where(a => a.DisplayLabel.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
 
         // Apply sorting
-        IEnumerable<OtpAccount> sorted = _currentSortOption switch
-        {
-            SortOption.DateAddedDesc => filtered.OrderByDescending(a => a.CreatedAt),
-            SortOption.DateAddedAsc => filtered.OrderBy(a => a.CreatedAt),
-            SortOption.AlphabeticalAsc => filtered.OrderBy(a => a.DisplayLabel),
-            SortOption.AlphabeticalDesc => filtered.OrderByDescending(a => a.DisplayLabel),
-            SortOption.CustomOrder => OtpAccountCustomOrderPolicy.Apply(filtered, _appSettings.AccountCustomOrderIds),
-            _ => filtered.OrderByDescending(a => a.CreatedAt)
-        };
+        var sorted = OtpAccountSortPolicy.Apply(
+            filtered,
+            _currentSortOption,
+            _appSettings.AccountCustomOrderIds);
 
         _accounts.Clear();
         foreach (var account in sorted)

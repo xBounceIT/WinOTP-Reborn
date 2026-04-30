@@ -162,16 +162,22 @@ public sealed partial class MainWindow : Window
 
     private void InitializeTrayIcon()
     {
+        var contextMenu = new MenuFlyout();
+
         _trayIcon = new TaskbarIcon
         {
             IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
                 new Uri("ms-appx:///Assets/app.ico")),
             ToolTipText = "WinOTP",
-            DoubleClickCommand = new RelayCommand(RestoreFromTray)
+            DoubleClickCommand = new RelayCommand(RestoreFromTray),
+            // H.NotifyIcon emulates the tray context menu via a Win32 popup, which
+            // takes a snapshot of ContextFlyout.Items at the moment of right-click
+            // and never raises the WinUI MenuFlyout.Opening event. Rebuild items
+            // here so each right-click reflects the current sort order and
+            // freshly generated TOTP codes.
+            RightClickCommand = new RelayCommand(() => BuildTrayContextMenuItems(contextMenu))
         };
 
-        var contextMenu = new MenuFlyout();
-        contextMenu.Opening += (s, e) => BuildTrayContextMenuItems(contextMenu);
         BuildTrayContextMenuItems(contextMenu);
         _trayIcon.ContextFlyout = contextMenu;
 
@@ -198,7 +204,12 @@ public sealed partial class MainWindow : Window
             {
                 contextMenu.Items.Add(new MenuFlyoutSeparator());
 
-                foreach (var account in result.Accounts)
+                var orderedAccounts = OtpAccountSortPolicy.Apply(
+                    result.Accounts,
+                    _appSettings.AccountSortOption,
+                    _appSettings.AccountCustomOrderIds);
+
+                foreach (var account in orderedAccounts)
                 {
                     var code = _totpGenerator.GenerateCode(account);
                     var item = new MenuFlyoutItem
