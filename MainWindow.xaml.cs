@@ -237,6 +237,7 @@ public sealed partial class MainWindow : Window
                             {
                                 var currentCode = _totpGenerator.GenerateCode(capturedAccount);
                                 await ClipboardHelper.SetContentWithRetryAsync(currentCode);
+                                App.Current.AccountUsage.RecordUsage(capturedAccount.Id);
                             }
                             catch (Exception ex)
                             {
