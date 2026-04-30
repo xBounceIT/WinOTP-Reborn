@@ -14,6 +14,11 @@ internal static class AppPaths
         return Path.Combine(GetAppDataDirectory(), "settings.json");
     }
 
+    public static string GetUsageStatsFilePath()
+    {
+        return Path.Combine(GetAppDataDirectory(), "usage-stats.json");
+    }
+
     public static string GetLogsDirectory()
     {
         return Path.Combine(GetAppDataDirectory(), "logs");
