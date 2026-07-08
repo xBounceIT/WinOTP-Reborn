@@ -82,25 +82,43 @@ public sealed partial class AddAccountPage : Page
         }
 
         // Show the overlay for region selection
-        var overlay = new ScreenCaptureOverlay();
-        var qrText = await overlay.StartCaptureAsync(capture);
-
-        // Restore main window
-        mainPresenter?.Restore();
-        mainWindow.Activate();
-
-        if (qrText is null)
+        ScreenCaptureOverlay? overlay = null;
+        ScreenCaptureScanResult scanResult;
+        try
         {
-            // User cancelled or no QR found - only show error if they made a selection
-            if (qrText == null && overlay.Title != "cancelled")
-            {
-                // The overlay returns null for both cancel and no-QR-found.
-                // We can't easily distinguish here, so we just stay on this page silently.
-            }
+            overlay = new ScreenCaptureOverlay();
+            scanResult = await overlay.StartCaptureAsync(capture);
+        }
+        catch
+        {
+            overlay?.Close();
+            scanResult = ScreenCaptureScanResult.Failed();
+        }
+        finally
+        {
+            // Restore main window
+            mainPresenter?.Restore();
+            mainWindow.Activate();
+        }
+
+        if (scanResult.Status == ScreenCaptureScanStatus.Cancelled)
+        {
             return;
         }
 
-        var account = OtpUriParser.TryParse(qrText);
+        if (scanResult.Status == ScreenCaptureScanStatus.NoQrCodeFound)
+        {
+            await ShowErrorAsync("No QR code found in the selected screen region.");
+            return;
+        }
+
+        if (scanResult.Status == ScreenCaptureScanStatus.Failed || string.IsNullOrWhiteSpace(scanResult.Text))
+        {
+            await ShowErrorAsync("Failed to scan the selected screen region.");
+            return;
+        }
+
+        var account = OtpUriParser.TryParse(scanResult.Text);
         if (account is null)
         {
             await ShowErrorAsync("The QR code does not contain a valid OTP URI.");
