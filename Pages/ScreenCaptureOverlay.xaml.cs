@@ -8,15 +8,13 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
 using WinOTP.Helpers;
 
 namespace WinOTP.Pages;
 
 public sealed partial class ScreenCaptureOverlay : Window
 {
-    private readonly TaskCompletionSource<string?> _resultTcs = new();
+    private readonly TaskCompletionSource<ScreenCaptureScanResult> _resultTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ScreenCapture? _capture;
     private Windows.Foundation.Point _startPoint;
     private Rectangle? _selectionRect;
@@ -31,9 +29,12 @@ public sealed partial class ScreenCaptureOverlay : Window
         this.InitializeComponent();
     }
 
-    public async Task<string?> StartCaptureAsync(ScreenCapture capture)
+    public async Task<ScreenCaptureScanResult> StartCaptureAsync(ScreenCapture capture)
     {
         _capture = capture;
+        // Register Closed before setup so cancellation and hook cleanup are
+        // wired even if a setup step shows the window and then fails.
+        this.Closed += OnClosed;
 
         // Make fullscreen borderless
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -65,11 +66,6 @@ public sealed partial class ScreenCaptureOverlay : Window
         // longer foreground and SetForegroundWindow is restricted. Without
         // this AttachThreadInput dance the overlay is topmost-but-unfocused.
         ForceForeground(hwnd);
-
-        // Register Closed before installing the hook so the unhook path is
-        // wired up even if hook installation throws or a future refactor
-        // inserts a throwing call between the two.
-        this.Closed += OnClosed;
 
         // ESC is handled by a low-level keyboard hook rather than the WinUI3
         // input island. The island only fires KeyDown when it actually owns
@@ -157,10 +153,10 @@ public sealed partial class ScreenCaptureOverlay : Window
         _isDragging = false;
         OverlayCanvas.ReleasePointerCapture(e.Pointer);
 
-        var x = (int)Canvas.GetLeft(_selectionRect);
-        var y = (int)Canvas.GetTop(_selectionRect);
-        var width = (int)_selectionRect.Width;
-        var height = (int)_selectionRect.Height;
+        var x = Canvas.GetLeft(_selectionRect);
+        var y = Canvas.GetTop(_selectionRect);
+        var width = _selectionRect.Width;
+        var height = _selectionRect.Height;
 
         e.Handled = true;
 
@@ -170,24 +166,65 @@ public sealed partial class ScreenCaptureOverlay : Window
             return;
         }
 
-        // Crop pixels from the captured screen
-        var croppedPixels = CropPixels(_capture.Pixels, _capture.Width, _capture.Height, x, y, width, height);
-        if (croppedPixels == null)
+        var canvasWidth = OverlayCanvas.ActualWidth;
+        var canvasHeight = OverlayCanvas.ActualHeight;
+        if (!ScreenCaptureSelectionMapper.TryMapToPixelRect(
+            x,
+            y,
+            width,
+            height,
+            canvasWidth,
+            canvasHeight,
+            _capture.Width,
+            _capture.Height,
+            out var selectionRect))
         {
+            _resultTcs.TrySetResult(ScreenCaptureScanResult.Failed());
             this.Close();
             return;
         }
 
-        // Decode QR code from cropped region
         try
         {
-            var qrText = QrCodeHelper.DecodeFromPixels(croppedPixels, width, height);
-            _resultTcs.TrySetResult(qrText);
+            var qrText = DecodeSelection(_capture, selectionRect);
+            _resultTcs.TrySetResult(qrText is null
+                ? ScreenCaptureScanResult.NoQrCodeFound()
+                : ScreenCaptureScanResult.Success(qrText));
         }
         catch
         {
+            _resultTcs.TrySetResult(ScreenCaptureScanResult.Failed());
         }
         this.Close();
+    }
+
+    private string? DecodeSelection(ScreenCapture capture, ScreenCapturePixelRect selectionRect)
+    {
+        var qrText = DecodeFromRect(capture, selectionRect);
+        if (qrText is not null)
+        {
+            return qrText;
+        }
+
+        var padding = ScreenCaptureSelectionMapper.GetQuietZonePadding(selectionRect);
+        var expandedRect = ScreenCaptureSelectionMapper.Expand(
+            selectionRect,
+            capture.Width,
+            capture.Height,
+            padding);
+
+        if (expandedRect == selectionRect)
+        {
+            return null;
+        }
+
+        return DecodeFromRect(capture, expandedRect);
+    }
+
+    private string? DecodeFromRect(ScreenCapture capture, ScreenCapturePixelRect rect)
+    {
+        var croppedPixels = CropPixels(capture.Pixels, capture.Width, rect);
+        return QrCodeHelper.DecodeFromPixels(croppedPixels, rect.Width, rect.Height);
     }
 
     private IntPtr OnLowLevelKey(int code, IntPtr wParam, IntPtr lParam)
@@ -221,27 +258,17 @@ public sealed partial class ScreenCaptureOverlay : Window
             _keyboardHook = IntPtr.Zero;
         }
         _keyboardHookProc = null;
-        _resultTcs.TrySetResult(null);
+        _resultTcs.TrySetResult(ScreenCaptureScanResult.Cancelled());
     }
 
-    private static byte[]? CropPixels(byte[] source, int sourceWidth, int sourceHeight,
-        int cropX, int cropY, int cropWidth, int cropHeight)
+    private static byte[] CropPixels(byte[] source, int sourceWidth, ScreenCapturePixelRect rect)
     {
-        // Clamp to source bounds
-        cropX = Math.Max(0, Math.Min(cropX, sourceWidth - 1));
-        cropY = Math.Max(0, Math.Min(cropY, sourceHeight - 1));
-        cropWidth = Math.Min(cropWidth, sourceWidth - cropX);
-        cropHeight = Math.Min(cropHeight, sourceHeight - cropY);
-
-        if (cropWidth <= 0 || cropHeight <= 0)
-            return null;
-
-        var cropped = new byte[cropWidth * cropHeight * 4];
-        for (var row = 0; row < cropHeight; row++)
+        var cropped = new byte[rect.Width * rect.Height * 4];
+        for (var row = 0; row < rect.Height; row++)
         {
-            var srcOffset = ((cropY + row) * sourceWidth + cropX) * 4;
-            var dstOffset = row * cropWidth * 4;
-            System.Buffer.BlockCopy(source, srcOffset, cropped, dstOffset, cropWidth * 4);
+            var srcOffset = ((rect.Y + row) * sourceWidth + rect.X) * 4;
+            var dstOffset = row * rect.Width * 4;
+            System.Buffer.BlockCopy(source, srcOffset, cropped, dstOffset, rect.Width * 4);
         }
         return cropped;
     }
@@ -259,7 +286,7 @@ public sealed partial class ScreenCaptureOverlay : Window
         // is permitted (the OS otherwise blocks foreground steals from a non-
         // foreground process). Don't SetFocus on hwnd: the WinUI3 content island
         // is a child HWND and SetForegroundWindow routes focus there via
-        // WM_ACTIVATE — explicitly focusing the parent breaks island KeyDown.
+        // WM_ACTIVATE - explicitly focusing the parent breaks island KeyDown.
         var attached = fgThread != 0 && fgThread != currentThread
             && AttachThreadInput(fgThread, currentThread, true);
         SetForegroundWindow(hwnd);
