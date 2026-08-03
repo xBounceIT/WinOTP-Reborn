@@ -25,6 +25,10 @@ installer/output/
 *.nupkg
 *.snupkg
 
+# Electron frontend
+electron-app/node_modules/
+electron-app/dist/
+
 # NuGet
 packages/
 

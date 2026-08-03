@@ -52,6 +52,18 @@ dotnet build -c Release
 dotnet run
 ```
 
+### Electron Migration UI
+
+The parallel Electron frontend lives in `electron-app/` and mirrors the WinUI3 window, navigation rail, account cards, add/import/manual-entry flows, settings sections, and lock overlay. It currently uses local preview state so the UI can be migrated independently before the secure storage and native Windows bridges are connected.
+
+```bash
+cd electron-app
+npm install
+npm run dev
+```
+
+The frontend uses React, Shadcn UI components, TypeScript 7, Vite 8, Oxlint, and Oxfmt. Run `npm run build` for a production renderer build, or `npm run lint` and `npm run format:check` for the migration checks.
+
 ### Build Installer
 
 The project version in `WinOTP.csproj` is the source of truth for both the app and installer version.
