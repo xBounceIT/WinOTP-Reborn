@@ -168,6 +168,18 @@ test("migrates legacy accounts and persists account mutations", () => {
     const usageResult = store.recordUsage("new-account");
     assert.equal(usageResult.success, true);
     assert.equal(usageResult.usageCount, 1);
+    assert.equal(
+      store.saveAccount({
+        ...saveResult.account,
+        issuer: "AWS updated",
+        usageCount: 0,
+      }).success,
+      true,
+    );
+    assert.equal(
+      store.readAccounts().accounts.find((account) => account.id === "new-account")?.usageCount,
+      1,
+    );
     assert.equal(store.deleteAccount("legacy-1").success, true);
     assert.deepEqual(
       store.readAccounts().accounts.map((account) => account.id),

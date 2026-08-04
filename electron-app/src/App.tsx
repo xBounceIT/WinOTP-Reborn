@@ -10,6 +10,7 @@ import { HomePage } from "@/pages/HomePage";
 import { ImportPage } from "@/pages/ImportPage";
 import { ManualEntryPage } from "@/pages/ManualEntryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { mergeUsageCount } from "@/lib/account-usage";
 import { useTotp } from "@/lib/use-totp";
 import {
   directCredentialKind,
@@ -38,6 +39,16 @@ import type {
 import { defaultSettings } from "@/lib/types";
 
 const settingsStorageKey = "winotp-electron.settings";
+
+function getTrayAccountLabel(account: OtpAccount) {
+  const issuer = account.issuer.trim();
+  const accountName = account.accountName.trim();
+  if (issuer && accountName) {
+    return `${issuer} (${accountName})`;
+  }
+
+  return issuer || accountName || "Account";
+}
 
 function resolveThemeColor(variable: "--background" | "--foreground") {
   const probe = document.createElement("span");
@@ -80,6 +91,10 @@ function readAppSettings(): AppSettings {
   return {
     ...defaultSettings,
     ...savedSettings,
+    minimizeOnClose:
+      savedSettings.minimizeOnClose === true && savedSettings.minimizeToTray !== true,
+    minimizeToTray: savedSettings.minimizeToTray === true,
+    showTotpInTray: savedSettings.showTotpInTray === true,
     automaticBackup: savedSettings.automaticBackup === true,
     customBackupFolderPath:
       typeof savedSettings.customBackupFolderPath === "string"
@@ -317,12 +332,53 @@ export default function App() {
     return () => overlay.removeEventListener("keydown", handleKeyDown);
   }, [locked]);
 
+  useEffect(() => {
+    const unsubscribe = window.winotp?.onTrayUsageRecorded(({ id, usageCount }) => {
+      updateAccountUsage(id, usageCount);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    window.winotp?.setTrayState({
+      minimizeOnClose: settings.minimizeOnClose,
+      minimizeToTray: settings.minimizeToTray,
+      showTotpInTray: settings.showTotpInTray,
+      locked,
+      accounts: settings.showTotpInTray
+        ? accounts.map((account) => ({
+            id: account.id,
+            label: getTrayAccountLabel(account),
+            code: codes[account.id]?.code ?? "—".repeat(account.digits),
+          }))
+        : [],
+    });
+  }, [
+    accounts,
+    codes,
+    locked,
+    settings.minimizeOnClose,
+    settings.minimizeToTray,
+    settings.showTotpInTray,
+  ]);
+
   function showToast(message: string) {
     setToast(message);
     if (toastTimer.current) {
       window.clearTimeout(toastTimer.current);
     }
     toastTimer.current = window.setTimeout(() => setToast(""), 2600);
+  }
+
+  function updateAccountUsage(id: string, usageCount: unknown) {
+    setAccounts((current) =>
+      current.map((account) =>
+        account.id === id
+          ? { ...account, usageCount: mergeUsageCount(account.usageCount, usageCount) }
+          : account,
+      ),
+    );
   }
 
   function navigate(nextRoute: Route) {
@@ -350,7 +406,14 @@ export default function App() {
       setAccounts((current) => {
         const existing = current.some((item) => item.id === persistedAccount.id);
         return existing
-          ? current.map((item) => (item.id === persistedAccount.id ? persistedAccount : item))
+          ? current.map((item) =>
+              item.id === persistedAccount.id
+                ? {
+                    ...persistedAccount,
+                    usageCount: mergeUsageCount(item.usageCount, persistedAccount.usageCount),
+                  }
+                : item,
+            )
           : [...current, persistedAccount];
       });
       setEditingAccount(undefined);
@@ -378,11 +441,7 @@ export default function App() {
     try {
       const result = await window.winotp?.accounts.recordUsage(account.id);
       if (result?.success) {
-        setAccounts((current) =>
-          current.map((item) =>
-            item.id === account.id ? { ...item, usageCount: result.usageCount } : item,
-          ),
-        );
+        updateAccountUsage(account.id, result.usageCount);
       } else {
         usageSaved = false;
       }
@@ -417,7 +476,16 @@ export default function App() {
   }
 
   function changeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    setSettings((current) => ({ ...current, [key]: value }));
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "minimizeOnClose" && value === true) {
+        next.minimizeToTray = false;
+      }
+      if (key === "minimizeToTray" && value === true) {
+        next.minimizeOnClose = false;
+      }
+      return next;
+    });
   }
 
   function unavailableBackupResult(): BackupConfigurationResult {

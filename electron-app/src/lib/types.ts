@@ -65,6 +65,20 @@ export interface AccountUsageResult {
   message?: string;
 }
 
+export interface TrayAccount {
+  id: string;
+  label: string;
+  code: string;
+}
+
+export interface TrayState {
+  minimizeOnClose: boolean;
+  minimizeToTray: boolean;
+  showTotpInTray: boolean;
+  locked: boolean;
+  accounts: TrayAccount[];
+}
+
 export interface BackupOperationResult {
   success: boolean;
   errorCode?: string;

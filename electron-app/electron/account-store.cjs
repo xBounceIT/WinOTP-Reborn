@@ -492,7 +492,7 @@ class AccountStore {
           digits = excluded.digits,
           period = excluded.period,
           created_at = excluded.created_at,
-          usage_count = excluded.usage_count
+          usage_count = MAX(accounts.usage_count, excluded.usage_count)
       `)
       .run(
         account.id,

@@ -2,15 +2,35 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 let latestScreenCapture;
 const screenCaptureListeners = new Set();
+const trayUsageListeners = new Set();
 
 ipcRenderer.on("screen-capture-ready", (_event, capture) => {
   latestScreenCapture = capture;
   screenCaptureListeners.forEach((listener) => listener(capture));
 });
 
+ipcRenderer.on("tray-usage-recorded", (_event, usage) => {
+  trayUsageListeners.forEach((listener) => {
+    try {
+      listener(usage);
+    } catch {
+      // A renderer listener must not break delivery to other listeners.
+    }
+  });
+});
+
 contextBridge.exposeInMainWorld("winotp", {
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   setTitleBarTheme: (theme) => ipcRenderer.send("set-title-bar-theme", theme),
+  setTrayState: (state) => ipcRenderer.send("set-tray-state", state),
+  onTrayUsageRecorded: (listener) => {
+    if (typeof listener !== "function") {
+      return () => undefined;
+    }
+
+    trayUsageListeners.add(listener);
+    return () => trayUsageListeners.delete(listener);
+  },
   captureScreen: () => ipcRenderer.invoke("capture-screen"),
   onScreenCaptureReady: (listener) => {
     screenCaptureListeners.add(listener);

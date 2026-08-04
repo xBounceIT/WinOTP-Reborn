@@ -14,6 +14,7 @@ import type {
   SecurityStatusResult,
   WindowsHelloAvailabilityResult,
   WindowsHelloVerificationResult,
+  TrayState,
 } from "@/lib/types";
 
 declare global {
@@ -35,6 +36,11 @@ declare global {
     display: ScreenCaptureDisplay;
   }
 
+  interface TrayUsagePayload {
+    id: string;
+    usageCount?: number;
+  }
+
   type ScreenCaptureResult =
     | { status: "success"; text: string }
     | { status: "cancelled" | "no-qr-code" | "failed" };
@@ -43,6 +49,8 @@ declare global {
     winotp?: {
       openExternal: (url: string) => Promise<boolean>;
       setTitleBarTheme: (theme: { color: string; symbolColor: string }) => void;
+      setTrayState: (state: TrayState) => void;
+      onTrayUsageRecorded: (listener: (usage: TrayUsagePayload) => void) => () => void;
       captureScreen: () => Promise<ScreenCaptureResult>;
       onScreenCaptureReady: (listener: (capture: ScreenCapturePayload) => void) => () => void;
       completeScreenCapture: (result: ScreenCaptureResult) => void;

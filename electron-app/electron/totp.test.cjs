@@ -1,0 +1,58 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const { generateTotpCode } = require("./totp.cjs");
+
+const rfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+const rfcSha256Secret =
+  "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA";
+const rfcSha512Secret =
+  "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
+
+test("generates the RFC 6238 SHA-1 vector", () => {
+  assert.equal(
+    generateTotpCode(
+      {
+        secret: rfcSecret,
+        algorithm: "SHA1",
+        digits: 8,
+        period: 30,
+      },
+      59_000,
+    ),
+    "94287082",
+  );
+});
+
+test("supports the RFC 6238 SHA-256 and SHA-512 vectors", () => {
+  const shared = { digits: 8, period: 30 };
+  assert.equal(
+    generateTotpCode(
+      { ...shared, secret: rfcSha256Secret, algorithm: "SHA256" },
+      59_000,
+    ),
+    "46119246",
+  );
+  assert.equal(
+    generateTotpCode(
+      { ...shared, secret: rfcSha512Secret, algorithm: "SHA512" },
+      59_000,
+    ),
+    "90693936",
+  );
+});
+
+test("returns a safe placeholder for invalid TOTP input", () => {
+  assert.equal(
+    generateTotpCode(
+      {
+        secret: "not-base32!",
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+      },
+      59_000,
+    ),
+    "——————",
+  );
+});

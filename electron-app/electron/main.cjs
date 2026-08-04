@@ -1,12 +1,15 @@
 const {
   app,
   BrowserWindow,
+  clipboard,
   desktopCapturer,
   dialog,
   ipcMain,
+  Menu,
   safeStorage,
   screen,
   shell,
+  Tray,
 } = require("electron");
 const path = require("node:path");
 const { createDisplayCapturePlan, getThumbnailSize } = require("./screen-capture.cjs");
@@ -15,17 +18,21 @@ const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
+const { generateTotpCode } = require("./totp.cjs");
 const {
   isAllowedRendererUrl,
   isLoopbackRendererUrl,
   isTrustedRendererEvent,
 } = require("./security.cjs");
+const { createTrayController } = require("./tray.cjs");
 
 let mainWindow;
+let trayController;
 let screenCaptureRequest;
 let screenCaptureInProgress = false;
 let securityStore;
 let windowsHelloOperationInProgress = false;
+let isQuitting = false;
 const titleBarHeight = 32;
 const defaultTitleBarTheme = {
   color: "#000000",
@@ -56,6 +63,117 @@ function updateTitleBarTheme(theme = {}) {
 
 function isDevelopment() {
   return process.argv.includes("--dev") || Boolean(process.env.VITE_DEV_SERVER_URL);
+}
+
+function getIconPath() {
+  return path.join(__dirname, "..", app.isPackaged ? "dist" : "public", "app.ico");
+}
+
+function restoreMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+}
+
+function exitFromTray() {
+  isQuitting = true;
+  app.quit();
+}
+
+function getAccountLabel(account) {
+  const issuer = String(account?.issuer ?? "").trim();
+  const accountName = String(account?.accountName ?? "").trim();
+  if (issuer && accountName) {
+    return `${issuer} (${accountName})`;
+  }
+
+  return issuer || accountName || "Account";
+}
+
+function loadStoredAccounts() {
+  try {
+    return accountStoreLoader.get()?.readAccounts().accounts ?? [];
+  } catch (error) {
+    accountStoreLoader.close();
+    console.error("Failed to refresh accounts for the tray menu.", error);
+    return undefined;
+  }
+}
+
+function refreshTrayCodes() {
+  const state = trayController?.getState();
+  if (!state || !state.showTotpInTray || state.locked) {
+    return;
+  }
+
+  const storedAccounts = loadStoredAccounts();
+  if (!storedAccounts) {
+    return;
+  }
+
+  trayController.setState({
+    ...state,
+    accounts: storedAccounts.map((account) => ({
+      id: account.id,
+      label: getAccountLabel(account),
+      code: generateTotpCode(account),
+    })),
+  });
+}
+
+function copyTrayCode(accountId) {
+  const state = trayController?.getState();
+  if (!state || !state.showTotpInTray || state.locked) {
+    return;
+  }
+
+  const account = state.accounts.find((item) => item.id === accountId);
+  if (!account) {
+    return;
+  }
+
+  const storedAccounts = loadStoredAccounts();
+  const storedAccount = storedAccounts?.find((item) => item.id === account.id);
+  if (storedAccounts && !storedAccount) {
+    return;
+  }
+  const currentCode = storedAccount ? generateTotpCode(storedAccount) : account.code;
+
+  try {
+    clipboard.writeText(currentCode);
+  } catch (error) {
+    console.error("Failed to copy a TOTP code from the tray menu.", error);
+    return;
+  }
+
+  try {
+    const store = accountStoreLoader.get();
+    const result = store?.recordUsage(account.id);
+    if (result?.success && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("tray-usage-recorded", {
+        id: account.id,
+        usageCount: result.usageCount,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to record tray code usage.", error);
+  }
+}
+
+function updateTrayState(event, state) {
+  if (!isTrustedRendererEvent(event, mainWindow)) {
+    return;
+  }
+
+  trayController?.setState(state);
 }
 
 function loadRenderer(window, query = {}) {
@@ -865,7 +983,7 @@ function registerSecurityIpc() {
 }
 
 function createWindow() {
-  const iconPath = path.join(__dirname, "..", app.isPackaged ? "dist" : "public", "app.ico");
+  const iconPath = getIconPath();
   const devRequested =
     !app.isPackaged && (process.argv.includes("--dev") || Boolean(process.env.VITE_DEV_SERVER_URL));
   const rendererUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173";
@@ -910,6 +1028,23 @@ function createWindow() {
   mainWindow.webContents.on("will-navigate", rejectUnexpectedNavigation);
   mainWindow.webContents.on("will-redirect", rejectUnexpectedNavigation);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.on("close", (event) => {
+    if (isQuitting) {
+      return;
+    }
+
+    const state = trayController?.getState();
+    if (state?.minimizeToTray) {
+      event.preventDefault();
+      mainWindow.hide();
+      return;
+    }
+
+    if (state?.minimizeOnClose) {
+      event.preventDefault();
+      mainWindow.minimize();
+    }
+  });
 
   if (isDev && !app.isPackaged) {
     mainWindow.loadURL(rendererUrl);
@@ -929,14 +1064,7 @@ if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    if (!mainWindow) {
-      return;
-    }
-
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore();
-    }
-    mainWindow.focus();
+    restoreMainWindow();
   });
 
   app.whenReady().then(() => {
@@ -960,6 +1088,7 @@ if (!hasSingleInstanceLock) {
       return true;
     });
     ipcMain.handle("capture-screen", captureScreen);
+    ipcMain.on("set-tray-state", updateTrayState);
     ipcMain.on("screen-capture-result", (event, result) => {
       if (!screenCaptureRequest || !screenCaptureRequest.webContents.has(event.sender)) {
         return;
@@ -975,6 +1104,18 @@ if (!hasSingleInstanceLock) {
       updateTitleBarTheme(theme);
     });
 
+    trayController = createTrayController({
+      Tray,
+      Menu,
+      iconPath: getIconPath(),
+      onOpen: restoreMainWindow,
+      onCopy: copyTrayCode,
+      onExit: exitFromTray,
+      onMenuOpen: refreshTrayCodes,
+      onError: (error) => {
+        console.error("Tray icon operation failed.", error);
+      },
+    });
     createWindow();
   });
 }
@@ -986,5 +1127,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
+  trayController?.dispose();
   accountStoreLoader.close();
 });
