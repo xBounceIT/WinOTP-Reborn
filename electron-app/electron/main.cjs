@@ -571,7 +571,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(() => {
     app.setName("WinOTP");
-    app.setAppUserModelId("xBounceIT.WinOTP");
+    app.setAppUserModelId("com.xbounceit.winotp");
 
     accountStoreLoader.get();
     registerAccountIpc();

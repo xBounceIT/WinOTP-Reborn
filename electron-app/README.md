@@ -24,4 +24,15 @@ npm run format:check
 npm run build
 ```
 
+To package the app locally, install the dependencies and run the Electron Builder script with a target platform:
+
+```bash
+npm run build
+npm run package -- --win --x64
+npm run package -- --linux --x64
+npm run package -- --mac --universal
+```
+
+Release tags are packaged by the repository workflow into a Windows NSIS setup, Linux AppImage, and universal macOS DMG.
+
 Stack: Electron, React, Shadcn UI components, TypeScript 7, Vite 8, Tailwind CSS 4, Oxlint, and Oxfmt.

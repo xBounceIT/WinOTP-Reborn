@@ -1,0 +1,160 @@
+name: Release Electron app
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Verify Electron app
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: electron-app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+
+          const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+          const tagVersion = process.env.RELEASE_TAG.replace(/^v/, '');
+
+          if (packageJson.version !== tagVersion) {
+            throw new Error(
+              `Tag '${process.env.RELEASE_TAG}' does not match package.json version '${packageJson.version}'.`,
+            );
+          }
+          NODE
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run test:electron
+      - run: npm run build
+
+  package:
+    name: Package ${{ matrix.platform }}
+    needs: checks
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+            builder-platform: win
+            builder-arch: x64
+            artifact: electron-app/release/WinOTP-*-win-*-setup.exe
+          - platform: linux
+            runner: ubuntu-latest
+            builder-platform: linux
+            builder-arch: x64
+            artifact: electron-app/release/WinOTP-*-linux-*-setup.AppImage
+          - platform: macos
+            runner: macos-latest
+            builder-platform: mac
+            builder-arch: universal
+            artifact: electron-app/release/WinOTP-*-mac-*-setup.dmg
+
+    defaults:
+      run:
+        working-directory: electron-app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Build ${{ matrix.platform }} installer
+        run: npm run package -- --${{ matrix.builder-platform }} --${{ matrix.builder-arch }}
+
+      - name: Upload ${{ matrix.platform }} installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.platform }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release with generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if release_json="$(gh release view "$RELEASE_TAG" --repo "$REPOSITORY" --json isDraft,assets 2>/dev/null)"; then
+            is_draft="$(jq -r '.isDraft' <<<"$release_json")"
+            existing_assets="$(jq -r '.assets[].name' <<<"$release_json")"
+
+            for asset in dist/*; do
+              asset_name="$(basename "$asset")"
+              if grep -Fqx "$asset_name" <<<"$existing_assets"; then
+                if [[ "$is_draft" == "true" ]]; then
+                  gh release upload "$RELEASE_TAG" "$asset" --repo "$REPOSITORY" --clobber
+                fi
+              else
+                gh release upload "$RELEASE_TAG" "$asset" --repo "$REPOSITORY"
+              fi
+            done
+
+            gh release edit "$RELEASE_TAG" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --draft=false
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              dist/*
+          fi

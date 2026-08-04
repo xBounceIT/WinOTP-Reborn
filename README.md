@@ -52,6 +52,6 @@ dotnet build WinOTP.Core.csproj
 
 ## Project status
 
-The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging and release automation will be added after the remaining native bridges are migrated.
+The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging is now handled by `.github/workflows/release.yml`, which builds a Windows NSIS setup, Linux AppImage, and universal macOS DMG for version tags such as `v2.0.0`.
 
 WinOTP is licensed under the MIT License.
