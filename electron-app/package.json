@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron electron/main.cjs --dev\"",
     "build": "npm run typecheck && vite build",
+    "test": "node --experimental-strip-types --test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src vite.config.ts",
     "format": "oxfmt --write src vite.config.ts",
@@ -19,6 +20,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "jsqr": "^1.4.0",
     "lucide-react": "^1.28.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",

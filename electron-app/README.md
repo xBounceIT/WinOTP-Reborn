@@ -2,11 +2,12 @@
 
 This is the parallel frontend for the WinUI3 implementation in the repository root. It keeps the current 480×650 content model, uses native OS window controls with a themeable titlebar overlay, compact left navigation rail, 360px account column, and the existing Home, Add Account, Import, Manual Entry, and Settings page boundaries.
 
-The UI is intentionally usable before the native migration bridge is connected:
+The UI keeps the migration bridge narrow while the rest of the app is being migrated:
 
 - Three local demo accounts render live RFC 6238-compatible TOTP codes.
 - Search, sorting, copying, add/edit/delete, settings, theme preview, and the lock overlay work in local state.
-- QR capture, backup, update, and secure persistence actions surface the bridge boundary without pretending those native capabilities are complete.
+- Screen-region QR capture uses Electron's cross-platform `screen` and `desktopCapturer` APIs. It creates one local-coordinate overlay per OS display, preserves negative origins and per-monitor DPI, matches sources by `display_id`, and adds decoded `otpauth://` accounts to the local account list.
+- Backup, update, and secure persistence actions still surface the remaining native bridge boundary.
 
 ## Development
 

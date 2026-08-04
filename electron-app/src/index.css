@@ -950,6 +950,61 @@ html:not(.dark) .choice-card:hover {
   width: 200px;
 }
 
+.screen-capture-overlay {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.screen-capture-overlay__screen {
+  position: absolute;
+  z-index: 0;
+  display: block;
+  max-width: none;
+  pointer-events: none;
+  object-fit: fill;
+}
+
+.screen-capture-overlay__shade {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: rgb(0 0 0 / 32%);
+  pointer-events: none;
+}
+
+.screen-capture-overlay__selection {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid rgb(255 255 255 / 92%);
+  background: rgb(255 255 255 / 5%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 55%), 0 0 0 9999px rgb(0 0 0 / 12%);
+  pointer-events: none;
+}
+
+.screen-capture-overlay__status {
+  position: absolute;
+  z-index: 3;
+  top: 18px;
+  left: 50%;
+  max-width: calc(100% - 36px);
+  padding: 8px 12px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 68%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 25%);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+  pointer-events: none;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;

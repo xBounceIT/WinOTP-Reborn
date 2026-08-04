@@ -184,7 +184,9 @@ export default function App() {
       );
     }
     if (route === "add") {
-      return <AddAccountPage onNavigate={navigate} onToast={showToast} />;
+      return (
+        <AddAccountPage onNavigate={navigate} onToast={showToast} onAccountDetected={saveAccount} />
+      );
     }
     if (route === "import") {
       return <ImportPage onToast={showToast} />;

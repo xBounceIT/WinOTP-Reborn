@@ -54,7 +54,7 @@ dotnet run
 
 ### Electron Migration UI
 
-The parallel Electron frontend lives in `electron-app/` and mirrors the WinUI3 window, navigation rail, account cards, add/import/manual-entry flows, settings sections, and lock overlay. It currently uses local preview state so the UI can be migrated independently before the secure storage and native Windows bridges are connected.
+The parallel Electron frontend lives in `electron-app/` and mirrors the WinUI3 window, navigation rail, account cards, add/import/manual-entry flows, settings sections, and lock overlay. It uses local preview state while the secure storage and remaining native Windows bridges are migrated; screen-region QR capture is already wired through Electron's main/preload bridge.
 
 ```bash
 cd electron-app
