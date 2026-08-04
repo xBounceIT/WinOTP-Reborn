@@ -982,7 +982,9 @@ html:not(.dark) .choice-card:hover {
   z-index: 2;
   border: 2px solid rgb(255 255 255 / 92%);
   background: rgb(255 255 255 / 5%);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 55%), 0 0 0 9999px rgb(0 0 0 / 12%);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 55%),
+    0 0 0 9999px rgb(0 0 0 / 12%);
   pointer-events: none;
 }
 

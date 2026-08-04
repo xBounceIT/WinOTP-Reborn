@@ -1,11 +1,18 @@
 # WinOTP - Reborn
 
-This is a C# .NET 10 Windows 11 Desktop TOTP manager App built with WinUI3.
+This repository is migrating its Windows TOTP manager from a native C# frontend to Electron.
 
-## UI
-- Make sure to always respect WinUI3 guidelines
+## Architecture
+
+- Treat `electron-app/` as the primary application surface.
+- Keep `WinOTP.Core.csproj` limited to transitional Windows-specific support and migration logic.
+- Do not add new application UI behavior to the C# support project; implement new UI and renderer-facing behavior in Electron.
+
+## Checks
+
+- Electron: run the typecheck, lint, format check, unit tests, and production build from `electron-app/`.
+- Transitional C#: run `dotnet test WinOTP.Tests\WinOTP.Tests.csproj` and build `WinOTP.Core.csproj` when changing the support code.
 
 ## Releases
-- For GitHub releases, publish the installer assets produced by `scripts/Build-Installer.ps1`, not the raw `dotnet publish` folders.
-- Preferred release assets are `WinOTP-<version>-win-x64-setup.exe` and `WinOTP-<version>-win-arm64-setup.exe`.
-- The `artifacts/publish/win-x64` and `artifacts/publish/win-arm64` directories are build outputs for validation or manual distribution, not the primary GitHub release artifacts.
+
+Electron packaging and release automation are intentionally paused while the remaining native bridges are migrated. Do not restore the retired native installer pipeline for Electron releases.
