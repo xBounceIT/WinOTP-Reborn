@@ -1,5 +1,5 @@
 import { LockKeyhole, ScanFace } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { NavigationRail } from "@/components/NavigationRail";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   isSortOption,
   normalizeCustomOrderIds,
   reconcileCustomOrderIds,
+  sortAccounts,
 } from "@/lib/account-order";
 import { mergeUsageCount } from "@/lib/account-usage";
 import { loadAccountsUntilCurrent, mergePersistedAccounts } from "@/lib/account-state";
@@ -207,6 +208,10 @@ export default function App() {
   securityStatusRef.current = securityStatus;
   requestLockRef.current = requestLock;
   const { accountTiming, codes } = useTotp(accounts);
+  const orderedAccounts = useMemo(
+    () => sortAccounts(accounts, settings.accountSortOption, settings.accountCustomOrderIds),
+    [accounts, settings.accountCustomOrderIds, settings.accountSortOption],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -712,7 +717,7 @@ export default function App() {
       showTotpInTray: settings.showTotpInTray,
       locked,
       accounts: settings.showTotpInTray
-        ? accounts.map((account) => ({
+        ? orderedAccounts.map((account) => ({
             id: account.id,
             label: getTrayAccountLabel(account),
             code: codes[account.id]?.code ?? "—".repeat(account.digits),
@@ -720,9 +725,9 @@ export default function App() {
         : [],
     });
   }, [
-    accounts,
     codes,
     locked,
+    orderedAccounts,
     settings.minimizeOnClose,
     settings.minimizeToTray,
     settings.showTotpInTray,

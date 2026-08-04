@@ -59,6 +59,31 @@ function shouldKeepTray(state) {
   return state.minimizeOnClose || state.minimizeToTray || state.showTotpInTray;
 }
 
+function orderAccountsByIds(accounts, preferredOrderIds = []) {
+  const accountById = new Map(
+    accounts
+      .filter((account) => isObject(account) && typeof account.id === "string")
+      .map((account) => [account.id, account]),
+  );
+  const ordered = [];
+  const usedIds = new Set();
+
+  for (const id of preferredOrderIds) {
+    const account = accountById.get(id);
+    if (account && !usedIds.has(id)) {
+      usedIds.add(id);
+      ordered.push(account);
+    }
+  }
+
+  return [
+    ...ordered,
+    ...accounts.filter(
+      (account) => isObject(account) && !usedIds.has(account.id),
+    ),
+  ];
+}
+
 function areTrayStatesEqual(left, right) {
   if (
     left.minimizeOnClose !== right.minimizeOnClose ||
@@ -229,6 +254,7 @@ module.exports = {
   buildTrayMenuTemplate,
   createTrayController,
   normalizeTrayState,
+  orderAccountsByIds,
   areTrayStatesEqual,
   shouldKeepTray,
 };

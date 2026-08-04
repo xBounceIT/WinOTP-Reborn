@@ -5,8 +5,22 @@ const {
   buildTrayMenuTemplate,
   createTrayController,
   normalizeTrayState,
+  orderAccountsByIds,
   shouldKeepTray,
 } = require("./tray.cjs");
+
+test("preserves the renderer order when persisted accounts are refreshed", () => {
+  const accounts = [
+    { id: "newest" },
+    { id: "oldest" },
+    { id: "middle" },
+  ];
+
+  assert.deepEqual(
+    orderAccountsByIds(accounts, ["middle", "oldest", "missing"]),
+    [accounts[2], accounts[1], accounts[0]],
+  );
+});
 
 test("normalizes tray state and removes invalid or duplicate accounts", () => {
   const state = normalizeTrayState({

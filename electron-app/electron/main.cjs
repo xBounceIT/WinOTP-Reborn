@@ -42,7 +42,7 @@ const {
 } = require("./security.cjs");
 
 const SESSION_NOTIFICATION_RETRY_DELAYS_MS = [1_000, 5_000];
-const { createTrayController } = require("./tray.cjs");
+const { createTrayController, orderAccountsByIds } = require("./tray.cjs");
 
 let mainWindow;
 let trayController;
@@ -153,9 +153,14 @@ function refreshTrayCodes() {
     return;
   }
 
+  const orderedStoredAccounts = orderAccountsByIds(
+    storedAccounts,
+    state.accounts.map((account) => account.id),
+  );
+
   trayController.setState({
     ...state,
-    accounts: storedAccounts.map((account) => ({
+    accounts: orderedStoredAccounts.map((account) => ({
       id: account.id,
       label: getAccountLabel(account),
       code: generateTotpCode(account),
