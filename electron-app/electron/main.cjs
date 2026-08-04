@@ -19,6 +19,7 @@ const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { generateTotpCode } = require("./totp.cjs");
+const { getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
 const {
   isAllowedRendererUrl,
   isLoopbackRendererUrl,
@@ -38,6 +39,18 @@ const defaultTitleBarTheme = {
   color: "#000000",
   symbolColor: "#ffffff",
 };
+
+function isStartedHidden() {
+  return process.argv.includes("--hidden");
+}
+
+function getAutoStartOptions() {
+  return {
+    appPath: app.isPackaged ? undefined : app.getAppPath(),
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+  };
+}
 
 function isHexColor(value) {
   return typeof value === "string" && /^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(value);
@@ -982,6 +995,56 @@ function registerSecurityIpc() {
   });
 }
 
+function registerAutoStartIpc() {
+  ipcMain.handle("auto-start:status", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return {
+        success: false,
+        enabled: false,
+        message: "The renderer is not authorized.",
+      };
+    }
+
+    try {
+      return getAutoStartStatus(app, getAutoStartOptions());
+    } catch {
+      return {
+        success: false,
+        enabled: false,
+        message: "The operating system auto-start service is unavailable.",
+      };
+    }
+  });
+
+  ipcMain.handle("auto-start:set", (event, enabled) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return {
+        success: false,
+        enabled: false,
+        message: "The renderer is not authorized.",
+      };
+    }
+
+    if (typeof enabled !== "boolean") {
+      return {
+        success: false,
+        enabled: false,
+        message: "Auto-start must be configured with a boolean value.",
+      };
+    }
+
+    try {
+      return setAutoStart(app, enabled, getAutoStartOptions());
+    } catch {
+      return {
+        success: false,
+        enabled: false,
+        message: `Unable to ${enabled ? "enable" : "disable"} auto-start with the operating system.`,
+      };
+    }
+  });
+}
+
 function createWindow() {
   const iconPath = getIconPath();
   const devRequested =
@@ -1052,7 +1115,11 @@ function createWindow() {
     mainWindow.loadFile(rendererFilePath);
   }
 
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("ready-to-show", () => {
+    if (!isStartedHidden()) {
+      mainWindow.show();
+    }
+  });
   mainWindow.on("closed", () => {
     mainWindow = undefined;
   });
@@ -1063,8 +1130,10 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    restoreMainWindow();
+  app.on("second-instance", (_event, commandLine) => {
+    if (!commandLine.includes("--hidden")) {
+      restoreMainWindow();
+    }
   });
 
   app.whenReady().then(() => {
@@ -1075,6 +1144,7 @@ if (!hasSingleInstanceLock) {
     registerAccountIpc();
     registerBackupIpc();
     registerSecurityIpc();
+    registerAutoStartIpc();
     ipcMain.handle("open-external", (event, url) => {
       if (!isTrustedRendererEvent(event, mainWindow)) {
         return false;

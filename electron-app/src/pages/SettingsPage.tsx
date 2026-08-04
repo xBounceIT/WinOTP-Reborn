@@ -26,6 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { credentialLabel, isPinCredential, settingForCredential } from "@/lib/security-settings";
 import type {
   AppSettings,
+  AutoStartResult,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
@@ -36,6 +37,7 @@ import type {
 interface SettingsPageProps {
   settings: AppSettings;
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  onAutoStartChange: (enabled: boolean) => Promise<AutoStartResult>;
   onToast: (message: string) => void;
   onLock: () => Promise<void>;
   backupFolderPath: string;
@@ -87,7 +89,7 @@ function ToggleRow({ label, hint, checked, onCheckedChange, disabled = false }: 
 }
 
 type PasswordDialogAction = "enable" | "import" | "export";
-type BusyAction = PasswordDialogAction | "disable" | "browse" | "reset";
+type BusyAction = PasswordDialogAction | "disable" | "browse" | "reset" | "autoStart";
 
 const passwordDialogCopy: Record<
   PasswordDialogAction,
@@ -206,6 +208,7 @@ function CredentialDialog({
 export function SettingsPage({
   settings,
   onChange,
+  onAutoStartChange,
   onToast,
   onLock,
   backupFolderPath,
@@ -262,6 +265,22 @@ export function SettingsPage({
       }
     } catch {
       onToast("Unable to disable automatic backup.");
+    } finally {
+      setBusyAction(undefined);
+    }
+  }
+
+  async function handleAutoStartChange(enabled: boolean) {
+    setBusyAction("autoStart");
+    try {
+      const result = await onAutoStartChange(enabled);
+      if (result.success) {
+        onToast(enabled ? "WinOTP will start when you sign in." : "WinOTP auto-start disabled.");
+      } else {
+        onToast(result.message ?? "Unable to update auto-start.");
+      }
+    } catch {
+      onToast("Unable to update auto-start.");
     } finally {
       setBusyAction(undefined);
     }
@@ -719,7 +738,8 @@ export function SettingsPage({
               label="Start WinOTP when I sign in"
               hint="Automatically launch the app in the background when you sign in to Windows."
               checked={settings.autoStart}
-              onCheckedChange={(checked) => onChange("autoStart", checked)}
+              disabled={Boolean(busyAction)}
+              onCheckedChange={(checked) => void handleAutoStartChange(checked)}
             />
             <ToggleRow
               label="Minimize on close"

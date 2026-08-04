@@ -5,6 +5,7 @@ import type {
   AccountLoadResult,
   AccountSaveResult,
   AccountUsageResult,
+  AutoStartResult,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
@@ -50,6 +51,10 @@ declare global {
       openExternal: (url: string) => Promise<boolean>;
       setTitleBarTheme: (theme: { color: string; symbolColor: string }) => void;
       setTrayState: (state: TrayState) => void;
+      autoStart: {
+        status: () => Promise<AutoStartResult>;
+        set: (enabled: boolean) => Promise<AutoStartResult>;
+      };
       onTrayUsageRecorded: (listener: (usage: TrayUsagePayload) => void) => () => void;
       captureScreen: () => Promise<ScreenCaptureResult>;
       onScreenCaptureReady: (listener: (capture: ScreenCapturePayload) => void) => () => void;

@@ -30,6 +30,7 @@ import {
 } from "@/lib/security-settings";
 import type {
   AppSettings,
+  AutoStartResult,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
@@ -136,6 +137,7 @@ export default function App() {
   const lockOverlayRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
   const backupMutationVersion = useRef(0);
+  const autoStartMutationVersion = useRef(0);
   settingsRef.current = settings;
   const { accountTiming, codes } = useTotp(accounts);
 
@@ -194,6 +196,34 @@ export default function App() {
     }
 
     void loadAccounts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const statusVersion = autoStartMutationVersion.current;
+
+    async function loadAutoStartStatus() {
+      const autoStartBridge = window.winotp?.autoStart;
+      if (!autoStartBridge) {
+        return;
+      }
+
+      try {
+        const result = await autoStartBridge.status();
+        if (cancelled || statusVersion !== autoStartMutationVersion.current || !result.success) {
+          return;
+        }
+
+        setSettings((current) => ({ ...current, autoStart: result.enabled }));
+      } catch {
+        // Keep the saved renderer value as a fallback when the OS bridge is unavailable.
+      }
+    }
+
+    void loadAutoStartStatus();
     return () => {
       cancelled = true;
     };
@@ -521,6 +551,32 @@ export default function App() {
       }
       return next;
     });
+  }
+
+  function unavailableAutoStartResult(): AutoStartResult {
+    return {
+      success: false,
+      enabled: settingsRef.current.autoStart,
+      message: "The Electron auto-start bridge is unavailable.",
+    };
+  }
+
+  async function changeAutoStart(enabled: boolean): Promise<AutoStartResult> {
+    autoStartMutationVersion.current += 1;
+    const autoStartBridge = window.winotp?.autoStart;
+    if (!autoStartBridge) {
+      return unavailableAutoStartResult();
+    }
+
+    try {
+      const result = await autoStartBridge.set(enabled);
+      if (result.success) {
+        setSettings((current) => ({ ...current, autoStart: result.enabled }));
+      }
+      return result;
+    } catch {
+      return unavailableAutoStartResult();
+    }
   }
 
   function unavailableBackupResult(): BackupConfigurationResult {
@@ -1082,6 +1138,7 @@ export default function App() {
       <SettingsPage
         settings={settings}
         onChange={changeSetting}
+        onAutoStartChange={changeAutoStart}
         onToast={showToast}
         onLock={lockPreview}
         backupFolderPath={

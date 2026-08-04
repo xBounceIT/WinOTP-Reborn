@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld("winotp", {
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   setTitleBarTheme: (theme) => ipcRenderer.send("set-title-bar-theme", theme),
   setTrayState: (state) => ipcRenderer.send("set-tray-state", state),
+  autoStart: {
+    status: () => ipcRenderer.invoke("auto-start:status"),
+    set: (enabled) => ipcRenderer.invoke("auto-start:set", enabled),
+  },
   onTrayUsageRecorded: (listener) => {
     if (typeof listener !== "function") {
       return () => undefined;

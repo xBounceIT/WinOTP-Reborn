@@ -130,6 +130,12 @@ export interface AppSettings {
   theme: "dark" | "light";
 }
 
+export interface AutoStartResult {
+  success: boolean;
+  enabled: boolean;
+  message?: string;
+}
+
 export interface SecurityCredentialStatus {
   pinSet: boolean;
   passwordSet: boolean;
