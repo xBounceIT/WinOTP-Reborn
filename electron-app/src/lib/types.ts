@@ -65,6 +65,12 @@ export interface AccountUsageResult {
   message?: string;
 }
 
+export interface AccountImportResult {
+  importedCount: number;
+  failedCount: number;
+  automaticBackupFailed: boolean;
+}
+
 export interface TrayAccount {
   id: string;
   label: string;

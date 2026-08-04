@@ -1,5 +1,7 @@
 import type { OtpAccount, OtpAlgorithm } from "@/lib/types";
 
+type QueryParams = Map<string, string>;
+
 function parseAlgorithm(value: string | null): OtpAlgorithm {
   switch (value?.toUpperCase()) {
     case "SHA256":
@@ -21,6 +23,39 @@ function parsePositiveInteger(value: string | null): number | undefined {
   return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : undefined;
 }
 
+function parseQuery(search: string): QueryParams | undefined {
+  const params = new Map<string, string>();
+  const query = search.replace(/^\?/, "");
+  if (!query) {
+    return params;
+  }
+
+  for (const pair of query.split("&")) {
+    if (!pair) {
+      continue;
+    }
+
+    const separatorIndex = pair.indexOf("=");
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    try {
+      const key = decodeURIComponent(pair.slice(0, separatorIndex)).toLowerCase();
+      const value = decodeURIComponent(pair.slice(separatorIndex + 1));
+      params.set(key, value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  return params;
+}
+
+function getQueryParam(params: QueryParams, key: string): string | null {
+  return params.get(key.toLowerCase()) ?? null;
+}
+
 export function parseOtpUri(uri: string): OtpAccount | undefined {
   let parsed: URL;
   try {
@@ -33,7 +68,12 @@ export function parseOtpUri(uri: string): OtpAccount | undefined {
     return undefined;
   }
 
-  const secret = (parsed.searchParams.get("secret") ?? "")
+  const queryParams = parseQuery(parsed.search);
+  if (!queryParams) {
+    return undefined;
+  }
+
+  const secret = (getQueryParam(queryParams, "secret") ?? "")
     .replace(/\s/g, "")
     .toUpperCase()
     .replace(/=+$/, "");
@@ -51,22 +91,22 @@ export function parseOtpUri(uri: string): OtpAccount | undefined {
   const colonIndex = label.indexOf(":");
   const labelIssuer = colonIndex >= 0 ? label.slice(0, colonIndex).trim() : "";
   const accountName = (colonIndex >= 0 ? label.slice(colonIndex + 1) : label).trim();
-  const queryIssuer = parsed.searchParams.get("issuer")?.trim();
+  const queryIssuer = getQueryParam(queryParams, "issuer")?.trim();
   const issuer = queryIssuer || labelIssuer;
   if (!issuer && !accountName) {
     return undefined;
   }
 
-  const digitsValue = parsePositiveInteger(parsed.searchParams.get("digits"));
+  const digitsValue = parsePositiveInteger(getQueryParam(queryParams, "digits"));
   const digits = digitsValue === 8 ? 8 : 6;
-  const period = parsePositiveInteger(parsed.searchParams.get("period")) ?? 30;
+  const period = parsePositiveInteger(getQueryParam(queryParams, "period")) ?? 30;
 
   return {
     id: crypto.randomUUID(),
     issuer,
     accountName,
     secret,
-    algorithm: parseAlgorithm(parsed.searchParams.get("algorithm")),
+    algorithm: parseAlgorithm(getQueryParam(queryParams, "algorithm")),
     digits,
     period,
     createdAt: new Date().toISOString(),

@@ -28,6 +28,16 @@ test("uses safe defaults for malformed optional values", () => {
   assert.equal(account.period, 30);
 });
 
+test("treats plus signs as literal in generic OTP URI query values", () => {
+  const account = parseOtpUri(
+    "otpauth://totp/My+Service?secret=JBSWY3DPEHPK3PXP&issuer=My+Service",
+  );
+
+  assert.ok(account);
+  assert.equal(account.accountName, "My+Service");
+  assert.equal(account.issuer, "My+Service");
+});
+
 test("rejects non-TOTP and malformed secret payloads", () => {
   assert.equal(parseOtpUri("otpauth://hotp/Example:user?secret=JBSWY3DPEHPK3PXP"), undefined);
   assert.equal(parseOtpUri("otpauth://totp/Example:user?secret=not-base32-!"), undefined);

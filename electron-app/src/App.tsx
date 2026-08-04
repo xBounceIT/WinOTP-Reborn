@@ -16,6 +16,7 @@ import {
   reconcileCustomOrderIds,
 } from "@/lib/account-order";
 import { mergeUsageCount } from "@/lib/account-usage";
+import { loadAccountsUntilCurrent, mergePersistedAccounts } from "@/lib/account-state";
 import { useTotp } from "@/lib/use-totp";
 import {
   directCredentialKind,
@@ -31,6 +32,7 @@ import {
 import type {
   AppSettings,
   AutoStartResult,
+  AccountImportResult,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
@@ -131,6 +133,7 @@ export default function App() {
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
+  const accountMutationVersion = useRef(0);
   const settingsRef = useRef(settings);
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
@@ -148,7 +151,8 @@ export default function App() {
       setAccountsLoading(true);
       setAccountsError("");
 
-      if (!window.winotp?.accounts) {
+      const accountsBridge = window.winotp?.accounts;
+      if (!accountsBridge) {
         if (!cancelled) {
           setAccountsLoading(false);
           setAccountsError("The Electron storage bridge is unavailable.");
@@ -157,8 +161,12 @@ export default function App() {
       }
 
       try {
-        const result = await window.winotp.accounts.list();
-        if (cancelled) {
+        const result = await loadAccountsUntilCurrent(
+          () => accountsBridge.list(),
+          () => accountMutationVersion.current,
+          () => cancelled,
+        );
+        if (result === undefined) {
           return;
         }
 
@@ -183,7 +191,7 @@ export default function App() {
               ? `Imported ${importedLabel}; skipped ${skippedLabel} from Windows Credential Manager`
               : `Imported ${importedLabel} from Windows Credential Manager`,
           );
-          void window.winotp.accounts.acknowledgeMigration().catch(() => undefined);
+          void accountsBridge.acknowledgeMigration().catch(() => undefined);
         } else if (result.issues.length > 0) {
           showToast("Some stored accounts could not be loaded.");
         }
@@ -412,6 +420,7 @@ export default function App() {
   }
 
   function updateAccountUsage(id: string, usageCount: unknown) {
+    accountMutationVersion.current += 1;
     setAccounts((current) =>
       current.map((account) =>
         account.id === id
@@ -463,20 +472,9 @@ export default function App() {
       }
 
       const persistedAccount = result.account;
+      accountMutationVersion.current += 1;
       const wasEditing = Boolean(editingAccount);
-      setAccounts((current) => {
-        const existing = current.some((item) => item.id === persistedAccount.id);
-        return existing
-          ? current.map((item) =>
-              item.id === persistedAccount.id
-                ? {
-                    ...persistedAccount,
-                    usageCount: mergeUsageCount(item.usageCount, persistedAccount.usageCount),
-                  }
-                : item,
-            )
-          : [...current, persistedAccount];
-      });
+      setAccounts((current) => mergePersistedAccounts(current, [persistedAccount]));
       setEditingAccount(undefined);
       setRoute("home");
       const operationLabel = wasEditing ? "Account updated" : "Account added";
@@ -488,6 +486,38 @@ export default function App() {
     } catch {
       showToast("Unable to save the account.");
     }
+  }
+
+  async function importAccounts(accountsToImport: OtpAccount[]): Promise<AccountImportResult> {
+    let importedCount = 0;
+    let failedCount = 0;
+    let automaticBackupFailed = false;
+    const persistedAccounts: OtpAccount[] = [];
+
+    for (const account of accountsToImport) {
+      try {
+        const result = await window.winotp?.accounts.save(account);
+        if (!result?.success || !result.account) {
+          failedCount += 1;
+          continue;
+        }
+
+        importedCount += 1;
+        persistedAccounts.push(result.account);
+        automaticBackupFailed ||= result.automaticBackup?.success === false;
+      } catch {
+        failedCount += 1;
+      }
+    }
+
+    if (persistedAccounts.length > 0) {
+      accountMutationVersion.current += 1;
+      setAccounts((current) => mergePersistedAccounts(current, persistedAccounts));
+      setEditingAccount(undefined);
+      setRoute("home");
+    }
+
+    return { importedCount, failedCount, automaticBackupFailed };
   }
 
   async function copyCode(account: OtpAccount, code: string) {
@@ -529,6 +559,7 @@ export default function App() {
           ...current,
           accountCustomOrderIds: current.accountCustomOrderIds.filter((id) => id !== account.id),
         }));
+        accountMutationVersion.current += 1;
         showToast(
           result.automaticBackup?.success === false
             ? `${label} removed; automatic backup failed: ${result.automaticBackup.message ?? "unknown error"}`
@@ -675,8 +706,16 @@ export default function App() {
     try {
       const result = await backupBridge.import(password);
       if (result.success) {
+        accountMutationVersion.current += 1;
+        const accountsBridge = window.winotp?.accounts;
         try {
-          const loadResult = await window.winotp?.accounts.list();
+          const loadResult = accountsBridge
+            ? await loadAccountsUntilCurrent(
+                () => accountsBridge.list(),
+                () => accountMutationVersion.current,
+                () => false,
+              )
+            : undefined;
           if (loadResult) {
             setAccounts(loadResult.accounts);
             pruneStoredCustomOrderIds(loadResult.accounts, loadResult.issues);
@@ -684,6 +723,8 @@ export default function App() {
               loadResult.issues.find((issue) => issue.code === "storage-unavailable")?.message ??
                 "",
             );
+          } else {
+            showToast("Backup imported, but the account list could not be refreshed.");
           }
         } catch {
           showToast("Backup imported, but the account list could not be refreshed.");
@@ -1127,7 +1168,7 @@ export default function App() {
       );
     }
     if (route === "import") {
-      return <ImportPage onToast={showToast} />;
+      return <ImportPage onToast={showToast} onImport={importAccounts} />;
     }
     if (route === "manual") {
       return (
