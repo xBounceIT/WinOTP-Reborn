@@ -9,6 +9,11 @@ import type {
   BackupImportResult,
   BackupOperationResult,
   OtpAccount,
+  SecurityCredentialKind,
+  SecurityOperationResult,
+  SecurityStatusResult,
+  WindowsHelloAvailabilityResult,
+  WindowsHelloVerificationResult,
 } from "@/lib/types";
 
 declare global {
@@ -63,6 +68,20 @@ declare global {
         resetFolder: () => Promise<BackupConfigurationResult>;
         import: (password: string) => Promise<BackupImportResult>;
         export: (passwordOverride?: string) => Promise<BackupOperationResult>;
+      };
+      security: {
+        getStatus: () => Promise<SecurityStatusResult>;
+        setCredential: (
+          kind: SecurityCredentialKind,
+          secret: string,
+        ) => Promise<SecurityOperationResult>;
+        verifyCredential: (
+          kind: SecurityCredentialKind,
+          secret: string,
+        ) => Promise<SecurityOperationResult>;
+        removeCredential: (kind: SecurityCredentialKind) => Promise<SecurityOperationResult>;
+        getWindowsHelloAvailability: () => Promise<WindowsHelloAvailabilityResult>;
+        verifyWindowsHello: () => Promise<WindowsHelloVerificationResult>;
       };
     };
   }

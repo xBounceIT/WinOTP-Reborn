@@ -878,6 +878,41 @@ html:not(.dark) .choice-card:hover {
   width: 100%;
 }
 
+.credential-dialog {
+  position: fixed;
+  inset: env(titlebar-area-height, 0px) 0 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 48%);
+}
+
+.credential-dialog__panel {
+  display: flex;
+  width: min(300px, 100%);
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 32%);
+}
+
+.credential-dialog__title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.credential-dialog__detail {
+  margin: -2px 0 2px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;

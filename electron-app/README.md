@@ -8,6 +8,8 @@ The renderer uses the native bridge for account listing, add/edit/delete, usage 
 
 Backups use the same `.wotpbackup` PBKDF2-SHA256/AES-256-GCM envelope as the WinUI app, with the backup password protected by Electron `safeStorage`. Automatic backups are written to `%LOCALAPPDATA%\WinOTP_Reborn\Backups` by default, retain the latest 20 files, and can be moved to a validated custom folder from Settings.
 
+Windows Hello availability and verification use the Windows PowerShell 5.1 WinRT bridge, including Remote Desktop detection and the configured fallback credential. Backup and update actions still surface their existing bridge boundaries.
+
 ## Development
 
 ```bash

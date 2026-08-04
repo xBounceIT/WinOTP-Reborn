@@ -1,0 +1,196 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { test } = require("node:test");
+
+const { SecurityStore } = require("./security-store.cjs");
+
+function createStore(encryption) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-security-"));
+  const filePath = path.join(directory, "security.json");
+  const store = new SecurityStore(undefined, { encryption, filePath });
+  return {
+    store,
+    filePath,
+    cleanup: () => fs.rmSync(directory, { recursive: true, force: true }),
+  };
+}
+
+function createEncryption() {
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => Buffer.from(`encrypted:${value}`, "utf8"),
+    decryptString: (value) => {
+      const text = value.toString("utf8");
+      assert.ok(text.startsWith("encrypted:"));
+      return text.slice("encrypted:".length);
+    },
+  };
+}
+
+test("stores credentials encrypted and verifies them after reopening", () => {
+  const encryption = createEncryption();
+  const first = createStore(encryption);
+
+  try {
+    first.store.setCredential("pin", "1234");
+    first.store.setCredential("password", "correct horse");
+
+    assert.deepEqual(first.store.getStatus(), {
+      pinSet: true,
+      passwordSet: true,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+    assert.deepEqual(first.store.verifyCredential("pin", "1234"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(first.store.verifyCredential("pin", "4321"), {
+      verified: false,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(first.store.verifyCredential("password", "correct horse"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.equal(fs.readFileSync(first.filePath, "utf8").includes("1234"), false);
+    assert.equal(fs.readFileSync(first.filePath, "utf8").includes("correct horse"), false);
+
+    const reopened = new SecurityStore(undefined, {
+      encryption,
+      filePath: first.filePath,
+    });
+    assert.deepEqual(reopened.verifyCredential("pin", "1234"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(reopened.verifyCredential("password", "wrong"), {
+      verified: false,
+      credentialAvailable: true,
+    });
+  } finally {
+    first.cleanup();
+  }
+});
+
+test("rejects invalid credentials before enabling protection", () => {
+  const handle = createStore(createEncryption());
+
+  try {
+    assert.throws(() => handle.store.setCredential("pin", "12"), /4-6 digits/);
+    assert.throws(() => handle.store.setCredential("pin", "12ab"), /4-6 digits/);
+    assert.throws(() => handle.store.setCredential("password", "abc"), /at least 4/);
+    assert.throws(() => handle.store.setCredential("password", "x".repeat(129)), /at most 128/);
+    assert.throws(() => handle.store.setCredential("password", "    "), /required/);
+    assert.throws(() => handle.store.setCredential("unknown", "1234"), /Unsupported/);
+    assert.deepEqual(handle.store.getStatus(), {
+      pinSet: false,
+      passwordSet: false,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test("does not report a credential when its ciphertext cannot be decrypted", () => {
+  const handle = createStore(createEncryption());
+
+  try {
+    fs.writeFileSync(
+      handle.filePath,
+      JSON.stringify({
+        version: 1,
+        credentials: { pin: Buffer.from("corrupt").toString("base64") },
+      }),
+    );
+
+    assert.deepEqual(handle.store.getStatus(), {
+      pinSet: false,
+      passwordSet: false,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+    assert.deepEqual(handle.store.verifyCredential("pin", "1234"), {
+      verified: false,
+      credentialAvailable: false,
+    });
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test("keeps the previous state when replacing the security file fails", () => {
+  const handle = createStore(createEncryption());
+  const originalRename = fs.renameSync;
+
+  try {
+    handle.store.setCredential("pin", "1234");
+    const previousFile = fs.readFileSync(handle.filePath, "utf8");
+    fs.renameSync = () => {
+      throw new Error("simulated replacement failure");
+    };
+
+    assert.throws(() => handle.store.setCredential("pin", "5678"), /simulated replacement failure/);
+    assert.equal(fs.readFileSync(handle.filePath, "utf8"), previousFile);
+    assert.deepEqual(handle.store.verifyCredential("pin", "1234"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.equal(
+      fs.readdirSync(path.dirname(handle.filePath)).some((name) => name.endsWith(".tmp")),
+      false,
+    );
+  } finally {
+    fs.renameSync = originalRename;
+    handle.cleanup();
+  }
+});
+
+test("removes a credential and persists that it is no longer available", () => {
+  const handle = createStore(createEncryption());
+
+  try {
+    handle.store.setCredential("password", "correct horse");
+    handle.store.removeCredential("password");
+
+    assert.deepEqual(handle.store.getStatus(), {
+      pinSet: false,
+      passwordSet: false,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+    assert.deepEqual(handle.store.verifyCredential("password", "correct horse"), {
+      verified: false,
+      credentialAvailable: false,
+    });
+
+    const reopened = new SecurityStore(undefined, {
+      encryption: createEncryption(),
+      filePath: handle.filePath,
+    });
+    assert.deepEqual(reopened.getStatus(), {
+      pinSet: false,
+      passwordSet: false,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test("does not write a credential when OS-backed encryption is unavailable", () => {
+  const handle = createStore({ isEncryptionAvailable: () => false });
+
+  try {
+    assert.throws(() => handle.store.setCredential("pin", "1234"), /unavailable/);
+    assert.throws(() => handle.store.verifyCredential("pin", null), /unavailable/);
+    assert.equal(fs.existsSync(handle.filePath), false);
+  } finally {
+    handle.cleanup();
+  }
+});

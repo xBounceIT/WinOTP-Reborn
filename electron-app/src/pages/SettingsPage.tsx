@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Save,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,18 +23,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { credentialLabel, isPinCredential, settingForCredential } from "@/lib/security-settings";
 import type {
   AppSettings,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
+  SecurityCredentialKind,
+  SecurityVerification,
 } from "@/lib/types";
 
 interface SettingsPageProps {
   settings: AppSettings;
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onToast: (message: string) => void;
-  onLock: () => void;
+  onLock: () => Promise<void>;
   backupFolderPath: string;
   hasStoredBackupPassword: boolean;
   onAutomaticBackupChange: (
@@ -45,6 +48,15 @@ interface SettingsPageProps {
   onResetBackupFolder: () => Promise<BackupConfigurationResult>;
   onImportBackup: (password: string) => Promise<BackupImportResult>;
   onExportBackup: (passwordOverride?: string) => Promise<BackupOperationResult>;
+  securityReady: boolean;
+  onEnableWindowsHello: () => Promise<boolean>;
+  onDisableWindowsHello: () => Promise<boolean>;
+  onSetCredential: (kind: SecurityCredentialKind, secret: string) => Promise<boolean>;
+  onVerifyCredential: (
+    kind: SecurityCredentialKind,
+    secret: string,
+  ) => Promise<SecurityVerification>;
+  onRemoveCredential: (kind: SecurityCredentialKind) => Promise<boolean>;
 }
 
 interface ToggleRowProps {
@@ -55,7 +67,7 @@ interface ToggleRowProps {
   onCheckedChange: (checked: boolean) => void;
 }
 
-function ToggleRow({ label, hint, checked, disabled, onCheckedChange }: ToggleRowProps) {
+function ToggleRow({ label, hint, checked, onCheckedChange, disabled = false }: ToggleRowProps) {
   return (
     <div className="settings-control">
       <div className="settings-control__copy">
@@ -103,6 +115,94 @@ function formatAccountCount(count: number | undefined) {
   return `${safeCount} account${safeCount === 1 ? "" : "s"}`;
 }
 
+interface CredentialDialogState {
+  kind: SecurityCredentialKind;
+  mode: "setup" | "verify";
+}
+
+function CredentialDialog({
+  dialog,
+  error,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  dialog: CredentialDialogState;
+  error: string;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (secret: string, confirmation: string) => void;
+}) {
+  const [secret, setSecret] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const label = credentialLabel(dialog.kind);
+  const pin = isPinCredential(dialog.kind);
+  const setup = dialog.mode === "setup";
+
+  useEffect(() => {
+    setSecret("");
+    setConfirmation("");
+  }, [dialog]);
+
+  return (
+    <div className="credential-dialog" role="presentation">
+      <form
+        className="credential-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="credential-dialog-title"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(secret, confirmation);
+        }}
+      >
+        <h2 id="credential-dialog-title" className="credential-dialog__title">
+          {setup ? `Set up ${label}` : `Verify ${label}`}
+        </h2>
+        <p className="credential-dialog__detail">
+          {setup
+            ? pin
+              ? `Choose a 4-6 digit ${label} to protect the app.`
+              : "Choose a password of at least 4 characters to protect the app."
+            : `Enter your ${label} to turn off this protection.`}
+        </p>
+        <Input
+          autoFocus
+          type="password"
+          inputMode={pin ? "numeric" : undefined}
+          maxLength={pin ? 6 : 128}
+          autoComplete={setup ? "new-password" : "current-password"}
+          placeholder={pin ? `Enter ${label} (4-6 digits)` : `Enter ${label}`}
+          value={secret}
+          onChange={(event) => setSecret(event.target.value)}
+          disabled={busy}
+        />
+        {setup && (
+          <Input
+            type="password"
+            inputMode={pin ? "numeric" : undefined}
+            maxLength={pin ? 6 : 128}
+            autoComplete="new-password"
+            placeholder={`Confirm ${label}`}
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            disabled={busy}
+          />
+        )}
+        {error && <div className="inline-error">{error}</div>}
+        <div className="form-actions">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Saving…" : setup ? `Set ${label}` : "Verify"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function SettingsPage({
   settings,
   onChange,
@@ -115,6 +215,12 @@ export function SettingsPage({
   onResetBackupFolder,
   onImportBackup,
   onExportBackup,
+  securityReady,
+  onEnableWindowsHello,
+  onDisableWindowsHello,
+  onSetCredential,
+  onVerifyCredential,
+  onRemoveCredential,
 }: SettingsPageProps) {
   const [passwordDialog, setPasswordDialog] = useState<PasswordDialogAction>();
   const [password, setPassword] = useState("");
@@ -280,11 +386,198 @@ export function SettingsPage({
       setBusyAction(undefined);
     }
   }
+  const [credentialDialog, setCredentialDialog] = useState<CredentialDialogState>();
+  const [credentialDialogError, setCredentialDialogError] = useState("");
+  const [credentialDialogBusy, setCredentialDialogBusy] = useState(false);
+  const [windowsHelloBusy, setWindowsHelloBusy] = useState(false);
+  const [lockBusy, setLockBusy] = useState(false);
+  const credentialDialogBusyRef = useRef(false);
+  const windowsHelloBusyRef = useRef(false);
+  const lockBusyRef = useRef(false);
 
   async function openRepository() {
     const opened = await window.winotp?.openExternal("https://github.com/xBounceIT/WinOTP-Reborn");
     if (!opened) {
       onToast("Repository link is available once the Electron shell is running.");
+    }
+  }
+
+  function openCredentialDialog(kind: SecurityCredentialKind, mode: "setup" | "verify") {
+    if (
+      !securityReady ||
+      credentialDialogBusyRef.current ||
+      windowsHelloBusyRef.current ||
+      lockBusyRef.current ||
+      credentialDialog
+    ) {
+      return;
+    }
+
+    setCredentialDialogError("");
+    setCredentialDialog({ kind, mode });
+  }
+
+  function closeCredentialDialog() {
+    if (!credentialDialogBusyRef.current) {
+      setCredentialDialog(undefined);
+      setCredentialDialogError("");
+    }
+  }
+
+  async function submitCredentialDialog(secret: string, confirmation: string) {
+    if (
+      !credentialDialog ||
+      credentialDialogBusyRef.current ||
+      windowsHelloBusyRef.current ||
+      lockBusyRef.current
+    ) {
+      return;
+    }
+
+    const { kind, mode } = credentialDialog;
+    const pin = isPinCredential(kind);
+    if (!secret.trim()) {
+      setCredentialDialogError(`${credentialLabel(kind)} is required.`);
+      return;
+    }
+
+    if (mode === "setup") {
+      if (pin && !/^\d{4,6}$/.test(secret)) {
+        setCredentialDialogError("PIN must contain 4-6 digits.");
+        return;
+      }
+
+      if (!pin && secret.length < 4) {
+        setCredentialDialogError("Password must be at least 4 characters.");
+        return;
+      }
+
+      if (!pin && secret.length > 128) {
+        setCredentialDialogError("Password must be at most 128 characters.");
+        return;
+      }
+
+      if (secret !== confirmation) {
+        setCredentialDialogError(`${credentialLabel(kind)} entries do not match.`);
+        return;
+      }
+    }
+
+    credentialDialogBusyRef.current = true;
+    setCredentialDialogBusy(true);
+    try {
+      if (mode === "setup") {
+        const saved = await onSetCredential(kind, secret);
+        if (!saved) {
+          setCredentialDialogError("The security credential could not be saved.");
+          return;
+        }
+
+        onChange(settingForCredential(kind), true);
+        if (kind === "pin") {
+          onChange("passwordProtection", false);
+          onChange("windowsHello", false);
+        } else if (kind === "password") {
+          onChange("pinProtection", false);
+          onChange("windowsHello", false);
+        } else if (kind === "remotePin") {
+          onChange("remotePassword", false);
+        } else {
+          onChange("remotePin", false);
+        }
+      } else {
+        const verification = await onVerifyCredential(kind, secret);
+        if (verification.error) {
+          setCredentialDialogError(verification.error);
+          return;
+        }
+
+        if (!verification.available) {
+          onChange(settingForCredential(kind), false);
+          setCredentialDialog(undefined);
+          setCredentialDialogError("");
+          onToast(
+            `${credentialLabel(kind)} protection was disabled because its credential is unavailable.`,
+          );
+          return;
+        }
+
+        if (!verification.verified) {
+          setCredentialDialogError(`Incorrect ${credentialLabel(kind)}.`);
+          return;
+        }
+
+        const removed = await onRemoveCredential(kind);
+        if (!removed) {
+          setCredentialDialogError("The security credential could not be removed.");
+          return;
+        }
+
+        onChange(settingForCredential(kind), false);
+      }
+
+      setCredentialDialog(undefined);
+      setCredentialDialogError("");
+    } finally {
+      credentialDialogBusyRef.current = false;
+      setCredentialDialogBusy(false);
+    }
+  }
+
+  async function handleWindowsHelloChange(checked: boolean) {
+    if (
+      windowsHelloBusyRef.current ||
+      credentialDialogBusyRef.current ||
+      lockBusyRef.current ||
+      credentialDialog
+    ) {
+      return;
+    }
+
+    windowsHelloBusyRef.current = true;
+    setWindowsHelloBusy(true);
+    try {
+      if (checked) {
+        if (!(await onEnableWindowsHello())) {
+          return;
+        }
+
+        onChange("windowsHello", true);
+        onChange("pinProtection", false);
+        onChange("passwordProtection", false);
+        return;
+      }
+
+      if (!(await onDisableWindowsHello())) {
+        return;
+      }
+
+      onChange("windowsHello", false);
+      onChange("remotePin", false);
+      onChange("remotePassword", false);
+    } finally {
+      windowsHelloBusyRef.current = false;
+      setWindowsHelloBusy(false);
+    }
+  }
+
+  async function handleLock() {
+    if (
+      lockBusyRef.current ||
+      credentialDialogBusyRef.current ||
+      windowsHelloBusyRef.current ||
+      credentialDialog
+    ) {
+      return;
+    }
+
+    lockBusyRef.current = true;
+    setLockBusy(true);
+    try {
+      await onLock();
+    } finally {
+      lockBusyRef.current = false;
+      setLockBusy(false);
     }
   }
 
@@ -297,17 +590,45 @@ export function SettingsPage({
             <ToggleRow
               label="Protect app with PIN"
               checked={settings.pinProtection}
-              onCheckedChange={(checked) => onChange("pinProtection", checked)}
+              disabled={
+                !securityReady ||
+                credentialDialogBusy ||
+                windowsHelloBusy ||
+                lockBusy ||
+                settings.passwordProtection ||
+                settings.windowsHello
+              }
+              onCheckedChange={(checked) =>
+                openCredentialDialog("pin", checked ? "setup" : "verify")
+              }
             />
             <ToggleRow
               label="Protect app with password"
               checked={settings.passwordProtection}
-              onCheckedChange={(checked) => onChange("passwordProtection", checked)}
+              disabled={
+                !securityReady ||
+                credentialDialogBusy ||
+                windowsHelloBusy ||
+                lockBusy ||
+                settings.pinProtection ||
+                settings.windowsHello
+              }
+              onCheckedChange={(checked) =>
+                openCredentialDialog("password", checked ? "setup" : "verify")
+              }
             />
             <ToggleRow
               label="Protect app with Windows Hello"
               checked={settings.windowsHello}
-              onCheckedChange={(checked) => onChange("windowsHello", checked)}
+              disabled={
+                !securityReady ||
+                credentialDialogBusy ||
+                windowsHelloBusy ||
+                lockBusy ||
+                settings.pinProtection ||
+                settings.passwordProtection
+              }
+              onCheckedChange={(checked) => void handleWindowsHelloChange(checked)}
             />
 
             {settings.windowsHello && (
@@ -320,12 +641,30 @@ export function SettingsPage({
                 <ToggleRow
                   label="Require PIN over Remote Desktop"
                   checked={settings.remotePin}
-                  onCheckedChange={(checked) => onChange("remotePin", checked)}
+                  disabled={
+                    !securityReady ||
+                    credentialDialogBusy ||
+                    windowsHelloBusy ||
+                    lockBusy ||
+                    settings.remotePassword
+                  }
+                  onCheckedChange={(checked) =>
+                    openCredentialDialog("remotePin", checked ? "setup" : "verify")
+                  }
                 />
                 <ToggleRow
                   label="Require password over Remote Desktop"
                   checked={settings.remotePassword}
-                  onCheckedChange={(checked) => onChange("remotePassword", checked)}
+                  disabled={
+                    !securityReady ||
+                    credentialDialogBusy ||
+                    windowsHelloBusy ||
+                    lockBusy ||
+                    settings.remotePin
+                  }
+                  onCheckedChange={(checked) =>
+                    openCredentialDialog("remotePassword", checked ? "setup" : "verify")
+                  }
                 />
               </div>
             )}
@@ -356,7 +695,12 @@ export function SettingsPage({
               </span>
             </div>
             {(settings.pinProtection || settings.passwordProtection || settings.windowsHello) && (
-              <Button variant="outline" size="sm" onClick={onLock}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleLock()}
+                disabled={!securityReady || lockBusy || credentialDialogBusy || windowsHelloBusy}
+              >
                 <LockKeyhole size={14} />
                 Lock preview now
               </Button>
@@ -589,6 +933,15 @@ export function SettingsPage({
             </form>
           </div>
         </div>
+      )}
+      {credentialDialog && (
+        <CredentialDialog
+          dialog={credentialDialog}
+          error={credentialDialogError}
+          busy={credentialDialogBusy}
+          onCancel={closeCredentialDialog}
+          onSubmit={(secret, confirmation) => void submitCredentialDialog(secret, confirmation)}
+        />
       )}
     </div>
   );

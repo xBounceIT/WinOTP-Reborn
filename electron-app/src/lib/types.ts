@@ -10,6 +10,8 @@ export type SortOption =
 
 export type Route = "home" | "add" | "import" | "manual" | "settings";
 
+export type SecurityCredentialKind = "pin" | "password" | "remotePin" | "remotePassword";
+
 export interface OtpAccount {
   id: string;
   issuer: string;
@@ -111,6 +113,52 @@ export interface AppSettings {
   updateChannel: "Stable" | "Pre-release";
   theme: "dark" | "light";
 }
+
+export interface SecurityCredentialStatus {
+  pinSet: boolean;
+  passwordSet: boolean;
+  remotePinSet: boolean;
+  remotePasswordSet: boolean;
+}
+
+export type SecurityStatusResult =
+  | (SecurityCredentialStatus & { success: true })
+  | { success: false; message?: string };
+
+export interface SecurityOperationResult {
+  success: boolean;
+  verified?: boolean;
+  credentialAvailable?: boolean;
+  message?: string;
+}
+
+export interface SecurityVerification {
+  verified: boolean;
+  available: boolean;
+  error?: string;
+}
+
+export type WindowsHelloAvailabilityStatus =
+  | "available"
+  | "unavailable"
+  | "remote-session"
+  | "error";
+
+export type WindowsHelloVerificationStatus =
+  | "verified"
+  | "unavailable"
+  | "remote-session"
+  | "canceled"
+  | "failed"
+  | "error";
+
+export type WindowsHelloAvailabilityResult =
+  | { success: true; status: WindowsHelloAvailabilityStatus }
+  | { success: false; message?: string };
+
+export type WindowsHelloVerificationResult =
+  | { success: true; status: WindowsHelloVerificationStatus }
+  | { success: false; message?: string };
 
 export const defaultSettings: AppSettings = {
   showNextCode: false,

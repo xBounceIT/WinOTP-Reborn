@@ -42,4 +42,13 @@ contextBridge.exposeInMainWorld("winotp", {
     import: (password) => ipcRenderer.invoke("backup:import", password),
     export: (passwordOverride) => ipcRenderer.invoke("backup:export", passwordOverride),
   },
+  security: {
+    getStatus: () => ipcRenderer.invoke("security:status"),
+    setCredential: (kind, secret) => ipcRenderer.invoke("security:set-credential", kind, secret),
+    verifyCredential: (kind, secret) =>
+      ipcRenderer.invoke("security:verify-credential", kind, secret),
+    removeCredential: (kind) => ipcRenderer.invoke("security:remove-credential", kind),
+    getWindowsHelloAvailability: () => ipcRenderer.invoke("security:windows-hello-availability"),
+    verifyWindowsHello: () => ipcRenderer.invoke("security:windows-hello-verify"),
+  },
 });

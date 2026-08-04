@@ -13,6 +13,8 @@ const { createDisplayCapturePlan, getThumbnailSize } = require("./screen-capture
 const { AccountStore } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { BackupStore } = require("./backup-store.cjs");
+const { SecurityStore } = require("./security-store.cjs");
+const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const {
   isAllowedRendererUrl,
   isLoopbackRendererUrl,
@@ -22,6 +24,8 @@ const {
 let mainWindow;
 let screenCaptureRequest;
 let screenCaptureInProgress = false;
+let securityStore;
+let windowsHelloOperationInProgress = false;
 const titleBarHeight = 32;
 const defaultTitleBarTheme = {
   color: "#000000",
@@ -457,11 +461,7 @@ function withBackupStatus(service, result) {
 }
 
 async function attachAutomaticBackupResult(result, options = {}) {
-  const {
-    shouldCreate = true,
-    context = "an account mutation",
-    service,
-  } = options;
+  const { shouldCreate = true, context = "an account mutation", service } = options;
   if (!result?.success || !shouldCreate) {
     return result;
   }
@@ -614,10 +614,7 @@ function registerBackupIpc() {
 
     try {
       const service = getBackupStore();
-      return withBackupStatus(
-        service,
-        await service.enableAutomatic(password, customFolderPath),
-      );
+      return withBackupStatus(service, await service.enableAutomatic(password, customFolderPath));
     } catch (error) {
       console.error("Failed to enable automatic backup.", error);
       return backupUnavailableResult();
@@ -722,7 +719,10 @@ function registerBackupIpc() {
         };
       }
 
-      const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[-:]/g, "")
+        .replace(/\.\d{3}Z$/, "Z");
       const suggestedFileName = `winotp-backup-${timestamp}.wotpbackup`;
       const pickerResult = await dialog.showSaveDialog(mainWindow, {
         title: "Export WinOTP backup",
@@ -739,6 +739,128 @@ function registerBackupIpc() {
       console.error("Failed to export the backup.", error);
       return backupUnavailableResult();
     }
+  });
+}
+
+function securityUnavailableResult() {
+  return {
+    success: false,
+    message: "OS-backed security storage is unavailable.",
+  };
+}
+
+function getSecurityStore() {
+  if (!securityStore) {
+    securityStore = new SecurityStore(app);
+  }
+
+  return securityStore;
+}
+
+async function runWindowsHelloOperation(operation) {
+  if (windowsHelloOperationInProgress) {
+    return {
+      success: false,
+      message: "Another Windows Hello request is already in progress.",
+    };
+  }
+
+  windowsHelloOperationInProgress = true;
+  try {
+    return { success: true, ...(await operation()) };
+  } catch {
+    return {
+      success: false,
+      message: "The Windows Hello bridge is unavailable.",
+    };
+  } finally {
+    windowsHelloOperationInProgress = false;
+  }
+}
+
+function registerSecurityIpc() {
+  ipcMain.handle("security:status", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return securityUnavailableResult();
+    }
+
+    try {
+      return { success: true, ...getSecurityStore().getStatus() };
+    } catch {
+      return securityUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("security:set-credential", (event, kind, secret) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return securityUnavailableResult();
+    }
+
+    try {
+      getSecurityStore().setCredential(kind, secret);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unable to save the security credential.",
+      };
+    }
+  });
+
+  ipcMain.handle("security:verify-credential", (event, kind, secret) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return securityUnavailableResult();
+    }
+
+    try {
+      return { success: true, ...getSecurityStore().verifyCredential(kind, secret) };
+    } catch {
+      return securityUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("security:remove-credential", (event, kind) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return securityUnavailableResult();
+    }
+
+    try {
+      getSecurityStore().removeCredential(kind);
+      return { success: true };
+    } catch {
+      return securityUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("security:windows-hello-availability", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return {
+        success: false,
+        message: "The renderer is not authorized.",
+      };
+    }
+
+    return runWindowsHelloOperation(() => getWindowsHelloAvailability());
+  });
+
+  ipcMain.handle("security:windows-hello-verify", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return {
+        success: false,
+        message: "The renderer is not authorized.",
+      };
+    }
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return {
+        success: false,
+        message: "The main window is unavailable.",
+      };
+    }
+
+    return runWindowsHelloOperation(() =>
+      verifyWindowsHello({ windowHandle: mainWindow.getNativeWindowHandle() }),
+    );
   });
 }
 
@@ -824,6 +946,7 @@ if (!hasSingleInstanceLock) {
     accountStoreLoader.get();
     registerAccountIpc();
     registerBackupIpc();
+    registerSecurityIpc();
     ipcMain.handle("open-external", (event, url) => {
       if (!isTrustedRendererEvent(event, mainWindow)) {
         return false;
