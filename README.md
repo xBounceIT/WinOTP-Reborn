@@ -43,7 +43,7 @@ dotnet test WinOTP.Tests\WinOTP.Tests.csproj
 dotnet build WinOTP.Core.csproj
 ```
 
-To build the Rust updater sidecar for a packaged Electron build:
+Packaging automatically builds the platform-specific Rust updater sidecar through the `prepackage` lifecycle hook. To build it separately for a packaged Electron build:
 
 ```powershell
 cd electron-app

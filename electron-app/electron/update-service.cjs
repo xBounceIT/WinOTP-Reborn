@@ -5,6 +5,7 @@ const { spawn } = require("node:child_process");
 const { getAppDataDirectory } = require("./account-store.cjs");
 
 const UPDATE_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_UPDATER_OUTPUT_BYTES = 8 * 1024 * 1024;
 const UPDATE_STATUS = {
   IDLE: "idle",
   CHECKING: "checking",
@@ -112,6 +113,8 @@ function runUpdater(request, options = {}) {
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
     const child = spawnProcess(command.command, command.args, {
       cwd: command.command === "cargo" ? getRepositoryRoot() : path.dirname(command.command),
@@ -138,10 +141,30 @@ function runUpdater(request, options = {}) {
     }, UPDATE_COMMAND_TIMEOUT_MS);
 
     child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
+      if (settled) {
+        return;
+      }
+      const text = chunk.toString();
+      stdoutBytes += Buffer.byteLength(text);
+      if (stdoutBytes > MAX_UPDATER_OUTPUT_BYTES) {
+        settle(reject, new Error("The Rust update bridge returned too much output."));
+        child.kill();
+        return;
+      }
+      stdout += text;
     });
     child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
+      if (settled) {
+        return;
+      }
+      const text = chunk.toString();
+      stderrBytes += Buffer.byteLength(text);
+      if (stderrBytes > MAX_UPDATER_OUTPUT_BYTES) {
+        settle(reject, new Error("The Rust update bridge returned too much diagnostic output."));
+        child.kill();
+        return;
+      }
+      stderr += text;
     });
     child.once("error", (error) => settle(reject, error));
     child.once("close", () => {
@@ -176,7 +199,10 @@ function runUpdater(request, options = {}) {
 
 function createUpdateService({ app, environment = process.env, platform = process.platform, spawnProcess = spawn } = {}) {
   const currentVersion = String(app?.getVersion?.() ?? "0.0.0");
-  const updatesDirectory = path.join(getAppDataDirectory(app), "Updates");
+  const updatesDirectory = path.join(
+    getAppDataDirectory(app, { environment, platform }),
+    "Updates",
+  );
   let state = defaultUpdateState(currentVersion);
   let operationPromise;
 

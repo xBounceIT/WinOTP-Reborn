@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 const RELEASE_API_URL: &str = "https://api.github.com/repos/xBounceIT/WinOTP-Reborn/releases";
 const RELEASE_PAGE_SIZE: u32 = 100;
+const MAX_RESPONSE_BODY_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UpdateChannel {
@@ -355,7 +356,7 @@ impl UpdateService {
 
         if final_path.exists() {
             match validate_downloaded_file(&final_path, update.installer_sha256.as_deref()) {
-                Ok((true, digest_verified)) => {
+                Ok((true, true)) => {
                     self.set_state(UpdateState {
                         status: UpdateAvailabilityStatus::LaunchReady,
                         is_update_available: true,
@@ -363,7 +364,7 @@ impl UpdateService {
                         status_message: "Installer ready to launch.".to_string(),
                         available_update: Some(update.clone()),
                         downloaded_installer_path: Some(final_path_string.clone()),
-                        is_downloaded_asset_digest_verified: digest_verified,
+                        is_downloaded_asset_digest_verified: true,
                         last_error: None,
                         ..self.current_state()
                     });
@@ -371,12 +372,12 @@ impl UpdateService {
                     return UpdateDownloadResult {
                         success: true,
                         file_path: Some(final_path_string),
-                        is_digest_verified: digest_verified,
+                        is_digest_verified: true,
                         update: Some(update),
                         error_message: None,
                     };
                 }
-                Ok((false, _)) | Err(_) => try_delete_file(&final_path),
+                Ok((true, false)) | Ok((false, _)) | Err(_) => try_delete_file(&final_path),
             }
         }
 
@@ -452,12 +453,23 @@ impl UpdateService {
                     error_message: None,
                 }
             }
-            Ok((false, _)) | Err(_) => {
+            Ok((false, _)) => {
                 try_delete_file(&final_path);
                 self.fail_download(
                     update,
                     "The downloaded installer failed SHA-256 verification.".to_string(),
                 )
+            }
+            Err(DownloadValidationError::DigestMismatch) => {
+                try_delete_file(&final_path);
+                self.fail_download(
+                    update,
+                    "The downloaded installer failed SHA-256 verification.".to_string(),
+                )
+            }
+            Err(DownloadValidationError::Read(error)) => {
+                try_delete_file(&final_path);
+                self.fail_download(update, error)
             }
         }
     }
@@ -467,6 +479,13 @@ impl UpdateService {
         update: AvailableUpdateInfo,
         file_path: &str,
     ) -> UpdateInstallLaunchResult {
+        if let Err(error) = validate_installer_name(&update.installer_name) {
+            return UpdateInstallLaunchResult {
+                success: false,
+                error_message: Some(error),
+            };
+        }
+
         let expected_path = self.config.updates_directory.join(&update.installer_name);
         let path = Path::new(file_path);
         if !same_path(path, &expected_path) {
@@ -477,42 +496,39 @@ impl UpdateService {
         }
 
         if !path.is_file() {
-            return UpdateInstallLaunchResult {
-                success: false,
-                error_message: Some("The downloaded installer could not be found.".to_string()),
-            };
+            return self.fail_install(
+                update,
+                "The downloaded installer could not be found.".to_string(),
+            );
         }
 
-        if let Err(error) = validate_downloaded_file(path, update.installer_sha256.as_deref()) {
-            let message = match error {
-                DownloadValidationError::DigestMismatch => {
-                    "The downloaded installer failed SHA-256 verification.".to_string()
+        let digest_verified =
+            match validate_downloaded_file(path, update.installer_sha256.as_deref()) {
+                Ok((true, digest_verified)) => digest_verified,
+                Ok((false, _)) => {
+                    return self.fail_install(
+                        update,
+                        "The downloaded installer failed SHA-256 verification.".to_string(),
+                    );
                 }
-                DownloadValidationError::Read(error) => error,
+                Err(error) => {
+                    let message = match error {
+                        DownloadValidationError::DigestMismatch => {
+                            "The downloaded installer failed SHA-256 verification.".to_string()
+                        }
+                        DownloadValidationError::Read(error) => error,
+                    };
+                    return self.fail_install(update, message);
+                }
             };
-            try_delete_file(path);
-            self.set_state(UpdateState {
-                status: UpdateAvailabilityStatus::UpdateAvailable,
-                is_update_available: true,
-                is_busy: false,
-                status_message: format!("Version {} is available.", update.display_version),
-                available_update: Some(update),
-                downloaded_installer_path: None,
-                is_downloaded_asset_digest_verified: false,
-                last_error: Some(message.clone()),
-                ..self.current_state()
-            });
-            return UpdateInstallLaunchResult {
-                success: false,
-                error_message: Some(message),
-            };
-        }
 
         if (self.process_starter)(path) {
             self.set_state(UpdateState {
                 status: UpdateAvailabilityStatus::LaunchReady,
                 is_busy: false,
                 status_message: "Installer ready to launch.".to_string(),
+                is_downloaded_asset_digest_verified: digest_verified,
+                downloaded_installer_path: Some(path.to_string_lossy().into_owned()),
                 ..self.current_state()
             });
             UpdateInstallLaunchResult {
@@ -574,6 +590,11 @@ impl UpdateService {
                 continue;
             }
 
+            let installer_sha256 = match normalize_sha256_digest(asset.digest.as_deref()) {
+                Ok(digest) => digest,
+                Err(_) => continue,
+            };
+
             if best_match
                 .as_ref()
                 .is_some_and(|(version, _)| release_version <= *version)
@@ -597,7 +618,7 @@ impl UpdateService {
                 published_at_utc: release.published_at,
                 installer_name: asset.name.clone(),
                 installer_url: asset.browser_download_url.clone(),
-                installer_sha256: normalize_sha256_digest(asset.digest.as_deref()),
+                installer_sha256,
                 release_notes: release.body.clone().unwrap_or_default(),
             };
             best_match = Some((release_version, update));
@@ -673,6 +694,29 @@ impl UpdateService {
             file_path: None,
             is_digest_verified: false,
             update: Some(update),
+            error_message: Some(error_message),
+        }
+    }
+
+    fn fail_install(
+        &self,
+        update: AvailableUpdateInfo,
+        error_message: String,
+    ) -> UpdateInstallLaunchResult {
+        try_delete_file(&self.config.updates_directory.join(&update.installer_name));
+        self.set_state(UpdateState {
+            status: UpdateAvailabilityStatus::UpdateAvailable,
+            is_update_available: true,
+            is_busy: false,
+            status_message: format!("Version {} is available.", update.display_version),
+            available_update: Some(update),
+            downloaded_installer_path: None,
+            is_downloaded_asset_digest_verified: false,
+            last_error: Some(error_message.clone()),
+            ..self.current_state()
+        });
+        UpdateInstallLaunchResult {
+            success: false,
             error_message: Some(error_message),
         }
     }
@@ -823,15 +867,21 @@ fn get_next_page_url(headers: &[(String, String)]) -> Option<String> {
     None
 }
 
-fn normalize_sha256_digest(digest: Option<&str>) -> Option<String> {
-    let value = digest?.trim();
-    let value = value
-        .strip_prefix("sha256:")
-        .or_else(|| value.strip_prefix("SHA256:"))?;
-    if value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
-        return None;
+fn normalize_sha256_digest(digest: Option<&str>) -> Result<Option<String>, String> {
+    let Some(value) = digest.map(str::trim) else {
+        return Ok(None);
+    };
+    let Some(prefix) = value.get(.."sha256:".len()) else {
+        return Err("The release contains an invalid SHA-256 digest.".to_string());
+    };
+    if !prefix.eq_ignore_ascii_case("sha256:") {
+        return Err("The release contains an invalid SHA-256 digest.".to_string());
     }
-    Some(value.to_ascii_lowercase())
+    let value = &value["sha256:".len()..];
+    if value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err("The release contains an invalid SHA-256 digest.".to_string());
+    }
+    Ok(Some(value.to_ascii_lowercase()))
 }
 
 #[derive(Debug)]
@@ -1028,12 +1078,13 @@ pub fn run_request(request: UpdaterRequest) -> Result<UpdaterResponse, String> {
                 .file_path
                 .ok_or_else(|| "The installer is not ready.".to_string())?;
             let result = service.launch_installer(update.clone(), &file_path);
+            let state = service.current_state();
             Ok(UpdaterResponse {
                 success: result.success,
                 message: result.error_message,
-                state: service.current_state(),
+                is_digest_verified: state.is_downloaded_asset_digest_verified,
+                state,
                 file_path: Some(file_path),
-                is_digest_verified: service.current_state().is_downloaded_asset_digest_verified,
                 update: Some(update),
             })
         }
@@ -1078,8 +1129,10 @@ impl HttpTransport for UreqTransport {
                 )
             })
             .collect();
-        let body = response
-            .into_body()
+        let mut body = response.into_body();
+        let body = body
+            .with_config()
+            .limit(MAX_RESPONSE_BODY_BYTES)
             .read_to_vec()
             .map_err(|error| error.to_string())?;
 

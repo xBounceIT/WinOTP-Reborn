@@ -14,12 +14,16 @@ test("Electron release packaging covers the supported desktop targets", () => {
   assert.equal(build.productName, "WinOTP");
   assert.match(mainSource, /setAppUserModelId\("com\.xbounceit\.winotp"\)/);
   assert.equal(packageJson.desktopName, "WinOTP");
+  assert.equal(packageJson.scripts.prepackage, "npm run build:updater");
   assert.equal(build.artifactName, "WinOTP-${version}-${os}-${arch}-setup.${ext}");
   assert.deepEqual(build.files, [
     "dist/**/*",
     "electron/**/*.cjs",
     "!electron/**/*.test.cjs",
     "package.json",
+  ]);
+  assert.deepEqual(build.extraResources, [
+    { from: "native", to: "updater", filter: ["winotp-updater*"] },
   ]);
   assert.equal(build.win.target, "nsis");
   assert.equal(build.linux.target, "AppImage");

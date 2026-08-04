@@ -17,6 +17,7 @@
     "format": "oxfmt --write src vite.config.ts",
     "format:check": "oxfmt --check src vite.config.ts",
     "build:updater": "node scripts/build-updater.mjs",
+    "prepackage": "npm run build:updater",
     "package": "electron-builder --publish never",
     "preview": "vite preview",
     "electron": "electron electron/main.cjs"

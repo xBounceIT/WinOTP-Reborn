@@ -58,9 +58,9 @@ class AccountStoreError extends Error {
   }
 }
 
-function getAppDataDirectory(app) {
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA;
+function getAppDataDirectory(app, { environment = process.env, platform = process.platform } = {}) {
+  if (platform === "win32") {
+    const localAppData = environment.LOCALAPPDATA;
     if (localAppData) {
       return path.join(localAppData, APP_DIRECTORY_NAME);
     }

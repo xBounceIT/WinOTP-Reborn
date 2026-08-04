@@ -185,6 +185,7 @@ export default function App() {
   );
   const backupMutationVersion = useRef(0);
   const autoStartMutationVersion = useRef(0);
+  const updateSettingsVersion = useRef(0);
   settingsRef.current = settings;
   lockedRef.current = locked;
   securityReadyRef.current = securityReady;
@@ -379,27 +380,44 @@ export default function App() {
         if (cancelled) {
           return;
         }
+        if (!status?.success || !status.state) {
+          const message = status?.message ?? "The Rust update bridge is unavailable.";
+          setUpdateState((current) => ({
+            ...(status?.state ?? current),
+            status: "error",
+            isBusy: false,
+            statusMessage: message,
+            lastError: message,
+          }));
+          return;
+        }
 
+        const currentSettings = settingsRef.current;
+        const currentSettingsVersion = updateSettingsVersion.current;
         setUpdateState({
           ...status.state,
-          selectedChannel: settings.updateChannel,
-          isAutomaticCheckEnabled: settings.updateOnStartup,
+          selectedChannel: currentSettings.updateChannel,
+          isAutomaticCheckEnabled: currentSettings.updateOnStartup,
           status:
-            settings.updateOnStartup || status.state.status !== "idle"
+            currentSettings.updateOnStartup || status.state.status !== "idle"
               ? status.state.status
               : "disabled",
           statusMessage:
-            !settings.updateOnStartup && status.state.lastCheckedUtc == null
+            !currentSettings.updateOnStartup && status.state.lastCheckedUtc == null
               ? "Automatic checks are off."
               : status.state.statusMessage,
         });
 
-        if (!settings.updateOnStartup) {
+        if (!currentSettings.updateOnStartup) {
           return;
         }
 
-        const result = await updateBridge.check(settings.updateChannel, true);
-        if (!cancelled && result?.state) {
+        const result = await updateBridge.check(currentSettings.updateChannel, true);
+        if (
+          !cancelled &&
+          updateSettingsVersion.current === currentSettingsVersion &&
+          result?.state
+        ) {
           setUpdateState(result.state);
         }
       } catch (error) {
@@ -773,12 +791,14 @@ export default function App() {
     });
 
     if (key === "updateChannel") {
+      updateSettingsVersion.current += 1;
       setUpdateState((current) => ({
         ...current,
         selectedChannel: value as AppSettings["updateChannel"],
       }));
     }
     if (key === "updateOnStartup") {
+      updateSettingsVersion.current += 1;
       const enabled = value === true;
       setUpdateState((current) => ({
         ...current,

@@ -17,7 +17,7 @@ npm install
 npm run dev
 ```
 
-The development bridge can compile the Rust updater with Cargo on demand. Before packaging, build the platform-specific sidecar into `native/`:
+The development bridge can compile the Rust updater with Cargo on demand. Packaging automatically builds the platform-specific sidecar into `native/`; build it separately when needed:
 
 ```bash
 npm run build:updater

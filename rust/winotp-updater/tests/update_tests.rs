@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -139,6 +140,190 @@ fn prerelease_channel_can_select_prerelease_and_uses_arm64_assets() {
 
     assert_eq!(update.display_version, "1.2.0-beta.1");
     assert!(update.is_pre_release);
+}
+
+#[test]
+fn skips_releases_with_invalid_sha256_digests() {
+    let releases = vec![release(
+        "v1.2.0",
+        false,
+        vec![asset(
+            "WinOTP-1.2.0-win-x64-setup.exe",
+            "https://example.test/invalid.exe",
+            Some("sha256:not-a-digest".to_string()),
+        )],
+    )];
+
+    let update = UpdateService::select_available_release(
+        &releases,
+        "1.0.0",
+        UpdateChannel::Stable,
+        AppPlatform::Windows,
+        AppArchitecture::X64,
+    )
+    .expect("the current version is valid");
+
+    assert!(update.is_none());
+}
+
+#[test]
+fn manual_checks_still_run_when_startup_checks_are_disabled() {
+    let directory = tempdir().expect("temporary directory");
+    let transport = FakeTransport::new(|request| {
+        assert!(request.url.contains("per_page=100"));
+        Ok(response(b"[]".to_vec(), Vec::new()))
+    });
+    let service = UpdateService::new(
+        UpdateConfig {
+            automatic_check_enabled: false,
+            ..config(
+                directory.path(),
+                UpdateChannel::Stable,
+                AppPlatform::Windows,
+            )
+        },
+        Arc::new(transport),
+        Arc::new(|_: &Path| true),
+    );
+
+    let checked = service.check_for_updates();
+
+    assert_eq!(checked.status, UpdateAvailabilityStatus::UpToDate);
+    assert!(!checked.is_automatic_check_enabled);
+}
+
+#[test]
+fn does_not_trust_an_existing_installer_without_a_digest() {
+    let directory = tempdir().expect("temporary directory");
+    let installer_name = "WinOTP-1.1.0-win-x64-setup.exe";
+    let update = UpdateService::select_available_release(
+        &[release(
+            "v1.1.0",
+            false,
+            vec![asset(
+                installer_name,
+                "https://example.test/installer.exe",
+                None,
+            )],
+        )],
+        "1.0.0",
+        UpdateChannel::Stable,
+        AppPlatform::Windows,
+        AppArchitecture::X64,
+    )
+    .expect("the current version is valid")
+    .expect("an update is available");
+    let installer_path = directory.path().join(installer_name);
+    fs::write(&installer_path, b"stale installer").expect("write stale installer");
+
+    let requests = Arc::new(Mutex::new(0));
+    let transport = FakeTransport::new({
+        let requests = requests.clone();
+        move |request| {
+            assert!(request.url.ends_with("installer.exe"));
+            *requests.lock().unwrap() += 1;
+            Ok(response(b"fresh installer".to_vec(), Vec::new()))
+        }
+    });
+    let service = UpdateService::new(
+        config(
+            directory.path(),
+            UpdateChannel::Stable,
+            AppPlatform::Windows,
+        ),
+        Arc::new(transport),
+        Arc::new(|_: &Path| true),
+    );
+
+    let downloaded = service.download_installer(update);
+
+    assert!(downloaded.success);
+    assert_eq!(*requests.lock().unwrap(), 1);
+    assert_eq!(fs::read(installer_path).unwrap(), b"fresh installer");
+}
+
+#[test]
+fn missing_installer_resets_the_launch_state() {
+    let directory = tempdir().expect("temporary directory");
+    let update = UpdateService::select_available_release(
+        &[release(
+            "v1.1.0",
+            false,
+            vec![asset(
+                "WinOTP-1.1.0-win-x64-setup.exe",
+                "https://example.test/installer.exe",
+                None,
+            )],
+        )],
+        "1.0.0",
+        UpdateChannel::Stable,
+        AppPlatform::Windows,
+        AppArchitecture::X64,
+    )
+    .expect("the current version is valid")
+    .expect("an update is available");
+    let service = UpdateService::new(
+        config(
+            directory.path(),
+            UpdateChannel::Stable,
+            AppPlatform::Windows,
+        ),
+        Arc::new(FakeTransport::new(|_| Ok(response(Vec::new(), Vec::new())))),
+        Arc::new(|_: &Path| true),
+    );
+    let installer_path = directory.path().join(&update.installer_name);
+
+    let result = service.launch_installer(update, installer_path.to_str().unwrap());
+
+    assert!(!result.success);
+    assert_eq!(
+        service.current_state().status,
+        UpdateAvailabilityStatus::UpdateAvailable
+    );
+    assert!(service.current_state().downloaded_installer_path.is_none());
+}
+
+#[test]
+fn launch_rejects_installer_path_traversal() {
+    let directory = tempdir().expect("temporary directory");
+    let outside_path = directory.path().join("outside.exe");
+    fs::write(&outside_path, b"not an installer").expect("write outside file");
+    let mut update = UpdateService::select_available_release(
+        &[release(
+            "v1.1.0",
+            false,
+            vec![asset(
+                "WinOTP-1.1.0-win-x64-setup.exe",
+                "https://example.test/installer.exe",
+                None,
+            )],
+        )],
+        "1.0.0",
+        UpdateChannel::Stable,
+        AppPlatform::Windows,
+        AppArchitecture::X64,
+    )
+    .expect("the current version is valid")
+    .expect("an update is available");
+    update.installer_name = "..\\outside.exe".to_string();
+    let service = UpdateService::new(
+        config(
+            directory.path().join("Updates").as_path(),
+            UpdateChannel::Stable,
+            AppPlatform::Windows,
+        ),
+        Arc::new(FakeTransport::new(|_| Ok(response(Vec::new(), Vec::new())))),
+        Arc::new(|_: &Path| false),
+    );
+
+    let result = service.launch_installer(update, outside_path.to_str().unwrap());
+
+    assert!(!result.success);
+    assert!(result
+        .error_message
+        .as_deref()
+        .is_some_and(|message| message.contains("invalid installer name")));
+    assert!(outside_path.is_file());
 }
 
 #[test]

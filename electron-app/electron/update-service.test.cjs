@@ -123,7 +123,38 @@ test("updates the service state from a real Rust bridge response", async () => {
     assert.equal(result.success, true);
     assert.equal(result.state.status, UPDATE_STATUS.UPDATE_AVAILABLE);
     assert.equal(result.state.availableUpdate.displayVersion, "2.1.0");
+    assert.equal(result.state.currentVersion, "2.0.0");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("rejects an updater bridge response that exceeds the output limit", async () => {
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = {
+      end: () => {
+        queueMicrotask(() => {
+          child.stdout.emit("data", "x".repeat(8 * 1024 * 1024 + 1));
+          child.emit("close", 0, null);
+        });
+      },
+    };
+    child.kill = () => undefined;
+    return child;
+  };
+
+  await assert.rejects(
+    runUpdater(
+      { command: "status", currentVersion: "2.0.0" },
+      {
+        app: { isPackaged: false },
+        environment: { WINOTP_UPDATER_PATH: process.execPath },
+        spawnProcess,
+      },
+    ),
+    /too much output/,
+  );
 });

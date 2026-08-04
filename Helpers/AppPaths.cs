@@ -29,8 +29,4 @@ internal static class AppPaths
         return Path.Combine(GetAppDataDirectory(), "Backups");
     }
 
-    public static string GetUpdatesDirectory()
-    {
-        return Path.Combine(GetAppDataDirectory(), "Updates");
-    }
 }

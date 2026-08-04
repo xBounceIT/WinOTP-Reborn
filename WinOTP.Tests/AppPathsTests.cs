@@ -40,11 +40,4 @@ public sealed class AppPathsTests
         Assert.Equal(Path.Combine(_localAppDataPath, "WinOTP_Reborn", "Backups"), result);
     }
 
-    [Fact]
-    public void GetUpdatesDirectory_UsesWinOtpRebornRoot()
-    {
-        var result = AppPaths.GetUpdatesDirectory();
-
-        Assert.Equal(Path.Combine(_localAppDataPath, "WinOTP_Reborn", "Updates"), result);
-    }
 }
