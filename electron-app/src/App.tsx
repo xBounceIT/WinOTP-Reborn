@@ -46,6 +46,8 @@ import type {
   SecurityCredentialKind,
   SecurityCredentialStatus,
   SecurityVerification,
+  UpdateOperationResult,
+  UpdateState,
   WindowsHelloAvailabilityStatus,
   WindowsHelloVerificationResult,
 } from "@/lib/types";
@@ -53,6 +55,24 @@ import { defaultSettings } from "@/lib/types";
 
 const settingsStorageKey = "winotp-electron.settings";
 type LockRequestReason = "manual" | "startup" | "inactivity" | "session";
+
+function initialUpdateState(settings: AppSettings): UpdateState {
+  const enabled = settings.updateOnStartup;
+  return {
+    currentVersion: "",
+    selectedChannel: settings.updateChannel,
+    status: enabled ? "idle" : "disabled",
+    isUpdateAvailable: false,
+    isBusy: false,
+    isAutomaticCheckEnabled: enabled,
+    statusMessage: enabled ? "Ready to check for updates." : "Automatic checks are off.",
+    lastCheckedUtc: undefined,
+    availableUpdate: undefined,
+    downloadedInstallerPath: undefined,
+    isDownloadedAssetDigestVerified: false,
+    lastError: undefined,
+  };
+}
 
 function getTrayAccountLabel(account: OtpAccount) {
   const issuer = account.issuer.trim();
@@ -129,6 +149,7 @@ export default function App() {
   const [accountsError, setAccountsError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(readAppSettings);
   const [backupStatus, setBackupStatus] = useState<BackupConfigurationResult>();
+  const [updateState, setUpdateState] = useState<UpdateState>(() => initialUpdateState(settings));
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
   const [locked, setLocked] = useState(() =>
@@ -330,6 +351,71 @@ export default function App() {
     }
 
     void loadAutoStartStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUpdateStatus() {
+      const updateBridge = window.winotp?.updates;
+      if (!updateBridge) {
+        if (!cancelled) {
+          setUpdateState((current) => ({
+            ...current,
+            currentVersion: current.currentVersion || "Unavailable",
+            status: "error",
+            statusMessage: "The Rust update bridge is unavailable.",
+            lastError: "The Rust update bridge is unavailable.",
+          }));
+        }
+        return;
+      }
+
+      try {
+        const status = await updateBridge.status();
+        if (cancelled) {
+          return;
+        }
+
+        setUpdateState({
+          ...status.state,
+          selectedChannel: settings.updateChannel,
+          isAutomaticCheckEnabled: settings.updateOnStartup,
+          status:
+            settings.updateOnStartup || status.state.status !== "idle"
+              ? status.state.status
+              : "disabled",
+          statusMessage:
+            !settings.updateOnStartup && status.state.lastCheckedUtc == null
+              ? "Automatic checks are off."
+              : status.state.statusMessage,
+        });
+
+        if (!settings.updateOnStartup) {
+          return;
+        }
+
+        const result = await updateBridge.check(settings.updateChannel, true);
+        if (!cancelled && result?.state) {
+          setUpdateState(result.state);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Unable to check for updates.";
+          setUpdateState((current) => ({
+            ...current,
+            status: "error",
+            statusMessage: "Couldn't check for updates.",
+            lastError: message,
+          }));
+        }
+      }
+    }
+
+    void loadUpdateStatus();
     return () => {
       cancelled = true;
     };
@@ -685,6 +771,78 @@ export default function App() {
       }
       return next;
     });
+
+    if (key === "updateChannel") {
+      setUpdateState((current) => ({
+        ...current,
+        selectedChannel: value as AppSettings["updateChannel"],
+      }));
+    }
+    if (key === "updateOnStartup") {
+      const enabled = value === true;
+      setUpdateState((current) => ({
+        ...current,
+        isAutomaticCheckEnabled: enabled,
+        status:
+          !enabled && current.lastCheckedUtc == null && !current.availableUpdate
+            ? "disabled"
+            : current.status,
+        statusMessage:
+          !enabled && current.lastCheckedUtc == null && !current.availableUpdate
+            ? "Automatic checks are off."
+            : current.statusMessage,
+      }));
+    }
+  }
+
+  function unavailableUpdateResult(message = "The Rust update bridge is unavailable.") {
+    const state: UpdateState = {
+      ...updateState,
+      status: "error",
+      isBusy: false,
+      statusMessage: message,
+      lastError: message,
+    };
+    setUpdateState(state);
+    return { success: false, state, message } satisfies UpdateOperationResult;
+  }
+
+  async function checkForUpdates(): Promise<UpdateOperationResult> {
+    const updateBridge = window.winotp?.updates;
+    if (!updateBridge) {
+      return unavailableUpdateResult();
+    }
+
+    try {
+      const result = await updateBridge.check(settings.updateChannel, settings.updateOnStartup);
+      if (result?.state) {
+        setUpdateState(result.state);
+      }
+      return result;
+    } catch (error) {
+      return unavailableUpdateResult(
+        error instanceof Error ? error.message : "Unable to check for updates.",
+      );
+    }
+  }
+
+  async function installUpdate(): Promise<UpdateOperationResult> {
+    const updateBridge = window.winotp?.updates;
+    if (!updateBridge) {
+      return unavailableUpdateResult();
+    }
+
+    try {
+      const result = await updateBridge.install();
+      if (result?.state) {
+        setUpdateState(result.state);
+      }
+      return result;
+    } catch (error) {
+      return unavailableUpdateResult(
+        error instanceof Error ? error.message : "Unable to launch the update installer.",
+      );
+    }
   }
 
   function unavailableAutoStartResult(): AutoStartResult {
@@ -1424,6 +1582,9 @@ export default function App() {
         onResetBackupFolder={resetBackupFolder}
         onImportBackup={importBackup}
         onExportBackup={exportBackup}
+        updateState={updateState}
+        onCheckForUpdates={checkForUpdates}
+        onInstallUpdate={installUpdate}
         securityReady={securityReady}
         onEnableWindowsHello={enableWindowsHelloProtection}
         onDisableWindowsHello={disableWindowsHelloProtection}

@@ -85,6 +85,13 @@ contextBridge.exposeInMainWorld("winotp", {
     import: (password) => ipcRenderer.invoke("backup:import", password),
     export: (passwordOverride) => ipcRenderer.invoke("backup:export", passwordOverride),
   },
+  updates: {
+    status: () => ipcRenderer.invoke("updates:status"),
+    check: (channel, automaticCheckEnabled) =>
+      ipcRenderer.invoke("updates:check", channel, automaticCheckEnabled),
+    download: () => ipcRenderer.invoke("updates:download"),
+    install: () => ipcRenderer.invoke("updates:install"),
+  },
   security: {
     getStatus: () => ipcRenderer.invoke("security:status"),
     setCredential: (kind, secret) => ipcRenderer.invoke("security:set-credential", kind, secret),

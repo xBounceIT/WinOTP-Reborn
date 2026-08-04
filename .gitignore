@@ -22,12 +22,15 @@ Generated Files/
 # Build
 publish/
 installer/output/
+rust/target/
 *.nupkg
 *.snupkg
 
 # Electron frontend
 electron-app/node_modules/
 electron-app/dist/
+electron-app/native/*
+!electron-app/native/.gitkeep
 
 # NuGet
 packages/

@@ -16,6 +16,7 @@
     "lint": "oxlint src vite.config.ts",
     "format": "oxfmt --write src vite.config.ts",
     "format:check": "oxfmt --check src vite.config.ts",
+    "build:updater": "node scripts/build-updater.mjs",
     "package": "electron-builder --publish never",
     "preview": "vite preview",
     "electron": "electron electron/main.cjs"
@@ -58,6 +59,13 @@
       "electron/**/*.cjs",
       "!electron/**/*.test.cjs",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native",
+        "to": "updater",
+        "filter": ["winotp-updater*"]
+      }
     ],
     "win": {
       "icon": "public/app.ico",

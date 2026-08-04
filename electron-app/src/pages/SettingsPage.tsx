@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +31,8 @@ import type {
   BackupOperationResult,
   SecurityCredentialKind,
   SecurityVerification,
+  UpdateOperationResult,
+  UpdateState,
 } from "@/lib/types";
 
 interface SettingsPageProps {
@@ -50,6 +51,9 @@ interface SettingsPageProps {
   onResetBackupFolder: () => Promise<BackupConfigurationResult>;
   onImportBackup: (password: string) => Promise<BackupImportResult>;
   onExportBackup: (passwordOverride?: string) => Promise<BackupOperationResult>;
+  updateState: UpdateState;
+  onCheckForUpdates: () => Promise<UpdateOperationResult>;
+  onInstallUpdate: () => Promise<UpdateOperationResult>;
   securityReady: boolean;
   onEnableWindowsHello: () => Promise<boolean>;
   onDisableWindowsHello: () => Promise<boolean>;
@@ -115,6 +119,27 @@ const passwordDialogCopy: Record<
 function formatAccountCount(count: number | undefined) {
   const safeCount = count ?? 0;
   return `${safeCount} account${safeCount === 1 ? "" : "s"}`;
+}
+
+function updateStatusLabel(status: UpdateState["status"]) {
+  switch (status) {
+    case "checking":
+      return "Checking for updates…";
+    case "upToDate":
+      return "Up to date";
+    case "updateAvailable":
+      return "Update available";
+    case "downloading":
+      return "Downloading installer…";
+    case "launchReady":
+      return "Installer ready";
+    case "error":
+      return "Unable to check for updates";
+    case "disabled":
+      return "Automatic checks are off";
+    default:
+      return "Ready to check";
+  }
 }
 
 interface CredentialDialogState {
@@ -218,6 +243,9 @@ export function SettingsPage({
   onResetBackupFolder,
   onImportBackup,
   onExportBackup,
+  updateState,
+  onCheckForUpdates,
+  onInstallUpdate,
   securityReady,
   onEnableWindowsHello,
   onDisableWindowsHello,
@@ -342,6 +370,30 @@ export function SettingsPage({
       }
     } finally {
       setBusyAction(undefined);
+    }
+  }
+
+  async function handleCheckForUpdates() {
+    try {
+      const result = await onCheckForUpdates();
+      if (!result.success) {
+        onToast(result.message ?? "Unable to check for updates.");
+      }
+    } catch {
+      onToast("Unable to check for updates.");
+    }
+  }
+
+  async function handleInstallUpdate() {
+    try {
+      const result = await onInstallUpdate();
+      if (result.success) {
+        onToast("The update installer was launched.");
+      } else {
+        onToast(result.message ?? "Unable to launch the update installer.");
+      }
+    } catch {
+      onToast("Unable to launch the update installer.");
     }
   }
 
@@ -833,10 +885,7 @@ export function SettingsPage({
           </Card>
 
           <Card className="settings-card">
-            <div className="settings-card__title-row">
-              <CardTitle className="settings-card__title">Check for updates</CardTitle>
-              <Badge variant="default">Electron preview</Badge>
-            </div>
+            <CardTitle className="settings-card__title">Check for updates</CardTitle>
             <ToggleRow
               label="Automatically check on startup"
               checked={settings.updateOnStartup}
@@ -868,20 +917,46 @@ export function SettingsPage({
             </div>
             <div className="settings-row">
               <span>Current version</span>
-              <span className="settings-row__value">2.0.0</span>
+              <span className="settings-row__value">
+                {updateState.currentVersion || "Loading…"}
+              </span>
             </div>
             <div className="settings-row">
               <span>Status</span>
-              <span className="settings-row__value">Ready to connect</span>
+              <span className="settings-row__value">
+                {updateState.statusMessage || updateStatusLabel(updateState.status)}
+              </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onToast("Update service bridge is ready to connect.")}
-            >
-              <Check size={14} />
-              Check now
-            </Button>
+            {updateState.availableUpdate && (
+              <div className="settings-card__description" role="status">
+                Version {updateState.availableUpdate.displayVersion} is available.
+              </div>
+            )}
+            {updateState.status === "error" && updateState.lastError && (
+              <div className="inline-error" role="alert">
+                {updateState.lastError}
+              </div>
+            )}
+            <div className="settings-buttons">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={updateState.isBusy || Boolean(busyAction)}
+                onClick={() => void handleCheckForUpdates()}
+              >
+                <Check size={14} />
+                {updateState.isBusy ? "Checking…" : "Check now"}
+              </Button>
+              {updateState.isUpdateAvailable && (
+                <Button
+                  size="sm"
+                  disabled={updateState.isBusy || Boolean(busyAction)}
+                  onClick={() => void handleInstallUpdate()}
+                >
+                  {updateState.status === "launchReady" ? "Install update" : "Download and install"}
+                </Button>
+              )}
+            </div>
           </Card>
 
           <Card className="settings-card">

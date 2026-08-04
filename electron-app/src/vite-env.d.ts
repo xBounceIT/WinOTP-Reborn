@@ -9,10 +9,13 @@ import type {
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
+  AppSettings,
   OtpAccount,
   SecurityCredentialKind,
   SecurityOperationResult,
   SecurityStatusResult,
+  UpdateOperationResult,
+  UpdateStatusResult,
   WindowsHelloAvailabilityResult,
   WindowsHelloVerificationResult,
   TrayState,
@@ -94,6 +97,15 @@ declare global {
         resetFolder: () => Promise<BackupConfigurationResult>;
         import: (password: string) => Promise<BackupImportResult>;
         export: (passwordOverride?: string) => Promise<BackupOperationResult>;
+      };
+      updates: {
+        status: () => Promise<UpdateStatusResult>;
+        check: (
+          channel: AppSettings["updateChannel"],
+          automaticCheckEnabled?: boolean,
+        ) => Promise<UpdateOperationResult>;
+        download: () => Promise<UpdateOperationResult>;
+        install: () => Promise<UpdateOperationResult>;
       };
       security: {
         getStatus: () => Promise<SecurityStatusResult>;

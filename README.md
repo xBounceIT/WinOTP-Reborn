@@ -32,7 +32,7 @@ npm run test:electron
 npm run build
 ```
 
-The app currently supports the home, add-account, manual-entry, import, settings, and multi-display QR screen-capture flows. Backup, update, and some protection settings still use migration placeholders in the Electron bridge.
+The app currently supports the home, add-account, manual-entry, import, settings, multi-display QR screen-capture, backup, protection, and update flows. The update service is implemented in Rust and exposed to the renderer through a narrow Electron IPC bridge.
 
 ## Test the transitional support code
 
@@ -41,6 +41,14 @@ The C# project is no longer an application entry point. It remains only to valid
 ```powershell
 dotnet test WinOTP.Tests\WinOTP.Tests.csproj
 dotnet build WinOTP.Core.csproj
+```
+
+To build the Rust updater sidecar for a packaged Electron build:
+
+```powershell
+cd electron-app
+npm run build:updater
+npm run package -- --win --x64
 ```
 
 ## Security

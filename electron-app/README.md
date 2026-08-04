@@ -8,13 +8,20 @@ The renderer uses the native bridge for account listing, add/edit/delete, usage 
 
 Backups use the same `.wotpbackup` PBKDF2-SHA256/AES-256-GCM envelope as the WinUI app, with the backup password protected by Electron `safeStorage`. Automatic backups are written to `%LOCALAPPDATA%\WinOTP_Reborn\Backups` by default, retain the latest 20 files, and can be moved to a validated custom folder from Settings.
 
-Windows Hello availability and verification use the Windows PowerShell 5.1 WinRT bridge, including Remote Desktop detection and the configured fallback credential. Backup and update actions still surface their existing bridge boundaries.
+Windows Hello availability and verification use the Windows PowerShell 5.1 WinRT bridge, including Remote Desktop detection and the configured fallback credential. Update checks, release selection, installer download, digest verification, and installer launch use the Rust updater sidecar through the Electron main process.
 
 ## Development
 
 ```bash
 npm install
 npm run dev
+```
+
+The development bridge can compile the Rust updater with Cargo on demand. Before packaging, build the platform-specific sidecar into `native/`:
+
+```bash
+npm run build:updater
+npm run package -- --win --x64
 ```
 
 The Electron shell is non-resizable and opens the Vite renderer in development. After `npm run build`, `npm run electron` loads the built renderer from `dist/`.

@@ -115,6 +115,59 @@ export interface BackupImportResult extends BackupOperationResult {
   failedCount?: number;
 }
 
+export type UpdateAvailabilityStatus =
+  | "idle"
+  | "checking"
+  | "upToDate"
+  | "updateAvailable"
+  | "downloading"
+  | "launchReady"
+  | "error"
+  | "disabled";
+
+export interface AvailableUpdateInfo {
+  version: string;
+  displayVersion: string;
+  releaseTag: string;
+  releaseTitle: string;
+  releaseUrl: string;
+  isPreRelease: boolean;
+  publishedAtUtc?: string | null;
+  installerName: string;
+  installerUrl: string;
+  installerSha256?: string | null;
+  releaseNotes: string;
+}
+
+export interface UpdateState {
+  currentVersion: string;
+  selectedChannel: "Stable" | "Pre-release";
+  status: UpdateAvailabilityStatus;
+  isUpdateAvailable: boolean;
+  isBusy: boolean;
+  isAutomaticCheckEnabled: boolean;
+  statusMessage: string;
+  lastCheckedUtc?: string | null;
+  availableUpdate?: AvailableUpdateInfo | null;
+  downloadedInstallerPath?: string | null;
+  isDownloadedAssetDigestVerified: boolean;
+  lastError?: string | null;
+}
+
+export interface UpdateOperationResult {
+  success: boolean;
+  state: UpdateState;
+  message?: string;
+  filePath?: string;
+  isDigestVerified?: boolean;
+}
+
+export interface UpdateStatusResult {
+  success: boolean;
+  state: UpdateState;
+  message?: string;
+}
+
 export interface AppSettings {
   accountSortOption: SortOption;
   accountCustomOrderIds: string[];

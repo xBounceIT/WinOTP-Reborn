@@ -18,6 +18,7 @@ const { AccountStore } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
+const { createUpdateService, defaultUpdateState } = require("./update-service.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const {
   SESSION_CHANGE_WINDOW_MESSAGE,
@@ -43,6 +44,7 @@ let trayController;
 let screenCaptureRequest;
 let screenCaptureInProgress = false;
 let securityStore;
+let updateService;
 let windowsHelloOperationInProgress = false;
 let isQuitting = false;
 const titleBarHeight = 32;
@@ -686,6 +688,80 @@ function getBackupStore() {
   return backupStore;
 }
 
+function getUpdateService() {
+  if (!updateService) {
+    updateService = createUpdateService({ app });
+  }
+
+  return updateService;
+}
+
+function updateUnavailableResult(message = "The Rust update bridge is unavailable.") {
+  return {
+    success: false,
+    message,
+    state: defaultUpdateState(app.getVersion()),
+  };
+}
+
+function registerUpdateIpc() {
+  ipcMain.handle("updates:status", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return updateUnavailableResult("The renderer is not authorized.");
+    }
+
+    try {
+      return { success: true, state: getUpdateService().getState() };
+    } catch (error) {
+      console.error("Failed to read update status.", error);
+      return updateUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("updates:check", async (event, channel, automaticCheckEnabled) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return updateUnavailableResult("The renderer is not authorized.");
+    }
+
+    try {
+      const result = await getUpdateService().check(
+        channel,
+        automaticCheckEnabled !== false,
+      );
+      return result;
+    } catch (error) {
+      console.error("Failed to check for app updates.", error);
+      return updateUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("updates:download", async (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return updateUnavailableResult("The renderer is not authorized.");
+    }
+
+    try {
+      return await getUpdateService().download();
+    } catch (error) {
+      console.error("Failed to download the app update.", error);
+      return updateUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("updates:install", async (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return updateUnavailableResult("The renderer is not authorized.");
+    }
+
+    try {
+      return await getUpdateService().install();
+    } catch (error) {
+      console.error("Failed to launch the app update installer.", error);
+      return updateUnavailableResult();
+    }
+  });
+}
+
 function backupUnavailableResult() {
   return {
     success: false,
@@ -1282,6 +1358,7 @@ if (!hasSingleInstanceLock) {
     accountStoreLoader.get();
     registerAccountIpc();
     registerBackupIpc();
+    registerUpdateIpc();
     registerSecurityIpc();
     registerAutoStartIpc();
     registerPowerSessionChangeMonitoring();
