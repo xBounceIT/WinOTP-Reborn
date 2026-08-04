@@ -1,12 +1,10 @@
-# WinOTP Electron migration UI
+# WinOTP Electron app
 
-This is the parallel frontend for the WinUI3 implementation in the repository root. It keeps the current 480×650 content model, uses native OS window controls with a themeable titlebar overlay, compact left navigation rail, 360px account column, and the existing Home, Add Account, Import, Manual Entry, and Settings page boundaries.
+This is the Electron frontend for WinOTP. It keeps the current 480×650 content model, uses native OS window controls with a themeable titlebar overlay, compact left navigation rail, 360px account column, and the existing Home, Add Account, Import, Manual Entry, and Settings page boundaries.
 
-The UI is intentionally usable before the native migration bridge is connected:
+Accounts are stored by the Electron main process in `%LOCALAPPDATA%\WinOTP_Reborn\accounts.db`. TOTP secrets are encrypted with Electron `safeStorage` (Windows DPAPI) before they are written to SQLite. On first launch, the app imports valid accounts from the legacy `WinOTP` Windows Credential Manager resource and records the migration so it is not repeated.
 
-- Three local demo accounts render live RFC 6238-compatible TOTP codes.
-- Search, sorting, copying, add/edit/delete, settings, theme preview, and the lock overlay work in local state.
-- QR capture, backup, update, and secure persistence actions surface the bridge boundary without pretending those native capabilities are complete.
+The renderer uses the native bridge for account listing, add/edit/delete, and usage counters. QR capture, backup, update, and Windows Hello actions still surface their existing bridge boundaries.
 
 ## Development
 
