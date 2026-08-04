@@ -56,6 +56,14 @@ function createBackupStore(directoryPath, accountStore) {
   });
 }
 
+function createDeferredBackupStore(directoryPath, accountStore) {
+  return new BackupStore({ getPath: () => directoryPath }, () => accountStore, {
+    directoryPath,
+    encryption: createTestEncryption(),
+    skipAutomaticReconciliation: true,
+  });
+}
+
 function createRealAccountStore(directoryPath) {
   return new AccountStore(
     { getPath: () => directoryPath },
@@ -119,6 +127,54 @@ test("uses the stored password when the export override is blank", () => {
     const result = sourceStore.exportBackup(exportPath, "   ");
 
     assert.equal(result.success, true);
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("imports a native backup password into the Electron password file", () => {
+  const directoryPath = createTemporaryDirectory();
+  const store = createBackupStore(directoryPath, createAccountStore());
+
+  try {
+    assert.deepEqual(store.importLegacyPassword("legacy-pass-1"), {
+      success: true,
+      imported: true,
+      importedCount: 1,
+      skippedCount: 0,
+      issueCount: 0,
+    });
+    assert.equal(store.getStoredPassword(), "legacy-pass-1");
+    assert.deepEqual(store.importLegacyPassword("another-pass"), {
+      success: true,
+      imported: false,
+      importedCount: 0,
+      skippedCount: 1,
+      issueCount: 0,
+    });
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("replaces an unusable existing backup password during migration", () => {
+  const directoryPath = createTemporaryDirectory();
+  const store = createBackupStore(directoryPath, createAccountStore());
+
+  try {
+    fs.writeFileSync(
+      path.join(directoryPath, ".backup-password"),
+      Buffer.from(Buffer.from("short", "utf8").toString("base64"), "utf8"),
+    );
+
+    assert.deepEqual(store.importLegacyPassword("legacy-pass-1"), {
+      success: true,
+      imported: true,
+      importedCount: 1,
+      skippedCount: 0,
+      issueCount: 0,
+    });
+    assert.equal(store.getStoredPassword(), "legacy-pass-1");
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }
@@ -234,19 +290,24 @@ test("refuses to export when account migration left incomplete data", () => {
   }
 });
 
-test("does not overwrite Electron account or backup state files", () => {
+test("does not overwrite Electron account, settings, or backup state files", () => {
   const directoryPath = createTemporaryDirectory();
   const store = createBackupStore(directoryPath, createAccountStore([account]));
 
   try {
-    const result = store.exportBackup(
-      path.join(directoryPath, "backup-settings.json"),
-      "backup-pass-1",
-    );
+    for (const fileName of [
+      "backup-settings.json",
+      "settings.json",
+      "app-settings.json",
+      "legacy-migration.json",
+      "accounts.db",
+    ]) {
+      const result = store.exportBackup(path.join(directoryPath, fileName), "backup-pass-1");
 
-    assert.equal(result.success, false);
-    assert.equal(result.errorCode, "ValidationFailed");
-    assert.equal(fs.existsSync(path.join(directoryPath, "backup-settings.json")), false);
+      assert.equal(result.success, false);
+      assert.equal(result.errorCode, "ValidationFailed");
+      assert.equal(fs.existsSync(path.join(directoryPath, fileName)), false);
+    }
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }
@@ -286,6 +347,23 @@ test("repairs persisted automatic settings when the password is missing", () => 
         .automaticEnabled,
       false,
     );
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("can defer automatic-backup repair while a legacy password migration is retryable", () => {
+  const directoryPath = createTemporaryDirectory();
+  fs.writeFileSync(
+    path.join(directoryPath, "backup-settings.json"),
+    JSON.stringify({ automaticEnabled: true, customFolderPath: "" }),
+  );
+  const store = createDeferredBackupStore(directoryPath, createAccountStore());
+
+  try {
+    assert.equal(store.getStatus().automaticEnabled, true);
+    store.reconcileAutomaticSettings();
+    assert.equal(store.getStatus().automaticEnabled, false);
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

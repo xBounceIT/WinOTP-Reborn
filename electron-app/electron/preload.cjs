@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld("winotp", {
     return () => screenCaptureListeners.delete(listener);
   },
   completeScreenCapture: (result) => ipcRenderer.send("screen-capture-result", result),
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    save: (settings) => ipcRenderer.invoke("settings:save", settings),
+  },
   accounts: {
     list: () => ipcRenderer.invoke("accounts:list"),
     acknowledgeMigration: () => ipcRenderer.invoke("accounts:ack-migration"),

@@ -55,6 +55,35 @@ function normalizeCustomFolderPath(value) {
   }
 }
 
+function defaultBackupSettings() {
+  return {
+    automaticEnabled: false,
+    customFolderPath: "",
+  };
+}
+
+function readStoredBackupSettings(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
+
+    if (typeof parsed.automaticEnabled !== "boolean") {
+      return undefined;
+    }
+
+    const customFolderPath = normalizeCustomFolderPath(parsed.customFolderPath);
+    return {
+      automaticEnabled: parsed.automaticEnabled,
+      customFolderPath:
+        customFolderPath && path.isAbsolute(customFolderPath) ? customFolderPath : "",
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function getUniquePath(basePath) {
   if (!fs.existsSync(basePath)) {
     return basePath;
@@ -204,8 +233,11 @@ class BackupStore {
     this.settingsPath = path.join(this.directoryPath, SETTINGS_FILE_NAME);
     this.automaticBackupQueue = Promise.resolve();
     this.configurationQueue = Promise.resolve();
+    this.automaticReconciliationDeferred = options.skipAutomaticReconciliation === true;
     this.settings = this.readSettings();
-    this.reconcileAutomaticSettings();
+    if (!this.automaticReconciliationDeferred) {
+      this.reconcileAutomaticSettings();
+    }
   }
 
   enqueueConfiguration(operation) {
@@ -215,20 +247,7 @@ class BackupStore {
   }
 
   readSettings() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.settingsPath, "utf8"));
-      const customFolderPath = normalizeCustomFolderPath(parsed?.customFolderPath);
-      return {
-        automaticEnabled: parsed?.automaticEnabled === true,
-        customFolderPath:
-          customFolderPath && path.isAbsolute(customFolderPath) ? customFolderPath : "",
-      };
-    } catch {
-      return {
-        automaticEnabled: false,
-        customFolderPath: "",
-      };
-    }
+    return readStoredBackupSettings(this.settingsPath) ?? defaultBackupSettings();
   }
 
   persistSettings() {
@@ -240,6 +259,7 @@ class BackupStore {
   }
 
   reconcileAutomaticSettings() {
+    this.automaticReconciliationDeferred = false;
     const storedPassword = this.getStoredPassword();
     if (!this.settings.automaticEnabled || storedPassword) {
       return storedPassword;
@@ -262,7 +282,9 @@ class BackupStore {
   }
 
   getStatus() {
-    const storedPassword = this.reconcileAutomaticSettings();
+    const storedPassword = this.automaticReconciliationDeferred
+      ? this.getStoredPassword()
+      : this.reconcileAutomaticSettings();
     return {
       automaticEnabled: this.settings.automaticEnabled,
       customFolderPath: this.settings.customFolderPath,
@@ -331,10 +353,35 @@ class BackupStore {
       }
 
       const password = this.encryption.decryptString(fs.readFileSync(this.passwordPath));
-      return typeof password === "string" && password.length > 0 ? password : undefined;
+      return isValidPassword(password) ? password : undefined;
     } catch {
       return undefined;
     }
+  }
+
+  importLegacyPassword(password) {
+    if (this.getStoredPassword()) {
+      return {
+        success: true,
+        imported: false,
+        importedCount: 0,
+        skippedCount: 1,
+        issueCount: 0,
+      };
+    }
+
+    const result = this.setStoredPassword(password);
+    if (!result.success) {
+      return result;
+    }
+
+    return {
+      ...result,
+      imported: true,
+      importedCount: 1,
+      skippedCount: 0,
+      issueCount: 0,
+    };
   }
 
   setStoredPassword(password) {
@@ -643,6 +690,9 @@ class BackupStore {
     const reservedPaths = [
       this.passwordPath,
       this.settingsPath,
+      path.join(this.directoryPath, "settings.json"),
+      path.join(this.directoryPath, "app-settings.json"),
+      path.join(this.directoryPath, "legacy-migration.json"),
       path.join(this.directoryPath, "accounts.db"),
       path.join(this.directoryPath, "accounts.db-wal"),
       path.join(this.directoryPath, "accounts.db-shm"),
@@ -851,4 +901,5 @@ module.exports = {
   encryptPayload,
   getUniquePath,
   isValidPassword,
+  readStoredBackupSettings,
 };

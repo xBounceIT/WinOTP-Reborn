@@ -28,12 +28,14 @@ import {
   emptySecurityStatus,
   credentialLabel,
   isPinCredential,
+  isSecurityNormalizationReady,
   normalizeSecuritySettings,
   remoteCredentialKind,
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
 } from "@/lib/security-settings";
+import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
 import type {
   AppSettings,
   AutoStartResult,
@@ -118,9 +120,8 @@ function readStorage<T>(key: string, fallback: T): T {
 }
 
 function readAppSettings(): AppSettings {
-  const stored = readStorage<Partial<AppSettings>>(settingsStorageKey, {});
-  const savedSettings =
-    stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  const stored = readStorage<unknown>(settingsStorageKey, undefined);
+  const savedSettings = isPersistedSettingsValue(stored) ? (stored as Partial<AppSettings>) : {};
 
   return {
     ...defaultSettings,
@@ -142,6 +143,15 @@ function readAppSettings(): AppSettings {
   };
 }
 
+function hasStoredAppSettings() {
+  try {
+    const stored = window.localStorage.getItem(settingsStorageKey);
+    return stored !== null && isPersistedSettingsValue(JSON.parse(stored));
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
   const [accounts, setAccounts] = useState<OtpAccount[]>([]);
@@ -161,6 +171,9 @@ export default function App() {
   const [unlockBusy, setUnlockBusy] = useState(false);
   const [lockRequestBusy, setLockRequestBusy] = useState(false);
   const [securityReady, setSecurityReady] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsPersistenceReady, setSettingsPersistenceReady] = useState(false);
+  const [securityMigrationPending, setSecurityMigrationPending] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
@@ -170,6 +183,7 @@ export default function App() {
   const securityReadyRef = useRef(securityReady);
   const securityStorageAvailableRef = useRef(securityStorageAvailable);
   const securityStatusRef = useRef(securityStatus);
+  const settingsHydrationTouchedRef = useRef(false);
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
   const lockOverlayRef = useRef<HTMLDivElement>(null);
@@ -305,13 +319,13 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!securityReady || startupLockHandled.current) {
+    if (!securityReady || !settingsLoaded || startupLockHandled.current) {
       return;
     }
 
     startupLockHandled.current = true;
     void requestLock("startup");
-  }, [securityReady]);
+  }, [securityReady, settingsLoaded]);
 
   useEffect(() => {
     if (!securityReady) {
@@ -464,7 +478,6 @@ export default function App() {
         };
         setSecurityStorageAvailable(true);
         setSecurityStatus(status);
-        setSettings((current) => normalizeSecuritySettings(current, status));
       } catch {
         if (!cancelled) {
           setSecurityStorageAvailable(false);
@@ -485,9 +498,95 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
+    let cancelled = false;
+    const hasStoredSettings = hasStoredAppSettings();
+
+    async function loadSettings() {
+      const settingsBridge = window.winotp?.settings;
+      if (!settingsBridge) {
+        if (!cancelled) {
+          setSettingsLoaded(true);
+          setSettingsPersistenceReady(true);
+          setSecurityMigrationPending(false);
+        }
+        return;
+      }
+
+      try {
+        const result = await settingsBridge.get();
+        if (!cancelled) {
+          const settingsChanged = settingsHydrationTouchedRef.current;
+          setSecurityMigrationPending(
+            result.success ? result.securityMigrationPending === true : true,
+          );
+          if (result.success && shouldHydrateMainSettings(hasStoredSettings, settingsChanged)) {
+            setSettings(result.settings);
+          }
+          setSettingsPersistenceReady(
+            settingsChanged ||
+              (result.success && result.persistable !== false) ||
+              hasStoredSettings,
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setSecurityMigrationPending(true);
+          setSettingsPersistenceReady(settingsHydrationTouchedRef.current || hasStoredSettings);
+        }
+      } finally {
+        if (!cancelled) {
+          setSettingsLoaded(true);
+        }
+      }
+    }
+
+    void loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded || !settingsPersistenceReady) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
+    } catch {
+      // Keep the main-process copy authoritative when localStorage is unavailable.
+    }
+
+    const settingsBridge = window.winotp?.settings;
+    if (settingsBridge) {
+      void settingsBridge.save(settings).catch(() => undefined);
+    }
+  }, [settings, settingsLoaded, settingsPersistenceReady]);
+
+  useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
-  }, [settings]);
+  }, [settings.theme]);
+
+  useEffect(() => {
+    if (
+      !isSecurityNormalizationReady(
+        settingsLoaded,
+        securityReady,
+        securityStorageAvailable,
+        securityMigrationPending,
+      )
+    ) {
+      return;
+    }
+
+    setSettings((current) => normalizeSecuritySettings(current, securityStatus));
+  }, [
+    securityMigrationPending,
+    securityReady,
+    securityStatus,
+    securityStorageAvailable,
+    settingsLoaded,
+  ]);
 
   useEffect(() => {
     window.winotp?.setTitleBarTheme({
@@ -513,11 +612,6 @@ export default function App() {
         }
 
         setBackupStatus(result);
-        setSettings((current) => ({
-          ...current,
-          automaticBackup: result.automaticEnabled,
-          customBackupFolderPath: result.customFolderPath,
-        }));
       } catch {
         // Backup actions surface their own bridge errors when requested.
       }
@@ -528,6 +622,27 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded || !backupStatus) {
+      return;
+    }
+
+    setSettings((current) => {
+      if (
+        current.automaticBackup === backupStatus.automaticEnabled &&
+        current.customBackupFolderPath === backupStatus.customFolderPath
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        automaticBackup: backupStatus.automaticEnabled,
+        customBackupFolderPath: backupStatus.customFolderPath,
+      };
+    });
+  }, [backupStatus, settingsLoaded]);
 
   useEffect(() => {
     return () => {
@@ -762,6 +877,7 @@ export default function App() {
         }
 
         setAccounts((current) => current.filter((item) => item.id !== account.id));
+        markSettingsChanged();
         setSettings((current) => ({
           ...current,
           accountCustomOrderIds: current.accountCustomOrderIds.filter((id) => id !== account.id),
@@ -779,6 +895,7 @@ export default function App() {
   }
 
   function changeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
+    markSettingsChanged();
     setSettings((current) => {
       const next = { ...current, [key]: value };
       if (key === "minimizeOnClose" && value === true) {
@@ -883,12 +1000,18 @@ export default function App() {
     try {
       const result = await autoStartBridge.set(enabled);
       if (result.success) {
+        markSettingsChanged();
         setSettings((current) => ({ ...current, autoStart: result.enabled }));
       }
       return result;
     } catch {
       return unavailableAutoStartResult();
     }
+  }
+
+  function markSettingsChanged() {
+    settingsHydrationTouchedRef.current = true;
+    setSettingsPersistenceReady(true);
   }
 
   function unavailableBackupResult(): BackupConfigurationResult {
@@ -924,6 +1047,7 @@ export default function App() {
         ? await backupBridge.enableAutomatic(password ?? "", settings.customBackupFolderPath)
         : await backupBridge.disableAutomatic();
       if (result.success) {
+        markSettingsChanged();
         setSettings((current) => ({
           ...current,
           automaticBackup: enabled,
@@ -947,6 +1071,7 @@ export default function App() {
     try {
       const result = await backupBridge.chooseFolder();
       if (result.success) {
+        markSettingsChanged();
         setSettings((current) => ({
           ...current,
           customBackupFolderPath: result.customFolderPath,
@@ -969,6 +1094,7 @@ export default function App() {
     try {
       const result = await backupBridge.resetFolder();
       if (result.success) {
+        markSettingsChanged();
         setSettings((current) => ({ ...current, customBackupFolderPath: "" }));
         setBackupStatus(result);
       }
@@ -1207,6 +1333,7 @@ export default function App() {
     setRemoteFallbackActive(false);
     setUnlockValue("");
     setUnlockError("");
+    markSettingsChanged();
     setSettings((current) => ({
       ...current,
       windowsHello: false,
@@ -1327,6 +1454,7 @@ export default function App() {
       }
 
       if (kind && !securityStatusAtStart[securityStatusKey(kind)]) {
+        markSettingsChanged();
         setSettings((current) => normalizeSecuritySettings(current, securityStatusAtStart));
         showManualLockError(
           `Set up your ${kind === "pin" ? "PIN" : "password"} before locking the app.`,
@@ -1418,6 +1546,7 @@ export default function App() {
 
     if (!securityStatus[securityStatusKey(kind)]) {
       setAppLocked(false);
+      markSettingsChanged();
       setSettings((current) => normalizeSecuritySettings(current, securityStatus));
       setUnlockError("");
       showToast("This protection has no saved credential and was disabled.");
@@ -1456,6 +1585,7 @@ export default function App() {
         };
         setSecurityStatus(unavailableStatus);
         setAppLocked(false);
+        markSettingsChanged();
         setSettings((current) => normalizeSecuritySettings(current, unavailableStatus));
         setUnlockValue("");
         setUnlockError("");

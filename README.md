@@ -8,7 +8,7 @@ WinOTP is a secure TOTP authenticator for Windows. The application is migrating 
 - `WinOTP.Core.csproj` — transitional Windows-only support library containing legacy credential, backup, update, and migration logic while equivalent Electron bridges are completed.
 - `WinOTP.Tests/` — regression coverage for the transitional support library and migration behavior.
 
-The Electron main process stores accounts in `%LOCALAPPDATA%\WinOTP_Reborn\accounts.db`. TOTP secrets are encrypted with Electron `safeStorage` before they are written to SQLite. On first launch, valid entries from the previous Windows Credential Manager store are imported once.
+The Electron main process stores accounts in `%LOCALAPPDATA%\WinOTP_Reborn\accounts.db`. TOTP secrets are encrypted with Electron `safeStorage` before they are written to SQLite. On first launch, valid entries from the previous Windows Credential Manager store are imported once. The same launch also migrates the native `settings.json`, app-lock credentials from the `WinOTP_AppLock` resource, and the automatic-backup password from the `WinOTP_Backup` resource into Electron settings, `security.json`, and `.backup-password` storage.
 
 ## Run the Electron app
 
@@ -54,7 +54,7 @@ npm run package -- --win --x64
 ## Security
 
 - Account secrets are encrypted with Windows-backed Electron `safeStorage` before database storage.
-- Legacy Windows Credential Manager entries are read only for the one-time migration.
+- Legacy Windows Credential Manager entries are read only for the one-time migration; existing Electron credentials and settings remain authoritative when already present.
 - Backup data remains local and password-protected where the corresponding Electron bridge is enabled.
 - No cloud synchronization is performed.
 

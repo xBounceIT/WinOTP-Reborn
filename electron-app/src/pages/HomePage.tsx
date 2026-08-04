@@ -79,7 +79,6 @@ export function HomePage({
           `${account.issuer} ${account.accountName}`.toLowerCase().includes(query),
         )
       : accounts;
-
     return sortAccounts(filtered, sort, customOrderIds);
   }, [accounts, customOrderIds, search, sort]);
 

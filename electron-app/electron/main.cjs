@@ -19,6 +19,11 @@ const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
 const { createUpdateService, defaultUpdateState } = require("./update-service.cjs");
+const { SettingsStore } = require("./settings-store.cjs");
+const {
+  migrateLegacySettingsForApp,
+  runLegacyMigration,
+} = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const {
   SESSION_CHANGE_WINDOW_MESSAGE,
@@ -45,6 +50,9 @@ let screenCaptureRequest;
 let screenCaptureInProgress = false;
 let securityStore;
 let updateService;
+let settingsStore;
+let legacySettingsMigrationFailed = false;
+let legacyAppLockMigrationPending = false;
 let windowsHelloOperationInProgress = false;
 let isQuitting = false;
 const titleBarHeight = 32;
@@ -679,6 +687,37 @@ const accountStoreLoader = createAccountStoreLoader(
 
 let backupStore;
 
+function initializeLegacyMigration() {
+  legacySettingsMigrationFailed = false;
+  legacyAppLockMigrationPending = false;
+  try {
+    migrateLegacySettingsForApp(app);
+    securityStore = new SecurityStore(app);
+    backupStore = new BackupStore(app, () => accountStoreLoader.get(), {
+      encryption: safeStorage,
+      skipAutomaticReconciliation: true,
+    });
+
+    const migration = runLegacyMigration(app, { securityStore, backupStore });
+    legacySettingsMigrationFailed = migration.settings.status === "failed";
+    legacyAppLockMigrationPending = migration.appLock.status === "failed";
+    if (migration.backupPassword.status !== "failed") {
+      backupStore.reconcileAutomaticSettings();
+    }
+    if (
+      migration.appLock.status === "failed" ||
+      migration.backupPassword.status === "failed" ||
+      migration.settings.status === "failed"
+    ) {
+      console.warn("One or more native WinOTP settings or credentials remain to be migrated.");
+    }
+  } catch (error) {
+    legacySettingsMigrationFailed = true;
+    legacyAppLockMigrationPending = true;
+    console.error("Failed to initialize the native WinOTP migration.", error);
+  }
+}
+
 function getBackupStore() {
   if (!backupStore) {
     backupStore = new BackupStore(app, () => accountStoreLoader.get(), {
@@ -758,6 +797,54 @@ function registerUpdateIpc() {
     } catch (error) {
       console.error("Failed to launch the app update installer.", error);
       return updateUnavailableResult();
+    }
+  });
+}
+
+function getSettingsStore() {
+  if (!settingsStore) {
+    settingsStore = new SettingsStore(app);
+  }
+
+  return settingsStore;
+}
+
+function settingsUnavailableResult() {
+  return {
+    success: false,
+    message: "The settings service is unavailable.",
+  };
+}
+
+function registerSettingsIpc() {
+  ipcMain.handle("settings:get", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return settingsUnavailableResult();
+    }
+
+    try {
+      return {
+        success: true,
+        settings: getSettingsStore().getSettings(),
+        persistable: !legacySettingsMigrationFailed,
+        securityMigrationPending: legacyAppLockMigrationPending,
+      };
+    } catch (error) {
+      console.error("Failed to read Electron settings.", error);
+      return settingsUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("settings:save", (event, settings) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return settingsUnavailableResult();
+    }
+
+    try {
+      return getSettingsStore().saveSettings(settings);
+    } catch (error) {
+      console.error("Failed to save Electron settings.", error);
+      return settingsUnavailableResult();
     }
   });
 }
@@ -1355,7 +1442,9 @@ if (!hasSingleInstanceLock) {
     app.setName("WinOTP");
     app.setAppUserModelId("com.xbounceit.winotp");
 
+    initializeLegacyMigration();
     accountStoreLoader.get();
+    registerSettingsIpc();
     registerAccountIpc();
     registerBackupIpc();
     registerUpdateIpc();

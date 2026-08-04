@@ -75,6 +75,72 @@ test("stores credentials encrypted and verifies them after reopening", () => {
   }
 });
 
+test("imports native app-lock credentials without replacing existing Electron credentials", () => {
+  const handle = createStore(createEncryption());
+
+  try {
+    handle.store.setCredential("pin", "9999");
+    const result = handle.store.importLegacyCredentials({
+      pin: "1234",
+      password: "correct horse",
+      remotePin: "5678",
+    });
+
+    assert.deepEqual(result, {
+      success: true,
+      importedCount: 2,
+      skippedCount: 1,
+      issueCount: 0,
+    });
+    assert.deepEqual(handle.store.verifyCredential("pin", "9999"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(handle.store.verifyCredential("password", "correct horse"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(handle.store.verifyCredential("remotePin", "5678"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test("does not partially mutate security state when legacy encryption fails", () => {
+  let encryptCalls = 0;
+  const encryption = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => {
+      encryptCalls += 1;
+      if (encryptCalls === 2) {
+        throw new Error("simulated encryption failure");
+      }
+      return Buffer.from(`encrypted:${value}`, "utf8");
+    },
+    decryptString: (value) => value.toString("utf8").slice("encrypted:".length),
+  };
+  const handle = createStore(encryption);
+
+  try {
+    assert.throws(
+      () => handle.store.importLegacyCredentials({ pin: "1234", password: "correct horse" }),
+      /simulated encryption failure/,
+    );
+    assert.deepEqual(handle.store.getStatus(), {
+      pinSet: false,
+      passwordSet: false,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+    assert.equal(fs.existsSync(handle.filePath), false);
+  } finally {
+    handle.cleanup();
+  }
+});
+
 test("rejects invalid credentials before enabling protection", () => {
   const handle = createStore(createEncryption());
 

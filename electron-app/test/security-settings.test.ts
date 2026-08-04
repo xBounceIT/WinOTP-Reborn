@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   directCredentialKind,
   emptySecurityStatus,
+  isSecurityNormalizationReady,
   normalizeSecuritySettings,
   remoteCredentialKind,
   securityVerificationFromResult,
@@ -30,6 +31,14 @@ test("clears protection settings that have no usable credential", () => {
     remotePin: false,
     remotePassword: false,
   });
+});
+
+test("does not normalize protection settings while secure storage is unavailable", () => {
+  assert.equal(isSecurityNormalizationReady(true, true, false), false);
+  assert.equal(isSecurityNormalizationReady(true, false, true), false);
+  assert.equal(isSecurityNormalizationReady(false, true, true), false);
+  assert.equal(isSecurityNormalizationReady(true, true, true, true), false);
+  assert.equal(isSecurityNormalizationReady(true, true, true), true);
 });
 
 test("keeps one direct and one remote protection method when credentials exist", () => {

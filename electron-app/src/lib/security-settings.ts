@@ -13,6 +13,15 @@ export const emptySecurityStatus: SecurityCredentialStatus = {
   remotePasswordSet: false,
 };
 
+export function isSecurityNormalizationReady(
+  settingsLoaded: boolean,
+  securityReady: boolean,
+  securityStorageAvailable: boolean,
+  securityMigrationPending = false,
+) {
+  return settingsLoaded && securityReady && securityStorageAvailable && !securityMigrationPending;
+}
+
 export function isPinCredential(kind: SecurityCredentialKind) {
   return kind === "pin" || kind === "remotePin";
 }

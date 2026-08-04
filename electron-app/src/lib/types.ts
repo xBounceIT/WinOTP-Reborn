@@ -195,6 +195,15 @@ export interface AutoStartResult {
   message?: string;
 }
 
+export type AppSettingsResult =
+  | {
+      success: true;
+      settings: AppSettings;
+      persistable?: boolean;
+      securityMigrationPending?: boolean;
+    }
+  | { success: false; message?: string };
+
 export interface SecurityCredentialStatus {
   pinSet: boolean;
   passwordSet: boolean;

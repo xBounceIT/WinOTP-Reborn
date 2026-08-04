@@ -98,6 +98,62 @@ class SecurityStore {
     };
   }
 
+  importLegacyCredentials(credentials = {}) {
+    if (!credentials || typeof credentials !== "object" || Array.isArray(credentials)) {
+      return {
+        success: true,
+        importedCount: 0,
+        skippedCount: 1,
+        issueCount: 1,
+      };
+    }
+
+    const entries = Object.entries(credentials);
+    if (entries.length === 0) {
+      return { success: true, importedCount: 0, skippedCount: 0, issueCount: 0 };
+    }
+
+    this.ensureEncryptionAvailable();
+    const previousCredentials = { ...this.state.credentials };
+    const nextCredentials = { ...previousCredentials };
+    let importedCount = 0;
+    let skippedCount = 0;
+    let issueCount = 0;
+
+    for (const [kind, secret] of entries) {
+      try {
+        validateKind(kind);
+        validateSecret(kind, secret);
+      } catch {
+        skippedCount += 1;
+        issueCount += 1;
+        continue;
+      }
+
+      if (this.hasUsableCredential(kind)) {
+        skippedCount += 1;
+        continue;
+      }
+
+      nextCredentials[kind] = this.encryption.encryptString(secret).toString("base64");
+      importedCount += 1;
+    }
+
+    if (importedCount === 0) {
+      return { success: true, importedCount, skippedCount, issueCount };
+    }
+
+    this.state.credentials = nextCredentials;
+    try {
+      this.writeState();
+    } catch (error) {
+      this.state.credentials = previousCredentials;
+      throw error;
+    }
+
+    return { success: true, importedCount, skippedCount, issueCount };
+  }
+
   setCredential(kind, secret) {
     validateKind(kind);
     validateSecret(kind, secret);

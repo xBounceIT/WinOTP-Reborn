@@ -5,11 +5,12 @@ import type {
   AccountLoadResult,
   AccountSaveResult,
   AccountUsageResult,
+  AppSettings,
+  AppSettingsResult,
   AutoStartResult,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
-  AppSettings,
   OtpAccount,
   SecurityCredentialKind,
   SecurityOperationResult,
@@ -75,6 +76,10 @@ declare global {
       captureScreen: () => Promise<ScreenCaptureResult>;
       onScreenCaptureReady: (listener: (capture: ScreenCapturePayload) => void) => () => void;
       completeScreenCapture: (result: ScreenCaptureResult) => void;
+      settings: {
+        get: () => Promise<AppSettingsResult>;
+        save: (settings: AppSettings) => Promise<AppSettingsResult>;
+      };
       accounts: {
         list: () => Promise<AccountLoadResult>;
         acknowledgeMigration: () => Promise<boolean>;

@@ -1,0 +1,56 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { test } = require("node:test");
+
+const { SettingsStore, getSettingsFilePath } = require("./settings-store.cjs");
+
+function createDirectory() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "winotp-settings-"));
+}
+
+test("uses the Electron settings file and normalizes saved values", () => {
+  const directoryPath = createDirectory();
+  const filePath = path.join(directoryPath, "app-settings.json");
+
+  try {
+    const store = new SettingsStore(undefined, { filePath });
+    assert.equal(store.getSettings().autoLock, "5");
+
+    const result = store.saveSettings({
+      pinProtection: true,
+      accountSortOption: "UsageBased",
+      accountCustomOrderIds: [" acct-2 ", "", "acct-2", "acct-1"],
+      autoLock: "15",
+      minimizeOnClose: true,
+      minimizeToTray: true,
+      updateChannel: "Pre-release",
+      theme: "light",
+      customBackupFolderPath: "  C:\\Backups  ",
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.settings.minimizeOnClose, false);
+    assert.equal(result.settings.minimizeToTray, true);
+    assert.equal(result.settings.accountSortOption, "UsageBased");
+    assert.deepEqual(result.settings.accountCustomOrderIds, ["acct-2", "acct-1"]);
+    assert.equal(result.settings.autoLock, "15");
+    assert.equal(result.settings.customBackupFolderPath, "C:\\Backups");
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).version, 1);
+
+    const reopened = new SettingsStore(undefined, { filePath });
+    assert.deepEqual(reopened.getSettings(), result.settings);
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("uses the shared WinOTP app-data directory for Electron settings", () => {
+  const app = { getPath: () => path.join(os.tmpdir(), "winotp-user-data") };
+  const appDataRoot = process.platform === "win32" ? process.env.LOCALAPPDATA : app.getPath();
+  assert.equal(
+    getSettingsFilePath(app),
+    path.join(appDataRoot, "WinOTP_Reborn", "app-settings.json"),
+  );
+});

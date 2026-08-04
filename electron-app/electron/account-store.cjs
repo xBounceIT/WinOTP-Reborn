@@ -1,8 +1,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 const { safeStorage } = require("electron");
+const { getWindowsPowerShellPath, readLegacyCredentials } = require("./legacy-credential-reader.cjs");
 
 const APP_DIRECTORY_NAME = "WinOTP_Reborn";
 const DATABASE_FILE_NAME = "accounts.db";
@@ -10,46 +10,6 @@ const MIGRATION_KEY = "credential-manager-v1";
 const LEGACY_RESOURCE = "WinOTP";
 
 const algorithmNames = ["SHA1", "SHA256", "SHA512"];
-
-const legacyCredentialScript = String.raw`
-$ErrorActionPreference = "Stop"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-$vaultType = [Windows.Security.Credentials.PasswordVault,Windows,ContentType=WindowsRuntime]
-$vault = [Activator]::CreateInstance($vaultType)
-$credentials = $vault.RetrieveAll()
-$items = New-Object 'System.Collections.Generic.List[object]'
-
-foreach ($credential in $credentials) {
-    if ($credential.Resource -ne "${LEGACY_RESOURCE}") {
-        continue
-    }
-
-    $credentialId = if ([string]::IsNullOrWhiteSpace($credential.UserName)) { "(unknown)" } else { $credential.UserName }
-    try {
-        $credential.RetrievePassword()
-        $items.Add([pscustomobject]@{
-            id = $credentialId
-            payload = $credential.Password
-            issue = $null
-        })
-    }
-    catch {
-        $items.Add([pscustomobject]@{
-            id = $credentialId
-            payload = $null
-            issue = "retrieve-failed"
-        })
-    }
-}
-
-if ($items.Count -eq 0) {
-    Write-Output "[]"
-}
-else {
-    $items | ConvertTo-Json -Compress -Depth 4
-}
-`;
 
 class AccountStoreError extends Error {
   constructor(message) {
@@ -154,77 +114,6 @@ function safeJsonParse(value) {
   } catch {
     return undefined;
   }
-}
-
-function getWindowsPowerShellPath() {
-  const windowsDirectory = process.env.SystemRoot || process.env.WINDIR;
-  return windowsDirectory
-    ? path.join(windowsDirectory, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    : undefined;
-}
-
-function readLegacyCredentials() {
-  if (process.platform !== "win32") {
-    return {
-      ok: false,
-      error: "Windows Credential Manager migration is only available on Windows.",
-    };
-  }
-
-  const powershellPath = getWindowsPowerShellPath();
-  if (!powershellPath) {
-    return {
-      ok: false,
-      error: "Unable to locate Windows PowerShell for the Credential Manager migration.",
-    };
-  }
-
-  let result;
-  try {
-    result = spawnSync(
-      powershellPath,
-      [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        legacyCredentialScript,
-      ],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 15_000,
-        maxBuffer: 8 * 1024 * 1024,
-      },
-    );
-  } catch {
-    return {
-      ok: false,
-      error: "Unable to start the Windows Credential Manager migration.",
-    };
-  }
-
-  if (result.error || result.status !== 0) {
-    return {
-      ok: false,
-      error: "Windows Credential Manager migration failed.",
-    };
-  }
-
-  const parsed = safeJsonParse(String(result.stdout ?? "").trim() || "[]");
-  if (parsed === undefined) {
-    return {
-      ok: false,
-      error: "Windows Credential Manager returned invalid migration data.",
-    };
-  }
-
-  return {
-    ok: true,
-    entries: Array.isArray(parsed) ? parsed : [parsed],
-  };
 }
 
 class AccountStore {
@@ -334,7 +223,7 @@ class AccountStore {
       return;
     }
 
-    const migrationResult = this.legacyCredentialReader();
+    const migrationResult = this.legacyCredentialReader([LEGACY_RESOURCE]);
     if (!migrationResult.ok) {
       this.migration = {
         status: "failed",
