@@ -1,5 +1,5 @@
 import { FileKey2, FileText, GalleryVerticalEnd, PencilLine } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { parseOtpUri } from "@/lib/otp-uri";
@@ -11,16 +11,95 @@ interface AddAccountPageProps {
   onAccountDetected: (account: OtpAccount) => void;
 }
 
+function loadImage(file: File): Promise<{ image: HTMLImageElement; objectUrl: string }> {
+  const objectUrl = URL.createObjectURL(file);
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ image, objectUrl });
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("The selected image could not be loaded."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function decodeQrFile(file: File): Promise<string | undefined> {
+  const { default: decoder } = await import("jsqr");
+  const { image, objectUrl } = await loadImage(file);
+
+  try {
+    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+      return undefined;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      return undefined;
+    }
+
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    return (
+      decoder(pixels.data, canvas.width, canvas.height, { inversionAttempts: "attemptBoth" })
+        ?.data || undefined
+    );
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAccountPageProps) {
   const qrInput = useRef<HTMLInputElement>(null);
+  const isMounted = useRef(true);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
-  function handleQrFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) {
-      onToast(`Selected ${file.name}. QR decoding will use the Electron bridge.`);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  async function handleQrFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) {
+      return;
     }
-    event.target.value = "";
+
+    setIsImporting(true);
+    try {
+      const text = await decodeQrFile(file);
+      if (!isMounted.current) {
+        return;
+      }
+      if (!text) {
+        onToast("No QR code found in the selected image.");
+        return;
+      }
+
+      const account = parseOtpUri(text);
+      if (!account) {
+        onToast("The QR code does not contain a valid OTP URI.");
+        return;
+      }
+
+      onAccountDetected(account);
+    } catch {
+      if (isMounted.current) {
+        onToast("Failed to scan the selected image.");
+      }
+    } finally {
+      if (isMounted.current) {
+        input.value = "";
+        setIsImporting(false);
+      }
+    }
   }
 
   async function handleScreenCapture() {
@@ -32,6 +111,9 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
     setIsCapturing(true);
     try {
       const result = await window.winotp.captureScreen();
+      if (!isMounted.current) {
+        return;
+      }
       if (result.status === "cancelled") {
         return;
       }
@@ -52,9 +134,13 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
 
       onAccountDetected(account);
     } catch {
-      onToast("Failed to capture the screen.");
+      if (isMounted.current) {
+        onToast("Failed to capture the screen.");
+      }
     } finally {
-      setIsCapturing(false);
+      if (isMounted.current) {
+        setIsCapturing(false);
+      }
     }
   }
 
@@ -67,6 +153,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
             type="button"
             variant="outline"
             className="choice-card"
+            disabled={isImporting || isCapturing}
             onClick={() => qrInput.current?.click()}
           >
             <span className="choice-card__icon">
@@ -74,7 +161,9 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
             </span>
             <span className="choice-card__copy">
               <span className="choice-card__title">Import QR Code</span>
-              <span className="choice-card__detail">Select an image file with a QR code</span>
+              <span className="choice-card__detail">
+                {isImporting ? "Scanning selected image…" : "Select an image file with a QR code"}
+              </span>
             </span>
           </Button>
           <input
@@ -90,7 +179,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
             type="button"
             variant="outline"
             className="choice-card"
-            disabled={isCapturing}
+            disabled={isCapturing || isImporting}
             onClick={handleScreenCapture}
           >
             <span className="choice-card__icon">
