@@ -84,6 +84,19 @@ test("existing sort policies retain their ordering after custom-order extraction
   );
 });
 
+test("usage-based sorting uses last-used time to break usage-count ties", () => {
+  const tiedAccounts = [
+    { ...accounts[0], usageCount: 4, lastUsedAt: "2026-08-01T10:00:00.000Z" },
+    { ...accounts[1], usageCount: 4, lastUsedAt: "2026-08-03T10:00:00.000Z" },
+    { ...accounts[2], usageCount: 4 },
+  ];
+
+  assert.deepEqual(
+    sortAccounts(tiedAccounts, "UsageBased").map((item) => item.id),
+    ["acct-2", "acct-1", "acct-3"],
+  );
+});
+
 test("moving an account before or after a target returns a persisted id list", () => {
   assert.deepEqual(moveAccountId(["acct-1", "acct-2", "acct-3"], "acct-3", "acct-1"), [
     "acct-3",

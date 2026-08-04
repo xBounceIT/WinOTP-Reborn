@@ -14,6 +14,37 @@ test("preserves the native never-lock default when the timeout is absent", () =>
   assert.equal(mapLegacySettings({}).autoLock, "0");
 });
 
+test("does not read Windows migration sources off Windows", () => {
+  const directoryPath = createDirectory();
+  const legacySettingsPath = path.join(directoryPath, "settings.json");
+  const migrationFilePath = path.join(directoryPath, "legacy-migration.json");
+  let readerCalls = 0;
+  fs.writeFileSync(legacySettingsPath, "not-json");
+
+  try {
+    const result = runLegacyMigration(undefined, {
+      directoryPath,
+      legacySettingsPath,
+      migrationFilePath,
+      platform: "linux",
+      legacyCredentialReader: () => {
+        readerCalls += 1;
+        throw new Error("Windows Credential Manager should not be queried.");
+      },
+    });
+
+    assert.equal(readerCalls, 0);
+    assert.equal(result.settings.status, "completed");
+    assert.equal(result.settings.importedCount, 0);
+    assert.equal(result.appLock.status, "completed");
+    assert.equal(result.backupPassword.status, "completed");
+    assert.equal(fs.existsSync(path.join(directoryPath, "app-settings.json")), false);
+    assert.equal(fs.existsSync(path.join(directoryPath, "backup-settings.json")), false);
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
 test("maps native settings and migrates app-lock and backup credentials once", () => {
   const directoryPath = createDirectory();
   const legacySettingsPath = path.join(directoryPath, "settings.json");

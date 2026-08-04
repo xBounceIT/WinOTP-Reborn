@@ -44,6 +44,7 @@ declare global {
   interface TrayUsagePayload {
     id: string;
     usageCount?: number;
+    lastUsedAt?: string;
   }
 
   interface SessionChangePayload {

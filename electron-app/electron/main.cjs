@@ -200,6 +200,7 @@ function copyTrayCode(accountId) {
       mainWindow.webContents.send("tray-usage-recorded", {
         id: account.id,
         usageCount: result.usageCount,
+        lastUsedAt: result.lastUsedAt,
       });
     }
   } catch (error) {

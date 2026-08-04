@@ -86,7 +86,13 @@ export function sortAccounts(
       return left.createdAt.localeCompare(right.createdAt);
     }
     if (sort === "UsageBased") {
-      return (right.usageCount ?? 0) - (left.usageCount ?? 0);
+      const usageDifference = (right.usageCount ?? 0) - (left.usageCount ?? 0);
+      if (usageDifference !== 0) {
+        return usageDifference;
+      }
+
+      const lastUsedDifference = (right.lastUsedAt ?? "").localeCompare(left.lastUsedAt ?? "");
+      return lastUsedDifference || right.createdAt.localeCompare(left.createdAt);
     }
     return right.createdAt.localeCompare(left.createdAt);
   });

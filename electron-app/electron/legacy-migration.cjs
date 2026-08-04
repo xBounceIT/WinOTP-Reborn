@@ -241,7 +241,12 @@ function persistMigrationState(filePath, state) {
   }
 }
 
-function migrateSettings({ directoryPath, state, legacySettingsPath }) {
+function migrateSettings({ directoryPath, state, legacySettingsPath, platform = process.platform }) {
+  if (platform !== "win32") {
+    state.settings = { ...migrationPartDefaults, status: "completed" };
+    return;
+  }
+
   if (state.settings.status === "completed") {
     return;
   }
@@ -345,14 +350,20 @@ function hasUsableBackupPassword(backupStore) {
   }
 }
 
-function migrateCredentials({ state, legacyCredentialReader, securityStore, backupStore }) {
+function migrateCredentials({
+  state,
+  legacyCredentialReader,
+  securityStore,
+  backupStore,
+  platform = process.platform,
+}) {
   const needsAppLock = state.appLock.status !== "completed";
   const needsBackupPassword = state.backupPassword.status !== "completed";
   if (!needsAppLock && !needsBackupPassword) {
     return;
   }
 
-  if (process.platform !== "win32") {
+  if (platform !== "win32") {
     const notApplicable = { ...migrationPartDefaults, status: "completed" };
     if (needsAppLock) {
       state.appLock = notApplicable;
@@ -637,12 +648,14 @@ function runLegacyMigration(app, options = {}) {
     directoryPath,
     state,
     legacySettingsPath: options.legacySettingsPath ?? path.join(directoryPath, LEGACY_SETTINGS_FILE_NAME),
+    platform: options.platform,
   });
   migrateCredentials({
     state,
     legacyCredentialReader: options.legacyCredentialReader ?? readLegacyCredentials,
     securityStore: options.securityStore,
     backupStore: options.backupStore,
+    platform: options.platform,
   });
 
   persistMigrationState(migrationFilePath, state);
@@ -657,6 +670,7 @@ function migrateLegacySettingsForApp(app, options = {}) {
     directoryPath,
     state,
     legacySettingsPath: options.legacySettingsPath ?? path.join(directoryPath, LEGACY_SETTINGS_FILE_NAME),
+    platform: options.platform,
   });
   persistMigrationState(migrationFilePath, state);
   return state;

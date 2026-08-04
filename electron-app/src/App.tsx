@@ -16,7 +16,7 @@ import {
   reconcileCustomOrderIds,
   sortAccounts,
 } from "@/lib/account-order";
-import { mergeUsageCount } from "@/lib/account-usage";
+import { mergeLastUsedAt, mergeUsageCount } from "@/lib/account-usage";
 import { loadAccountsUntilCurrent, mergePersistedAccounts } from "@/lib/account-state";
 import {
   autoLockTimeoutMs,
@@ -703,8 +703,8 @@ export default function App() {
   }, [locked]);
 
   useEffect(() => {
-    const unsubscribe = window.winotp?.onTrayUsageRecorded(({ id, usageCount }) => {
-      updateAccountUsage(id, usageCount);
+    const unsubscribe = window.winotp?.onTrayUsageRecorded(({ id, usageCount, lastUsedAt }) => {
+      updateAccountUsage(id, usageCount, lastUsedAt);
     });
 
     return unsubscribe;
@@ -746,12 +746,16 @@ export default function App() {
     setLocked(nextLocked);
   }
 
-  function updateAccountUsage(id: string, usageCount: unknown) {
+  function updateAccountUsage(id: string, usageCount: unknown, lastUsedAt: unknown) {
     accountMutationVersion.current += 1;
     setAccounts((current) =>
       current.map((account) =>
         account.id === id
-          ? { ...account, usageCount: mergeUsageCount(account.usageCount, usageCount) }
+          ? {
+              ...account,
+              usageCount: mergeUsageCount(account.usageCount, usageCount),
+              lastUsedAt: mergeLastUsedAt(account.lastUsedAt, lastUsedAt),
+            }
           : account,
       ),
     );
@@ -859,7 +863,7 @@ export default function App() {
     try {
       const result = await window.winotp?.accounts.recordUsage(account.id);
       if (result?.success) {
-        updateAccountUsage(account.id, result.usageCount);
+        updateAccountUsage(account.id, result.usageCount, result.lastUsedAt);
       } else {
         usageSaved = false;
       }

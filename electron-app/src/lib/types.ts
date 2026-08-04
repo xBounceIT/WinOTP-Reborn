@@ -22,6 +22,7 @@ export interface OtpAccount {
   period: number;
   createdAt: string;
   usageCount?: number;
+  lastUsedAt?: string;
 }
 
 export interface AccountStorageIssue {
@@ -62,6 +63,7 @@ export interface AccountDeleteResult {
 export interface AccountUsageResult {
   success: boolean;
   usageCount?: number;
+  lastUsedAt?: string;
   message?: string;
 }
 

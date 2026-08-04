@@ -1,4 +1,4 @@
-import { mergeUsageCount } from "./account-usage.ts";
+import { mergeLastUsedAt, mergeUsageCount } from "./account-usage.ts";
 import type { OtpAccount } from "./types.ts";
 
 export function canApplyAccountLoad(loadVersion: number, currentVersion: number): boolean {
@@ -36,10 +36,18 @@ export function mergePersistedAccounts(
       continue;
     }
 
-    nextAccounts[existingIndex] = {
+    const mergedAccount = {
       ...account,
       usageCount: mergeUsageCount(nextAccounts[existingIndex].usageCount, account.usageCount),
     };
+    const lastUsedAt = mergeLastUsedAt(
+      nextAccounts[existingIndex].lastUsedAt,
+      account.lastUsedAt,
+    );
+    if (lastUsedAt !== undefined) {
+      mergedAccount.lastUsedAt = lastUsedAt;
+    }
+    nextAccounts[existingIndex] = mergedAccount;
   }
 
   return nextAccounts;

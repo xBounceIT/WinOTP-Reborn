@@ -80,6 +80,7 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
       period,
       createdAt: account?.createdAt ?? new Date().toISOString(),
       usageCount: account?.usageCount ?? 0,
+      lastUsedAt: account?.lastUsedAt,
     });
   }
 
