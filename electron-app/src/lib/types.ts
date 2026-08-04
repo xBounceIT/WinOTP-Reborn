@@ -22,6 +22,45 @@ export interface OtpAccount {
   usageCount?: number;
 }
 
+export interface AccountStorageIssue {
+  code: string;
+  accountId: string;
+  message: string;
+}
+
+export interface MigrationStatus {
+  status: "pending" | "completed" | "failed";
+  importedCount: number;
+  skippedCount: number;
+  issueCount: number;
+  message?: string;
+  justCompleted?: boolean;
+}
+
+export interface AccountLoadResult {
+  accounts: OtpAccount[];
+  issues: AccountStorageIssue[];
+  migration: MigrationStatus;
+  databasePath?: string;
+}
+
+export interface AccountSaveResult {
+  success: boolean;
+  account?: OtpAccount;
+  message?: string;
+}
+
+export interface AccountDeleteResult {
+  success: boolean;
+  message?: string;
+}
+
+export interface AccountUsageResult {
+  success: boolean;
+  usageCount?: number;
+  message?: string;
+}
+
 export interface AppSettings {
   showNextCode: boolean;
   pinProtection: boolean;

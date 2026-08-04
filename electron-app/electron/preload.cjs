@@ -24,4 +24,11 @@ contextBridge.exposeInMainWorld("winotp", {
     return () => screenCaptureListeners.delete(listener);
   },
   completeScreenCapture: (result) => ipcRenderer.send("screen-capture-result", result),
+  accounts: {
+    list: () => ipcRenderer.invoke("accounts:list"),
+    acknowledgeMigration: () => ipcRenderer.invoke("accounts:ack-migration"),
+    save: (account) => ipcRenderer.invoke("accounts:save", account),
+    delete: (id) => ipcRenderer.invoke("accounts:delete", id),
+    recordUsage: (id) => ipcRenderer.invoke("accounts:record-usage", id),
+  },
 });

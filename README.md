@@ -10,7 +10,7 @@ A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windo
 
 ## Features
 
-- **Secure Storage**: TOTP secrets are encrypted and stored using Windows Credential Manager (DPAPI)
+- **Secure Storage**: The legacy WinUI app uses Windows Credential Manager (DPAPI); the Electron app encrypts secrets with Windows-backed `safeStorage` before storing them in SQLite
 - **QR Code Import**: Scan QR codes from files or screen capture
 - **Manual Entry**: Add accounts manually with support for custom settings
 - **Encrypted Backups**: Create password-protected backup files and optional automatic local backup history
@@ -52,9 +52,9 @@ dotnet build -c Release
 dotnet run
 ```
 
-### Electron Migration UI
+### Electron App
 
-The parallel Electron frontend lives in `electron-app/` and mirrors the WinUI3 window, navigation rail, account cards, add/import/manual-entry flows, settings sections, and lock overlay. It uses local preview state while the secure storage and remaining native Windows bridges are migrated; screen-region QR capture is already wired through Electron's main/preload bridge.
+The Electron frontend lives in `electron-app/` and mirrors the WinUI3 window, navigation rail, account cards, add/import/manual-entry flows, settings sections, and lock overlay. It stores encrypted TOTP secrets in `%LOCALAPPDATA%\\WinOTP_Reborn\\accounts.db` and migrates the legacy `WinOTP` Windows Credential Manager entries on first launch. Screen-region QR capture is wired through Electron's cross-platform main/preload bridge and uses one overlay per OS display.
 
 ```bash
 cd electron-app
@@ -115,7 +115,7 @@ Use the dropdown menu to sort accounts by:
 
 ### Deleting an Account
 
-Click the trash icon next to an account and confirm the deletion. The account and its secret will be permanently removed from Windows Credential Manager.
+Click the trash icon next to an account and confirm the deletion. The account and its encrypted secret will be permanently removed from the local SQLite database.
 
 ### Backing Up Tokens
 
@@ -133,7 +133,7 @@ WinOTP prioritizes the security of your TOTP secrets:
 - **Isolation**: Credentials are stored per Windows user account
 - **No Cloud Sync**: Your secrets never leave your device
 - **Password-Protected Backups**: Backup files are encrypted with a user-provided password
-- **OS-Level Security**: Leverages Windows Credential Manager for secure storage
+- **OS-Level Security**: Legacy credentials use Windows Credential Manager; the Electron database uses Windows-backed DPAPI encryption for each secret
 
 ## Supported Algorithms
 

@@ -10,12 +10,10 @@ import { HomePage } from "@/pages/HomePage";
 import { ImportPage } from "@/pages/ImportPage";
 import { ManualEntryPage } from "@/pages/ManualEntryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
-import { demoAccounts } from "@/lib/demo-data";
 import { useTotp } from "@/lib/use-totp";
 import type { AppSettings, OtpAccount, Route } from "@/lib/types";
 import { defaultSettings } from "@/lib/types";
 
-const accountsStorageKey = "winotp-electron.accounts";
 const settingsStorageKey = "winotp-electron.settings";
 
 function resolveThemeColor(variable: "--background" | "--foreground") {
@@ -53,9 +51,9 @@ function readStorage<T>(key: string, fallback: T): T {
 
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
-  const [accounts, setAccounts] = useState<OtpAccount[]>(() =>
-    readStorage(accountsStorageKey, demoAccounts),
-  );
+  const [accounts, setAccounts] = useState<OtpAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [accountsError, setAccountsError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() =>
     readStorage(settingsStorageKey, defaultSettings),
   );
@@ -68,8 +66,63 @@ export default function App() {
   const { accountTiming, codes } = useTotp(accounts);
 
   useEffect(() => {
-    window.localStorage.setItem(accountsStorageKey, JSON.stringify(accounts));
-  }, [accounts]);
+    let cancelled = false;
+
+    async function loadAccounts() {
+      setAccountsLoading(true);
+      setAccountsError("");
+
+      if (!window.winotp?.accounts) {
+        if (!cancelled) {
+          setAccountsLoading(false);
+          setAccountsError("The Electron storage bridge is unavailable.");
+        }
+        return;
+      }
+
+      try {
+        const result = await window.winotp.accounts.list();
+        if (cancelled) {
+          return;
+        }
+
+        setAccounts(result.accounts);
+        setAccountsLoading(false);
+        const storageIssue = result.issues.find((issue) => issue.code === "storage-unavailable");
+        if (storageIssue) {
+          setAccountsError(storageIssue.message);
+        } else if (result.migration.status === "failed") {
+          showToast(
+            result.migration.message ??
+              "WinOTP could not migrate all existing Windows Credential Manager accounts.",
+          );
+        } else if (result.migration.justCompleted) {
+          const importedCount = result.migration.importedCount;
+          const skippedCount = result.migration.skippedCount;
+          const importedLabel = `${importedCount} account${importedCount === 1 ? "" : "s"}`;
+          const skippedLabel = `${skippedCount} account${skippedCount === 1 ? "" : "s"}`;
+          showToast(
+            skippedCount > 0
+              ? `Imported ${importedLabel}; skipped ${skippedLabel} from Windows Credential Manager`
+              : `Imported ${importedLabel} from Windows Credential Manager`,
+          );
+          void window.winotp.accounts.acknowledgeMigration().catch(() => undefined);
+        } else if (result.issues.length > 0) {
+          showToast("Some stored accounts could not be loaded.");
+        }
+      } catch {
+        if (!cancelled) {
+          setAccountsLoading(false);
+          setAccountsError("Unable to load accounts from the local SQLite database.");
+        }
+      }
+    }
+
+    void loadAccounts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
@@ -111,37 +164,73 @@ export default function App() {
     setRoute("manual");
   }
 
-  function saveAccount(account: OtpAccount) {
-    setAccounts((current) => {
-      const existing = current.some((item) => item.id === account.id);
-      return existing
-        ? current.map((item) => (item.id === account.id ? account : item))
-        : [...current, account];
-    });
-    setEditingAccount(undefined);
-    setRoute("home");
-    showToast(editingAccount ? "Account updated" : "Account added");
+  async function saveAccount(account: OtpAccount) {
+    try {
+      const result = await window.winotp?.accounts.save(account);
+      if (!result?.success || !result.account) {
+        showToast(result?.message ?? "Unable to save the account.");
+        return;
+      }
+
+      const persistedAccount = result.account;
+      const wasEditing = Boolean(editingAccount);
+      setAccounts((current) => {
+        const existing = current.some((item) => item.id === persistedAccount.id);
+        return existing
+          ? current.map((item) => (item.id === persistedAccount.id ? persistedAccount : item))
+          : [...current, persistedAccount];
+      });
+      setEditingAccount(undefined);
+      setRoute("home");
+      showToast(wasEditing ? "Account updated" : "Account added");
+    } catch {
+      showToast("Unable to save the account.");
+    }
   }
 
   async function copyCode(account: OtpAccount, code: string) {
     try {
       await navigator.clipboard.writeText(code);
-      setAccounts((current) =>
-        current.map((item) =>
-          item.id === account.id ? { ...item, usageCount: (item.usageCount ?? 0) + 1 } : item,
-        ),
-      );
-      showToast(`${account.issuer || account.accountName} code copied`);
     } catch {
-      showToast("Clipboard access is unavailable in this preview");
+      showToast("Clipboard access is unavailable");
+      return;
     }
+
+    let usageSaved = true;
+    try {
+      const result = await window.winotp?.accounts.recordUsage(account.id);
+      if (result?.success) {
+        setAccounts((current) =>
+          current.map((item) =>
+            item.id === account.id ? { ...item, usageCount: result.usageCount } : item,
+          ),
+        );
+      } else {
+        usageSaved = false;
+      }
+    } catch {
+      usageSaved = false;
+    }
+
+    const label = account.issuer || account.accountName;
+    showToast(usageSaved ? `${label} code copied` : `${label} code copied; usage not saved`);
   }
 
-  function deleteAccount(account: OtpAccount) {
+  async function deleteAccount(account: OtpAccount) {
     const label = account.issuer || account.accountName;
     if (window.confirm(`Are you sure you want to delete '${label}'?`)) {
-      setAccounts((current) => current.filter((item) => item.id !== account.id));
-      showToast(`${label} removed`);
+      try {
+        const result = await window.winotp?.accounts.delete(account.id);
+        if (!result?.success) {
+          showToast(result?.message ?? "Unable to delete the account.");
+          return;
+        }
+
+        setAccounts((current) => current.filter((item) => item.id !== account.id));
+        showToast(`${label} removed`);
+      } catch {
+        showToast("Unable to delete the account.");
+      }
     }
   }
 
@@ -173,6 +262,8 @@ export default function App() {
       return (
         <HomePage
           accounts={accounts}
+          loading={accountsLoading}
+          storageError={accountsError}
           showNextCode={settings.showNextCode}
           accountTiming={accountTiming}
           codes={codes}

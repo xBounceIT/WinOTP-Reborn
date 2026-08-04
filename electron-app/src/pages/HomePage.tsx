@@ -1,4 +1,12 @@
-import { ArrowDownUp, Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import {
+  ArrowDownUp,
+  Database,
+  LoaderCircle,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AccountCard } from "@/components/AccountCard";
@@ -16,6 +24,8 @@ import type { OtpAccount, Route, SortOption } from "@/lib/types";
 
 interface HomePageProps {
   accounts: OtpAccount[];
+  loading: boolean;
+  storageError: string;
   showNextCode: boolean;
   accountTiming: Record<string, { remaining: number; progress: number }>;
   codes: Record<string, { code: string; nextCode: string }>;
@@ -36,6 +46,8 @@ const sortLabels: Record<SortOption, string> = {
 
 export function HomePage({
   accounts,
+  loading,
+  storageError,
   showNextCode,
   accountTiming,
   codes,
@@ -136,7 +148,22 @@ export function HomePage({
           </div>
         </div>
 
-        {visibleAccounts.length > 0 ? (
+        {loading ? (
+          <div className="empty-state">
+            <LoaderCircle className="animate-spin" size={42} strokeWidth={1.2} />
+            <div className="empty-state__title">Loading accounts</div>
+            <div className="empty-state__detail">Opening the local SQLite database…</div>
+          </div>
+        ) : storageError ? (
+          <div className="empty-state">
+            <Database className="empty-state__icon" size={42} strokeWidth={1.2} />
+            <div className="empty-state__title">Account storage unavailable</div>
+            <div className="empty-state__detail">{storageError}</div>
+            <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
+              Try again
+            </Button>
+          </div>
+        ) : visibleAccounts.length > 0 ? (
           <div className="account-list">
             {visibleAccounts.map((account) => {
               const timing = accountTiming[account.id] ?? {
