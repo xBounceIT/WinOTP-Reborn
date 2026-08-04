@@ -506,11 +506,35 @@ html:not(.dark) .toolbar-icon-button:hover {
   gap: 8px;
 }
 
+.custom-order-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 15px;
+}
+
 .account-card {
   min-height: 140px;
   gap: 0;
   padding: 16px;
   border-radius: 8px;
+  transition:
+    opacity 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.account-card--dragging {
+  opacity: 0.48;
+}
+
+.account-card--drop-target {
+  box-shadow: inset 0 2px 0 var(--primary);
 }
 
 .account-card__top {
@@ -520,8 +544,53 @@ html:not(.dark) .toolbar-icon-button:hover {
   gap: 10px;
 }
 
+.account-card__identity-row {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .account-card__identity {
   min-width: 0;
+  flex: 1;
+}
+
+.account-card__reorder-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+  margin: -5px 0 0 -7px;
+}
+
+.account-card__drag-handle {
+  width: 28px;
+  height: 28px;
+  color: var(--text-subtle);
+  cursor: grab;
+}
+
+.account-card__drag-handle:active {
+  cursor: grabbing;
+}
+
+.account-card__move-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.account-card__move-button {
+  width: 22px;
+  height: 18px;
+  color: var(--text-subtle);
+}
+
+.account-card__drag-handle:hover,
+.account-card__move-button:hover:not(:disabled) {
+  color: var(--foreground);
 }
 
 .account-card__issuer {

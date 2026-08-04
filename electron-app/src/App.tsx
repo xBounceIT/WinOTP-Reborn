@@ -10,6 +10,11 @@ import { HomePage } from "@/pages/HomePage";
 import { ImportPage } from "@/pages/ImportPage";
 import { ManualEntryPage } from "@/pages/ManualEntryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import {
+  isSortOption,
+  normalizeCustomOrderIds,
+  reconcileCustomOrderIds,
+} from "@/lib/account-order";
 import { mergeUsageCount } from "@/lib/account-usage";
 import { useTotp } from "@/lib/use-totp";
 import {
@@ -91,6 +96,10 @@ function readAppSettings(): AppSettings {
   return {
     ...defaultSettings,
     ...savedSettings,
+    accountSortOption: isSortOption(savedSettings.accountSortOption)
+      ? savedSettings.accountSortOption
+      : defaultSettings.accountSortOption,
+    accountCustomOrderIds: normalizeCustomOrderIds(savedSettings.accountCustomOrderIds),
     minimizeOnClose:
       savedSettings.minimizeOnClose === true && savedSettings.minimizeToTray !== true,
     minimizeToTray: savedSettings.minimizeToTray === true,
@@ -152,6 +161,7 @@ export default function App() {
         }
 
         setAccounts(result.accounts);
+        pruneStoredCustomOrderIds(result.accounts, result.issues);
         setAccountsLoading(false);
         const storageIssue = result.issues.find((issue) => issue.code === "storage-unavailable");
         if (storageIssue) {
@@ -381,6 +391,27 @@ export default function App() {
     );
   }
 
+  function pruneStoredCustomOrderIds(
+    nextAccounts: OtpAccount[],
+    issues: readonly { code: string }[] = [],
+  ) {
+    setSettings((current) => {
+      const nextOrderIds = reconcileCustomOrderIds(
+        current.accountCustomOrderIds,
+        nextAccounts,
+        issues,
+      );
+      if (
+        nextOrderIds.length === current.accountCustomOrderIds.length &&
+        nextOrderIds.every((id, index) => id === current.accountCustomOrderIds[index])
+      ) {
+        return current;
+      }
+
+      return { ...current, accountCustomOrderIds: nextOrderIds };
+    });
+  }
+
   function navigate(nextRoute: Route) {
     setRoute(nextRoute);
     if (nextRoute !== "manual") {
@@ -464,6 +495,10 @@ export default function App() {
         }
 
         setAccounts((current) => current.filter((item) => item.id !== account.id));
+        setSettings((current) => ({
+          ...current,
+          accountCustomOrderIds: current.accountCustomOrderIds.filter((id) => id !== account.id),
+        }));
         showToast(
           result.automaticBackup?.success === false
             ? `${label} removed; automatic backup failed: ${result.automaticBackup.message ?? "unknown error"}`
@@ -588,6 +623,7 @@ export default function App() {
           const loadResult = await window.winotp?.accounts.list();
           if (loadResult) {
             setAccounts(loadResult.accounts);
+            pruneStoredCustomOrderIds(loadResult.accounts, loadResult.issues);
             setAccountsError(
               loadResult.issues.find((issue) => issue.code === "storage-unavailable")?.message ??
                 "",
@@ -1013,12 +1049,16 @@ export default function App() {
       return (
         <HomePage
           accounts={accounts}
+          sort={settings.accountSortOption}
+          customOrderIds={settings.accountCustomOrderIds}
           loading={accountsLoading}
           storageError={accountsError}
           showNextCode={settings.showNextCode}
           accountTiming={accountTiming}
           codes={codes}
           onNavigate={navigate}
+          onSortChange={(value) => changeSetting("accountSortOption", value)}
+          onCustomOrderChange={(value) => changeSetting("accountCustomOrderIds", value)}
           onCopy={copyCode}
           onEdit={editAccount}
           onDelete={deleteAccount}

@@ -1,13 +1,14 @@
 import {
   ArrowDownUp,
   Database,
+  GripVertical,
   LoaderCircle,
   Plus,
   Search,
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 
 import { AccountCard } from "@/components/AccountCard";
 import { Button } from "@/components/ui/button";
@@ -20,16 +21,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { moveAccountId, sortAccounts, sortOptions } from "@/lib/account-order";
 import type { OtpAccount, Route, SortOption } from "@/lib/types";
 
 interface HomePageProps {
   accounts: OtpAccount[];
+  sort: SortOption;
+  customOrderIds: string[];
   loading: boolean;
   storageError: string;
   showNextCode: boolean;
   accountTiming: Record<string, { remaining: number; progress: number }>;
   codes: Record<string, { code: string; nextCode: string }>;
   onNavigate: (route: Route) => void;
+  onSortChange: (sort: SortOption) => void;
+  onCustomOrderChange: (orderIds: string[]) => void;
   onCopy: (account: OtpAccount, code: string) => void;
   onEdit: (account: OtpAccount) => void;
   onDelete: (account: OtpAccount) => void;
@@ -46,18 +52,25 @@ const sortLabels: Record<SortOption, string> = {
 
 export function HomePage({
   accounts,
+  sort,
+  customOrderIds,
   loading,
   storageError,
   showNextCode,
   accountTiming,
   codes,
   onNavigate,
+  onSortChange,
+  onCustomOrderChange,
   onCopy,
   onEdit,
   onDelete,
 }: HomePageProps) {
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortOption>("DateAddedDesc");
+  const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const isCustomOrder = sort === "CustomOrder";
+  const canReorder = isCustomOrder && search.trim().length === 0;
 
   const visibleAccounts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -67,26 +80,77 @@ export function HomePage({
         )
       : accounts;
 
-    return [...filtered].sort((left, right) => {
-      if (sort === "AlphabeticalAsc") {
-        return `${left.issuer}${left.accountName}`.localeCompare(
-          `${right.issuer}${right.accountName}`,
-        );
-      }
-      if (sort === "AlphabeticalDesc") {
-        return `${right.issuer}${right.accountName}`.localeCompare(
-          `${left.issuer}${left.accountName}`,
-        );
-      }
-      if (sort === "DateAddedAsc") {
-        return left.createdAt.localeCompare(right.createdAt);
-      }
-      if (sort === "UsageBased") {
-        return (right.usageCount ?? 0) - (left.usageCount ?? 0);
-      }
-      return right.createdAt.localeCompare(left.createdAt);
-    });
-  }, [accounts, search, sort]);
+    return sortAccounts(filtered, sort, customOrderIds);
+  }, [accounts, customOrderIds, search, sort]);
+
+  function moveAccount(accountId: string, direction: -1 | 1) {
+    if (!canReorder) {
+      return;
+    }
+
+    const index = visibleAccounts.findIndex((account) => account.id === accountId);
+    const target = visibleAccounts[index + direction];
+    if (!target) {
+      return;
+    }
+
+    const nextOrderIds = moveAccountId(
+      visibleAccounts.map((account) => account.id),
+      accountId,
+      target.id,
+      direction > 0,
+    );
+    onCustomOrderChange(nextOrderIds);
+  }
+
+  function handleDragStart(accountId: string) {
+    if (!canReorder) {
+      return;
+    }
+
+    setDraggedAccountId(accountId);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>, accountId: string) {
+    if (!canReorder || !draggedAccountId || draggedAccountId === accountId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetId(accountId);
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, accountId: string) {
+    if (!canReorder) {
+      return;
+    }
+
+    event.preventDefault();
+    const draggedId = event.dataTransfer.getData("text/plain") || draggedAccountId;
+    if (!draggedId || draggedId === accountId) {
+      setDraggedAccountId(null);
+      setDropTargetId(null);
+      return;
+    }
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const placeAfter = event.clientY >= bounds.top + bounds.height / 2;
+    const nextOrderIds = moveAccountId(
+      visibleAccounts.map((account) => account.id),
+      draggedId,
+      accountId,
+      placeAfter,
+    );
+    onCustomOrderChange(nextOrderIds);
+    setDraggedAccountId(null);
+    setDropTargetId(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedAccountId(null);
+    setDropTargetId(null);
+  }
 
   return (
     <div className="page-scroll">
@@ -121,9 +185,9 @@ export function HomePage({
               <DropdownMenuContent align="end">
                 <DropdownMenuRadioGroup
                   value={sort}
-                  onValueChange={(value) => setSort(value as SortOption)}
+                  onValueChange={(value) => onSortChange(value as SortOption)}
                 >
-                  {(Object.keys(sortLabels) as SortOption[]).map((option) => (
+                  {sortOptions.map((option) => (
                     <DropdownMenuRadioItem key={option} value={option}>
                       {sortLabels[option]}
                     </DropdownMenuRadioItem>
@@ -164,33 +228,56 @@ export function HomePage({
             </Button>
           </div>
         ) : visibleAccounts.length > 0 ? (
-          <div className="account-list">
-            {visibleAccounts.map((account) => {
-              const timing = accountTiming[account.id] ?? {
-                remaining: account.period,
-                progress: Math.max(0, (account.period - 1) / Math.max(1, account.period)),
-              };
-              const accountCodes = codes[account.id] ?? {
-                code: "—".repeat(account.digits),
-                nextCode: "—".repeat(account.digits),
-              };
+          <>
+            {isCustomOrder && accounts.length > 1 && (
+              <div className="custom-order-hint" role="status">
+                <GripVertical size={14} strokeWidth={1.8} />
+                <span>
+                  {canReorder
+                    ? "Drag accounts into your preferred order, or use the move buttons."
+                    : "Clear search to reorder the full account list."}
+                </span>
+              </div>
+            )}
+            <div className="account-list">
+              {visibleAccounts.map((account, index) => {
+                const timing = accountTiming[account.id] ?? {
+                  remaining: account.period,
+                  progress: Math.max(0, (account.period - 1) / Math.max(1, account.period)),
+                };
+                const accountCodes = codes[account.id] ?? {
+                  code: "—".repeat(account.digits),
+                  nextCode: "—".repeat(account.digits),
+                };
 
-              return (
-                <AccountCard
-                  key={account.id}
-                  account={account}
-                  code={accountCodes.code}
-                  nextCode={accountCodes.nextCode}
-                  remaining={timing.remaining}
-                  progress={timing.progress}
-                  showNextCode={showNextCode}
-                  onCopy={onCopy}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                />
-              );
-            })}
-          </div>
+                return (
+                  <AccountCard
+                    key={account.id}
+                    account={account}
+                    code={accountCodes.code}
+                    nextCode={accountCodes.nextCode}
+                    remaining={timing.remaining}
+                    progress={timing.progress}
+                    showNextCode={showNextCode}
+                    reorderable={canReorder}
+                    canMoveUp={canReorder && index > 0}
+                    canMoveDown={canReorder && index < visibleAccounts.length - 1}
+                    isDragging={draggedAccountId === account.id}
+                    isDropTarget={dropTargetId === account.id}
+                    onMoveUp={() => moveAccount(account.id, -1)}
+                    onMoveDown={() => moveAccount(account.id, 1)}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onDragEnd={handleDragEnd}
+                    onCopy={onCopy}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                  />
+                );
+              })}
+            </div>
+          </>
         ) : (
           <div className="empty-state">
             <SlidersHorizontal className="empty-state__icon" size={42} strokeWidth={1.2} />

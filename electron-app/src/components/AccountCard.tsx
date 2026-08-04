@@ -1,5 +1,5 @@
-import { Check, Copy, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, ChevronDown, ChevronUp, Copy, GripVertical, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,6 +14,17 @@ interface AccountCardProps {
   remaining: number;
   progress: number;
   showNextCode: boolean;
+  reorderable: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  isDragging: boolean;
+  isDropTarget: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onDragStart: (accountId: string) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
+  onDragEnd: () => void;
   onCopy: (account: OtpAccount, code: string) => void;
   onEdit: (account: OtpAccount) => void;
   onDelete: (account: OtpAccount) => void;
@@ -144,12 +155,31 @@ export function AccountCard({
   remaining,
   progress,
   showNextCode,
+  reorderable,
+  canMoveUp,
+  canMoveDown,
+  isDragging,
+  isDropTarget,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
   onCopy,
   onEdit,
   onDelete,
 }: AccountCardProps) {
   const [copied, setCopied] = useState(false);
   const accountLabel = account.issuer || account.accountName;
+  const cardClassName = [
+    "account-card",
+    reorderable && "account-card--reorderable",
+    isDragging && "account-card--dragging",
+    isDropTarget && "account-card--drop-target",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   function copyCode() {
     onCopy(account, code);
@@ -158,17 +188,70 @@ export function AccountCard({
   }
 
   return (
-    <Card className="account-card">
+    <Card
+      className={cardClassName}
+      onDragOver={(event) => onDragOver(event, account.id)}
+      onDrop={(event) => onDrop(event, account.id)}
+    >
       <div className="account-card__top">
-        <div className="account-card__identity">
-          <div className="account-card__issuer" title={accountLabel}>
-            {accountLabel}
-          </div>
-          {account.issuer && (
-            <div className="account-card__account" title={account.accountName}>
-              {account.accountName}
+        <div className="account-card__identity-row">
+          {reorderable && (
+            <div className="account-card__reorder-controls">
+              <Button
+                type="button"
+                className="account-card__drag-handle"
+                variant="ghost"
+                size="icon-sm"
+                draggable
+                aria-label={`Drag ${accountLabel} to reorder`}
+                title="Drag to reorder"
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", account.id);
+                  onDragStart(account.id);
+                }}
+                onDragEnd={onDragEnd}
+              >
+                <GripVertical size={15} strokeWidth={1.8} />
+              </Button>
+              <div className="account-card__move-actions">
+                <Button
+                  type="button"
+                  className="account-card__move-button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={!canMoveUp}
+                  aria-label={`Move ${accountLabel} up`}
+                  title="Move up"
+                  onClick={onMoveUp}
+                >
+                  <ChevronUp size={13} strokeWidth={1.8} />
+                </Button>
+                <Button
+                  type="button"
+                  className="account-card__move-button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={!canMoveDown}
+                  aria-label={`Move ${accountLabel} down`}
+                  title="Move down"
+                  onClick={onMoveDown}
+                >
+                  <ChevronDown size={13} strokeWidth={1.8} />
+                </Button>
+              </div>
             </div>
           )}
+          <div className="account-card__identity">
+            <div className="account-card__issuer" title={accountLabel}>
+              {accountLabel}
+            </div>
+            {account.issuer && (
+              <div className="account-card__account" title={account.accountName}>
+                {account.accountName}
+              </div>
+            )}
+          </div>
         </div>
         <div className="account-card__actions">
           <Tooltip>

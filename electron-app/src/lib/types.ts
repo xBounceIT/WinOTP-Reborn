@@ -110,6 +110,8 @@ export interface BackupImportResult extends BackupOperationResult {
 }
 
 export interface AppSettings {
+  accountSortOption: SortOption;
+  accountCustomOrderIds: string[];
   showNextCode: boolean;
   pinProtection: boolean;
   passwordProtection: boolean;
@@ -175,6 +177,8 @@ export type WindowsHelloVerificationResult =
   | { success: false; message?: string };
 
 export const defaultSettings: AppSettings = {
+  accountSortOption: "DateAddedDesc",
+  accountCustomOrderIds: [],
   showNextCode: false,
   pinProtection: false,
   passwordProtection: false,
