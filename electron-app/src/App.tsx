@@ -11,7 +11,14 @@ import { ImportPage } from "@/pages/ImportPage";
 import { ManualEntryPage } from "@/pages/ManualEntryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { useTotp } from "@/lib/use-totp";
-import type { AppSettings, OtpAccount, Route } from "@/lib/types";
+import type {
+  AppSettings,
+  BackupConfigurationResult,
+  BackupImportResult,
+  BackupOperationResult,
+  OtpAccount,
+  Route,
+} from "@/lib/types";
 import { defaultSettings } from "@/lib/types";
 
 const settingsStorageKey = "winotp-electron.settings";
@@ -49,20 +56,36 @@ function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function readAppSettings(): AppSettings {
+  const stored = readStorage<Partial<AppSettings>>(settingsStorageKey, {});
+  const savedSettings =
+    stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+
+  return {
+    ...defaultSettings,
+    ...savedSettings,
+    automaticBackup: savedSettings.automaticBackup === true,
+    customBackupFolderPath:
+      typeof savedSettings.customBackupFolderPath === "string"
+        ? savedSettings.customBackupFolderPath
+        : "",
+  };
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
   const [accounts, setAccounts] = useState<OtpAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [accountsError, setAccountsError] = useState("");
-  const [settings, setSettings] = useState<AppSettings>(() =>
-    readStorage(settingsStorageKey, defaultSettings),
-  );
+  const [settings, setSettings] = useState<AppSettings>(readAppSettings);
+  const [backupStatus, setBackupStatus] = useState<BackupConfigurationResult>();
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
   const [locked, setLocked] = useState(false);
   const [unlockValue, setUnlockValue] = useState("");
   const [unlockError, setUnlockError] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
+  const backupMutationVersion = useRef(0);
   const { accountTiming, codes } = useTotp(accounts);
 
   useEffect(() => {
@@ -137,6 +160,39 @@ export default function App() {
   }, [settings.theme]);
 
   useEffect(() => {
+    let cancelled = false;
+    const statusVersion = backupMutationVersion.current;
+
+    async function loadBackupStatus() {
+      const backupBridge = window.winotp?.backup;
+      if (!backupBridge) {
+        return;
+      }
+
+      try {
+        const result = await backupBridge.status();
+        if (cancelled || statusVersion !== backupMutationVersion.current || !result.success) {
+          return;
+        }
+
+        setBackupStatus(result);
+        setSettings((current) => ({
+          ...current,
+          automaticBackup: result.automaticEnabled,
+          customBackupFolderPath: result.customFolderPath,
+        }));
+      } catch {
+        // Backup actions surface their own bridge errors when requested.
+      }
+    }
+
+    void loadBackupStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (toastTimer.current) {
         window.clearTimeout(toastTimer.current);
@@ -182,7 +238,12 @@ export default function App() {
       });
       setEditingAccount(undefined);
       setRoute("home");
-      showToast(wasEditing ? "Account updated" : "Account added");
+      const operationLabel = wasEditing ? "Account updated" : "Account added";
+      showToast(
+        result.automaticBackup?.success === false
+          ? `${operationLabel}; automatic backup failed: ${result.automaticBackup.message ?? "unknown error"}`
+          : operationLabel,
+      );
     } catch {
       showToast("Unable to save the account.");
     }
@@ -227,7 +288,11 @@ export default function App() {
         }
 
         setAccounts((current) => current.filter((item) => item.id !== account.id));
-        showToast(`${label} removed`);
+        showToast(
+          result.automaticBackup?.success === false
+            ? `${label} removed; automatic backup failed: ${result.automaticBackup.message ?? "unknown error"}`
+            : `${label} removed`,
+        );
       } catch {
         showToast("Unable to delete the account.");
       }
@@ -236,6 +301,134 @@ export default function App() {
 
   function changeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  function unavailableBackupResult(): BackupConfigurationResult {
+    return {
+      success: false,
+      errorCode: "UnexpectedError",
+      message: "The Electron backup bridge is unavailable.",
+      automaticEnabled: settings.automaticBackup,
+      customFolderPath: settings.customBackupFolderPath,
+      defaultFolderPath: "",
+      effectiveFolderPath: settings.customBackupFolderPath,
+      hasStoredPassword: false,
+    };
+  }
+
+  function unavailableBackupOperation(message = "The Electron backup bridge is unavailable.") {
+    return {
+      success: false,
+      errorCode: "UnexpectedError",
+      message,
+    } satisfies BackupOperationResult;
+  }
+
+  async function changeAutomaticBackup(enabled: boolean, password?: string) {
+    backupMutationVersion.current += 1;
+    const backupBridge = window.winotp?.backup;
+    if (!backupBridge) {
+      return unavailableBackupResult();
+    }
+
+    try {
+      const result = enabled
+        ? await backupBridge.enableAutomatic(password ?? "", settings.customBackupFolderPath)
+        : await backupBridge.disableAutomatic();
+      if (result.success) {
+        setSettings((current) => ({
+          ...current,
+          automaticBackup: enabled,
+          customBackupFolderPath: result.customFolderPath,
+        }));
+        setBackupStatus(result);
+      }
+      return result;
+    } catch {
+      return unavailableBackupResult();
+    }
+  }
+
+  async function browseBackupFolder() {
+    backupMutationVersion.current += 1;
+    const backupBridge = window.winotp?.backup;
+    if (!backupBridge) {
+      return unavailableBackupResult();
+    }
+
+    try {
+      const result = await backupBridge.chooseFolder();
+      if (result.success) {
+        setSettings((current) => ({
+          ...current,
+          customBackupFolderPath: result.customFolderPath,
+        }));
+        setBackupStatus(result);
+      }
+      return result;
+    } catch {
+      return unavailableBackupResult();
+    }
+  }
+
+  async function resetBackupFolder() {
+    backupMutationVersion.current += 1;
+    const backupBridge = window.winotp?.backup;
+    if (!backupBridge) {
+      return unavailableBackupResult();
+    }
+
+    try {
+      const result = await backupBridge.resetFolder();
+      if (result.success) {
+        setSettings((current) => ({ ...current, customBackupFolderPath: "" }));
+        setBackupStatus(result);
+      }
+      return result;
+    } catch {
+      return unavailableBackupResult();
+    }
+  }
+
+  async function importBackup(password: string): Promise<BackupImportResult> {
+    const backupBridge = window.winotp?.backup;
+    if (!backupBridge) {
+      return unavailableBackupOperation() as BackupImportResult;
+    }
+
+    try {
+      const result = await backupBridge.import(password);
+      if (result.success) {
+        try {
+          const loadResult = await window.winotp?.accounts.list();
+          if (loadResult) {
+            setAccounts(loadResult.accounts);
+            setAccountsError(
+              loadResult.issues.find((issue) => issue.code === "storage-unavailable")?.message ??
+                "",
+            );
+          }
+        } catch {
+          showToast("Backup imported, but the account list could not be refreshed.");
+        }
+      }
+      return result;
+    } catch {
+      return unavailableBackupOperation("Unable to import the backup.") as BackupImportResult;
+    }
+  }
+
+  async function exportBackup(passwordOverride?: string): Promise<BackupOperationResult> {
+    const backupBridge = window.winotp?.backup;
+    if (!backupBridge) {
+      return unavailableBackupOperation();
+    }
+
+    try {
+      return await backupBridge.export(passwordOverride);
+    } catch {
+      return unavailableBackupOperation("Unable to export the backup.");
+    }
   }
 
   function unlock() {
@@ -293,6 +486,17 @@ export default function App() {
         onChange={changeSetting}
         onToast={showToast}
         onLock={() => setLocked(true)}
+        backupFolderPath={
+          backupStatus?.effectiveFolderPath ||
+          settings.customBackupFolderPath ||
+          "%LocalAppData%\\WinOTP_Reborn\\Backups"
+        }
+        hasStoredBackupPassword={backupStatus?.hasStoredPassword ?? false}
+        onAutomaticBackupChange={changeAutomaticBackup}
+        onBrowseBackupFolder={browseBackupFolder}
+        onResetBackupFolder={resetBackupFolder}
+        onImportBackup={importBackup}
+        onExportBackup={exportBackup}
       />
     );
   }

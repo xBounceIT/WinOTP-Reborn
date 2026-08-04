@@ -31,4 +31,15 @@ contextBridge.exposeInMainWorld("winotp", {
     delete: (id) => ipcRenderer.invoke("accounts:delete", id),
     recordUsage: (id) => ipcRenderer.invoke("accounts:record-usage", id),
   },
+  backup: {
+    status: () => ipcRenderer.invoke("backup:status"),
+    configure: (settings) => ipcRenderer.invoke("backup:configure", settings),
+    enableAutomatic: (password, customFolderPath) =>
+      ipcRenderer.invoke("backup:enable-automatic", password, customFolderPath),
+    disableAutomatic: () => ipcRenderer.invoke("backup:disable-automatic"),
+    chooseFolder: () => ipcRenderer.invoke("backup:choose-folder"),
+    resetFolder: () => ipcRenderer.invoke("backup:reset-folder"),
+    import: (password) => ipcRenderer.invoke("backup:import", password),
+    export: (passwordOverride) => ipcRenderer.invoke("backup:export", passwordOverride),
+  },
 });

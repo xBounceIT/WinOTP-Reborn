@@ -1,8 +1,18 @@
-const { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  safeStorage,
+  screen,
+  shell,
+} = require("electron");
 const path = require("node:path");
 const { createDisplayCapturePlan, getThumbnailSize } = require("./screen-capture.cjs");
 const { AccountStore } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
+const { BackupStore } = require("./backup-store.cjs");
 const {
   isAllowedRendererUrl,
   isLoopbackRendererUrl,
@@ -397,6 +407,81 @@ const accountStoreLoader = createAccountStoreLoader(
   (error) => console.error("Failed to initialize the local account database.", error),
 );
 
+let backupStore;
+
+function getBackupStore() {
+  if (!backupStore) {
+    backupStore = new BackupStore(app, () => accountStoreLoader.get(), {
+      encryption: safeStorage,
+    });
+  }
+  return backupStore;
+}
+
+function backupUnavailableResult() {
+  return {
+    success: false,
+    errorCode: "UnexpectedError",
+    message: "The backup service is unavailable.",
+    automaticEnabled: false,
+    customFolderPath: "",
+    defaultFolderPath: "",
+    effectiveFolderPath: "",
+    hasStoredPassword: false,
+  };
+}
+
+function withBackupStatus(service, result) {
+  if (
+    result &&
+    typeof result.automaticEnabled === "boolean" &&
+    typeof result.customFolderPath === "string" &&
+    typeof result.defaultFolderPath === "string" &&
+    typeof result.effectiveFolderPath === "string" &&
+    typeof result.hasStoredPassword === "boolean"
+  ) {
+    return result;
+  }
+
+  try {
+    return {
+      ...service.getStatus(),
+      ...result,
+    };
+  } catch {
+    return {
+      ...backupUnavailableResult(),
+      ...result,
+    };
+  }
+}
+
+async function attachAutomaticBackupResult(result, options = {}) {
+  const {
+    shouldCreate = true,
+    context = "an account mutation",
+    service,
+  } = options;
+  if (!result?.success || !shouldCreate) {
+    return result;
+  }
+
+  try {
+    const automaticBackup = await (service ?? getBackupStore()).createAutomaticBackup();
+    return automaticBackup.skipped ? result : { ...result, automaticBackup };
+  } catch (error) {
+    console.error(`Automatic backup failed after ${context}.`, error);
+    return {
+      ...result,
+      automaticBackup: {
+        success: false,
+        errorCode: "UnexpectedError",
+        message: "Unable to create the automatic backup.",
+      },
+    };
+  }
+}
+
 function registerAccountIpc() {
   ipcMain.handle("accounts:list", (event) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
@@ -436,7 +521,7 @@ function registerAccountIpc() {
     }
   });
 
-  ipcMain.handle("accounts:save", (event, account) => {
+  ipcMain.handle("accounts:save", async (event, account) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return { success: false, message: "The renderer is not authorized." };
     }
@@ -447,7 +532,7 @@ function registerAccountIpc() {
     }
 
     try {
-      return store.saveAccount(account);
+      return attachAutomaticBackupResult(store.saveAccount(account));
     } catch (error) {
       accountStoreLoader.close();
       console.error("Failed to save an account to the local database.", error);
@@ -455,7 +540,7 @@ function registerAccountIpc() {
     }
   });
 
-  ipcMain.handle("accounts:delete", (event, id) => {
+  ipcMain.handle("accounts:delete", async (event, id) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return { success: false, message: "The renderer is not authorized." };
     }
@@ -466,7 +551,7 @@ function registerAccountIpc() {
     }
 
     try {
-      return store.deleteAccount(id);
+      return attachAutomaticBackupResult(store.deleteAccount(id));
     } catch (error) {
       accountStoreLoader.close();
       console.error("Failed to delete an account from the local database.", error);
@@ -490,6 +575,169 @@ function registerAccountIpc() {
       accountStoreLoader.close();
       console.error("Failed to record account usage.", error);
       return { success: false, message: "Unable to record account usage." };
+    }
+  });
+}
+
+function registerBackupIpc() {
+  ipcMain.handle("backup:status", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      return { success: true, ...getBackupStore().getStatus() };
+    } catch (error) {
+      console.error("Failed to read backup status.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:configure", async (event, settings) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const service = getBackupStore();
+      return withBackupStatus(service, await service.configure(settings));
+    } catch (error) {
+      console.error("Failed to configure backup settings.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:enable-automatic", async (event, password, customFolderPath) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const service = getBackupStore();
+      return withBackupStatus(
+        service,
+        await service.enableAutomatic(password, customFolderPath),
+      );
+    } catch (error) {
+      console.error("Failed to enable automatic backup.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:disable-automatic", async (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const service = getBackupStore();
+      return withBackupStatus(service, await service.disableAutomatic());
+    } catch (error) {
+      console.error("Failed to disable automatic backup.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:choose-folder", async (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const service = getBackupStore();
+      const pickerResult = await dialog.showOpenDialog(mainWindow, {
+        title: "Choose automatic backup folder",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (pickerResult.canceled || pickerResult.filePaths.length === 0) {
+        return withBackupStatus(service, { success: false, cancelled: true });
+      }
+
+      return withBackupStatus(
+        service,
+        await service.setCustomFolderPath(pickerResult.filePaths[0]),
+      );
+    } catch (error) {
+      console.error("Failed to set the automatic backup folder.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:reset-folder", async (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const service = getBackupStore();
+      return withBackupStatus(service, await service.setCustomFolderPath(""));
+    } catch (error) {
+      console.error("Failed to reset the automatic backup folder.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:import", async (event, password) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const pickerResult = await dialog.showOpenDialog(mainWindow, {
+        title: "Import WinOTP backup",
+        properties: ["openFile"],
+        filters: [{ name: "WinOTP Backup", extensions: ["wotpbackup"] }],
+      });
+      if (pickerResult.canceled || pickerResult.filePaths.length === 0) {
+        return { success: false, cancelled: true };
+      }
+
+      const service = getBackupStore();
+      const result = service.importBackup(pickerResult.filePaths[0], password);
+      return attachAutomaticBackupResult(result, {
+        shouldCreate: result.importedCount > 0,
+        context: "importing accounts",
+        service,
+      });
+    } catch (error) {
+      console.error("Failed to import the backup.", error);
+      return backupUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("backup:export", async (event, passwordOverride) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return backupUnavailableResult();
+    }
+
+    try {
+      const service = getBackupStore();
+      const storedPassword =
+        passwordOverride === undefined ? service.getStoredPassword() : undefined;
+      if (passwordOverride === undefined && !storedPassword) {
+        return {
+          success: false,
+          errorCode: "PasswordUnavailable",
+          message: "A backup password is required to export a backup.",
+        };
+      }
+
+      const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+      const suggestedFileName = `winotp-backup-${timestamp}.wotpbackup`;
+      const pickerResult = await dialog.showSaveDialog(mainWindow, {
+        title: "Export WinOTP backup",
+        defaultPath: path.join(app.getPath("documents"), suggestedFileName),
+        filters: [{ name: "WinOTP Backup", extensions: ["wotpbackup"] }],
+        showOverwriteConfirmation: true,
+      });
+      if (pickerResult.canceled || !pickerResult.filePath) {
+        return { success: false, cancelled: true };
+      }
+
+      return service.exportBackup(pickerResult.filePath, passwordOverride ?? storedPassword);
+    } catch (error) {
+      console.error("Failed to export the backup.", error);
+      return backupUnavailableResult();
     }
   });
 }
@@ -575,6 +823,7 @@ if (!hasSingleInstanceLock) {
 
     accountStoreLoader.get();
     registerAccountIpc();
+    registerBackupIpc();
     ipcMain.handle("open-external", (event, url) => {
       if (!isTrustedRendererEvent(event, mainWindow)) {
         return false;

@@ -48,17 +48,49 @@ export interface AccountSaveResult {
   success: boolean;
   account?: OtpAccount;
   message?: string;
+  automaticBackup?: BackupOperationResult;
 }
 
 export interface AccountDeleteResult {
   success: boolean;
   message?: string;
+  automaticBackup?: BackupOperationResult;
 }
 
 export interface AccountUsageResult {
   success: boolean;
   usageCount?: number;
   message?: string;
+}
+
+export interface BackupOperationResult {
+  success: boolean;
+  errorCode?: string;
+  message?: string;
+  cancelled?: boolean;
+  skipped?: boolean;
+  filePath?: string;
+  accountCount?: number;
+  automaticBackup?: BackupOperationResult;
+}
+
+export interface BackupStatus {
+  automaticEnabled: boolean;
+  customFolderPath: string;
+  defaultFolderPath: string;
+  effectiveFolderPath: string;
+  hasStoredPassword: boolean;
+}
+
+export interface BackupConfigurationResult extends BackupStatus, BackupOperationResult {
+  success: boolean;
+}
+
+export interface BackupImportResult extends BackupOperationResult {
+  importedCount?: number;
+  replacedCount?: number;
+  skippedCount?: number;
+  failedCount?: number;
 }
 
 export interface AppSettings {
@@ -74,6 +106,7 @@ export interface AppSettings {
   minimizeToTray: boolean;
   showTotpInTray: boolean;
   automaticBackup: boolean;
+  customBackupFolderPath: string;
   updateOnStartup: boolean;
   updateChannel: "Stable" | "Pre-release";
   theme: "dark" | "light";
@@ -92,6 +125,7 @@ export const defaultSettings: AppSettings = {
   minimizeToTray: false,
   showTotpInTray: false,
   automaticBackup: false,
+  customBackupFolderPath: "",
   updateOnStartup: true,
   updateChannel: "Stable",
   theme: "dark",

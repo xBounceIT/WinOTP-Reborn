@@ -5,6 +5,9 @@ import type {
   AccountLoadResult,
   AccountSaveResult,
   AccountUsageResult,
+  BackupConfigurationResult,
+  BackupImportResult,
+  BackupOperationResult,
   OtpAccount,
 } from "@/lib/types";
 
@@ -44,6 +47,22 @@ declare global {
         save: (account: OtpAccount) => Promise<AccountSaveResult>;
         delete: (id: string) => Promise<AccountDeleteResult>;
         recordUsage: (id: string) => Promise<AccountUsageResult>;
+      };
+      backup: {
+        status: () => Promise<BackupConfigurationResult>;
+        configure: (settings: {
+          automaticEnabled: boolean;
+          customFolderPath: string;
+        }) => Promise<BackupConfigurationResult>;
+        enableAutomatic: (
+          password: string,
+          customFolderPath?: string,
+        ) => Promise<BackupConfigurationResult>;
+        disableAutomatic: () => Promise<BackupConfigurationResult>;
+        chooseFolder: () => Promise<BackupConfigurationResult>;
+        resetFolder: () => Promise<BackupConfigurationResult>;
+        import: (password: string) => Promise<BackupImportResult>;
+        export: (passwordOverride?: string) => Promise<BackupOperationResult>;
       };
     };
   }

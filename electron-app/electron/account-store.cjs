@@ -557,6 +557,7 @@ class AccountStore {
 
 module.exports = {
   AccountStore,
+  getAppDataDirectory,
   getWindowsPowerShellPath,
   normalizeAccount,
   readLegacyCredentials,
