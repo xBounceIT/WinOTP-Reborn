@@ -17,6 +17,11 @@ import {
 } from "@/lib/account-order";
 import { mergeUsageCount } from "@/lib/account-usage";
 import { loadAccountsUntilCurrent, mergePersistedAccounts } from "@/lib/account-state";
+import {
+  autoLockTimeoutMs,
+  normalizeAutoLockSetting,
+  shouldMonitorAutoLock,
+} from "@/lib/auto-lock";
 import { useTotp } from "@/lib/use-totp";
 import {
   directCredentialKind,
@@ -47,6 +52,7 @@ import type {
 import { defaultSettings } from "@/lib/types";
 
 const settingsStorageKey = "winotp-electron.settings";
+type LockRequestReason = "manual" | "startup" | "inactivity" | "session";
 
 function getTrayAccountLabel(account: OtpAccount) {
   const issuer = account.issuer.trim();
@@ -103,6 +109,7 @@ function readAppSettings(): AppSettings {
       ? savedSettings.accountSortOption
       : defaultSettings.accountSortOption,
     accountCustomOrderIds: normalizeCustomOrderIds(savedSettings.accountCustomOrderIds),
+    autoLock: normalizeAutoLockSetting(savedSettings.autoLock, defaultSettings.autoLock),
     minimizeOnClose:
       savedSettings.minimizeOnClose === true && savedSettings.minimizeToTray !== true,
     minimizeToTray: savedSettings.minimizeToTray === true,
@@ -124,24 +131,45 @@ export default function App() {
   const [backupStatus, setBackupStatus] = useState<BackupConfigurationResult>();
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
-  const [locked, setLocked] = useState(false);
+  const [locked, setLocked] = useState(() =>
+    Boolean(settings.pinProtection || settings.passwordProtection || settings.windowsHello),
+  );
   const [remoteFallbackActive, setRemoteFallbackActive] = useState(false);
   const [unlockValue, setUnlockValue] = useState("");
   const [unlockError, setUnlockError] = useState("");
   const [unlockBusy, setUnlockBusy] = useState(false);
+  const [lockRequestBusy, setLockRequestBusy] = useState(false);
   const [securityReady, setSecurityReady] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
   const accountMutationVersion = useRef(0);
   const settingsRef = useRef(settings);
+  const lockedRef = useRef(locked);
+  const securityReadyRef = useRef(securityReady);
+  const securityStorageAvailableRef = useRef(securityStorageAvailable);
+  const securityStatusRef = useRef(securityStatus);
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
   const lockOverlayRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
+  const autoLockTimer = useRef<number | undefined>(undefined);
+  const autoLockMonitoring = useRef(false);
+  const lastActivityAt = useRef(Date.now());
+  const startupLockHandled = useRef(false);
+  const pendingSessionLock = useRef(false);
+  const sessionChangeVersion = useRef(0);
+  const requestLockRef = useRef<((reason: LockRequestReason) => Promise<boolean>) | undefined>(
+    undefined,
+  );
   const backupMutationVersion = useRef(0);
   const autoStartMutationVersion = useRef(0);
   settingsRef.current = settings;
+  lockedRef.current = locked;
+  securityReadyRef.current = securityReady;
+  securityStorageAvailableRef.current = securityStorageAvailable;
+  securityStatusRef.current = securityStatus;
+  requestLockRef.current = requestLock;
   const { accountTiming, codes } = useTotp(accounts);
 
   useEffect(() => {
@@ -208,6 +236,76 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const activityEvents = ["pointermove", "pointerdown", "wheel", "keydown", "touchstart"];
+
+    const handleActivity = () => {
+      if (lockedRef.current) {
+        return;
+      }
+
+      lastActivityAt.current = Date.now();
+      if (autoLockMonitoring.current && autoLockTimer.current === undefined) {
+        scheduleAutoLockTimer();
+      }
+    };
+
+    activityEvents.forEach((eventName) => {
+      document.addEventListener(eventName, handleActivity, true);
+    });
+
+    if (locked) {
+      stopAutoLockTimer();
+    } else {
+      lastActivityAt.current = Date.now();
+      scheduleAutoLockTimer();
+    }
+
+    return () => {
+      activityEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, handleActivity, true);
+      });
+      stopAutoLockTimer();
+    };
+  }, [
+    locked,
+    securityReady,
+    securityStorageAvailable,
+    securityStatus.passwordSet,
+    securityStatus.pinSet,
+    securityStatus.remotePasswordSet,
+    securityStatus.remotePinSet,
+    settings.autoLock,
+    settings.passwordProtection,
+    settings.pinProtection,
+    settings.windowsHello,
+  ]);
+
+  useEffect(() => {
+    if (!securityReady || startupLockHandled.current) {
+      return;
+    }
+
+    startupLockHandled.current = true;
+    void requestLock("startup");
+  }, [securityReady]);
+
+  useEffect(() => {
+    if (!securityReady) {
+      return;
+    }
+
+    const unsubscribe = window.winotp?.onSessionChanged(() => {
+      sessionChangeVersion.current += 1;
+      setRemoteFallbackActive(false);
+      setUnlockValue("");
+      setUnlockError("");
+      void requestLockRef.current?.("session");
+    });
+
+    return unsubscribe;
+  }, [securityReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -417,6 +515,11 @@ export default function App() {
       window.clearTimeout(toastTimer.current);
     }
     toastTimer.current = window.setTimeout(() => setToast(""), 2600);
+  }
+
+  function setAppLocked(nextLocked: boolean) {
+    lockedRef.current = nextLocked;
+    setLocked(nextLocked);
   }
 
   function updateAccountUsage(id: string, usageCount: unknown) {
@@ -922,7 +1025,7 @@ export default function App() {
   }
 
   async function disableUnavailableWindowsHello() {
-    setLocked(false);
+    setAppLocked(false);
     setRemoteFallbackActive(false);
     setUnlockValue("");
     setUnlockError("");
@@ -938,71 +1041,185 @@ export default function App() {
     showToast("Windows Hello was unavailable and has been disabled.");
   }
 
-  async function lockPreview() {
-    if (lockBusyRef.current) {
+  function stopAutoLockTimer() {
+    autoLockMonitoring.current = false;
+    if (autoLockTimer.current !== undefined) {
+      window.clearTimeout(autoLockTimer.current);
+      autoLockTimer.current = undefined;
+    }
+  }
+
+  function scheduleAutoLockTimer() {
+    stopAutoLockTimer();
+
+    const currentSettings = settingsRef.current;
+    const timeout = autoLockTimeoutMs(currentSettings.autoLock);
+    if (
+      !shouldMonitorAutoLock(
+        currentSettings,
+        securityReadyRef.current,
+        securityStorageAvailableRef.current,
+        lockedRef.current,
+      )
+    ) {
       return;
     }
 
+    autoLockMonitoring.current = true;
+    const elapsed = Date.now() - lastActivityAt.current;
+    const remaining = timeout - elapsed;
+    const delay = Math.max(100, Math.min(remaining, 10_000));
+    autoLockTimer.current = window.setTimeout(() => {
+      autoLockTimer.current = undefined;
+
+      if (Date.now() - lastActivityAt.current >= timeout) {
+        void requestLock("inactivity").finally(() => {
+          if (!lockedRef.current) {
+            scheduleAutoLockTimer();
+          }
+        });
+        return;
+      }
+
+      scheduleAutoLockTimer();
+    }, delay);
+  }
+
+  function showManualLockError(message: string, reason: LockRequestReason) {
+    if (reason === "manual") {
+      showToast(message);
+    }
+  }
+
+  function releasePendingStartupLock(reason: LockRequestReason) {
+    if (reason === "startup") {
+      setAppLocked(false);
+    }
+  }
+
+  async function requestLock(reason: LockRequestReason) {
+    if (lockedRef.current && reason !== "startup" && reason !== "session") {
+      return true;
+    }
+
+    if (lockBusyRef.current) {
+      if (reason === "session") {
+        pendingSessionLock.current = true;
+      }
+      return false;
+    }
+
     lockBusyRef.current = true;
+    setLockRequestBusy(true);
     const settingsAtStart = settingsRef.current;
+    const securityStatusAtStart = securityStatusRef.current;
     const kind = directCredentialKind(settingsAtStart);
+    let lockApplied = false;
+    const applyLock = () => {
+      lockApplied = !lockedRef.current;
+      setAppLocked(true);
+      setUnlockValue("");
+      setUnlockError("");
+    };
+    const releaseFailedLock = () => {
+      if (lockApplied) {
+        setAppLocked(false);
+      }
+      releasePendingStartupLock(reason);
+    };
     try {
-      if (kind && !securityReady) {
-        showToast("Secure storage is still loading. Try again shortly.");
-        return;
+      if (!kind && !settingsAtStart.windowsHello) {
+        releaseFailedLock();
+        return false;
       }
 
-      if (kind && !securityStorageAvailable) {
-        showToast("Secure storage is unavailable; saved protection remains enabled.");
-        return;
+      if (kind && !securityReadyRef.current) {
+        showManualLockError("Secure storage is still loading. Try again shortly.", reason);
+        releaseFailedLock();
+        return false;
       }
 
-      if (kind && !securityStatus[securityStatusKey(kind)]) {
-        setSettings((current) => normalizeSecuritySettings(current, securityStatus));
-        showToast(`Set up your ${kind === "pin" ? "PIN" : "password"} before locking the app.`);
-        return;
+      if (kind && !securityStorageAvailableRef.current) {
+        showManualLockError(
+          "Secure storage is unavailable; saved protection remains enabled.",
+          reason,
+        );
+        releaseFailedLock();
+        return false;
+      }
+
+      if (kind && !securityStatusAtStart[securityStatusKey(kind)]) {
+        setSettings((current) => normalizeSecuritySettings(current, securityStatusAtStart));
+        showManualLockError(
+          `Set up your ${kind === "pin" ? "PIN" : "password"} before locking the app.`,
+          reason,
+        );
+        releaseFailedLock();
+        return false;
       }
 
       if (settingsRef.current !== settingsAtStart) {
-        showToast("Security settings changed; try locking again.");
-        return;
+        showManualLockError("Security settings changed; try locking again.", reason);
+        releaseFailedLock();
+        return false;
       }
 
       if (settingsAtStart.windowsHello) {
+        applyLock();
         const availability = await checkWindowsHelloAvailability();
-        if (settingsRef.current !== settingsAtStart) {
-          showToast("Security settings changed; try locking again.");
-          return;
+        if (
+          settingsRef.current !== settingsAtStart ||
+          securityStatusRef.current !== securityStatusAtStart
+        ) {
+          showManualLockError("Security settings changed; try locking again.", reason);
+          releaseFailedLock();
+          return false;
         }
 
         if (availability === "remote-session") {
           const remoteKind = remoteCredentialKind(settingsAtStart);
-          if (remoteKind && securityStatus[securityStatusKey(remoteKind)]) {
+          if (remoteKind && securityStatusAtStart[securityStatusKey(remoteKind)]) {
             setRemoteFallbackActive(true);
           } else {
-            showToast(windowsHelloAvailabilityMessage(availability));
-            return;
+            showManualLockError(windowsHelloAvailabilityMessage(availability), reason);
+            releaseFailedLock();
+            return false;
           }
         } else if (availability === "unavailable") {
           await disableUnavailableWindowsHello();
-          return;
+          return false;
         } else if (availability === "error") {
-          showToast(windowsHelloAvailabilityMessage(availability));
-          return;
+          showManualLockError(windowsHelloAvailabilityMessage(availability), reason);
+          releaseFailedLock();
+          return false;
         } else {
           setRemoteFallbackActive(false);
         }
+      } else {
+        applyLock();
       }
 
-      setLocked(true);
-      setUnlockValue("");
-      setUnlockError("");
+      return true;
     } finally {
       lockBusyRef.current = false;
+      setLockRequestBusy(false);
+      const shouldRetrySessionLock = pendingSessionLock.current;
+      pendingSessionLock.current = false;
+      if (shouldRetrySessionLock) {
+        queueMicrotask(() => void requestLock("session"));
+      }
     }
   }
 
+  async function lockPreview() {
+    await requestLock("manual");
+  }
+
   async function unlock() {
+    if (lockBusyRef.current) {
+      return;
+    }
+
     const kind = remoteFallbackActive
       ? remoteCredentialKind(settings)
       : directCredentialKind(settings);
@@ -1022,7 +1239,7 @@ export default function App() {
     }
 
     if (!securityStatus[securityStatusKey(kind)]) {
-      setLocked(false);
+      setAppLocked(false);
       setSettings((current) => normalizeSecuritySettings(current, securityStatus));
       setUnlockError("");
       showToast("This protection has no saved credential and was disabled.");
@@ -1040,8 +1257,15 @@ export default function App() {
 
     unlockBusyRef.current = true;
     setUnlockBusy(true);
+    const sessionChangeVersionAtStart = sessionChangeVersion.current;
     try {
       const verification = await verifySecurityCredential(kind, unlockValue);
+      if (sessionChangeVersion.current !== sessionChangeVersionAtStart) {
+        setUnlockValue("");
+        setUnlockError("The app was locked because your session changed.");
+        return;
+      }
+
       if (verification.error) {
         setUnlockError(verification.error);
         return;
@@ -1053,7 +1277,7 @@ export default function App() {
           [securityStatusKey(kind)]: false,
         };
         setSecurityStatus(unavailableStatus);
-        setLocked(false);
+        setAppLocked(false);
         setSettings((current) => normalizeSecuritySettings(current, unavailableStatus));
         setUnlockValue("");
         setUnlockError("");
@@ -1067,7 +1291,7 @@ export default function App() {
         return;
       }
 
-      setLocked(false);
+      setAppLocked(false);
       setRemoteFallbackActive(false);
       setUnlockValue("");
       setUnlockError("");
@@ -1079,22 +1303,29 @@ export default function App() {
   }
 
   async function unlockWithHello() {
-    if (unlockBusyRef.current) {
+    if (unlockBusyRef.current || lockBusyRef.current) {
       return;
     }
 
     unlockBusyRef.current = true;
     setUnlockBusy(true);
     setUnlockError("");
+    const sessionChangeVersionAtStart = sessionChangeVersion.current;
     try {
       const verification = await requestWindowsHelloVerification();
+      if (sessionChangeVersion.current !== sessionChangeVersionAtStart) {
+        setUnlockValue("");
+        setUnlockError("The app was locked because your session changed.");
+        return;
+      }
+
       if (!verification.success) {
         setUnlockError(verification.message ?? "The Windows Hello bridge is unavailable.");
         return;
       }
 
       if (verification.status === "verified") {
-        setLocked(false);
+        setAppLocked(false);
         setRemoteFallbackActive(false);
         setUnlockValue("");
         setUnlockError("");
@@ -1251,7 +1482,7 @@ export default function App() {
                         void unlock();
                       }
                     }}
-                    disabled={unlockBusy}
+                    disabled={unlockBusy || lockRequestBusy}
                   />
                 </>
               ) : (
@@ -1259,18 +1490,18 @@ export default function App() {
               )}
               {unlockError && <div className="inline-error">{unlockError}</div>}
               {activeCredential && (
-                <Button onClick={() => void unlock()} disabled={unlockBusy}>
-                  {unlockBusy ? "Checking…" : "Unlock"}
+                <Button onClick={() => void unlock()} disabled={unlockBusy || lockRequestBusy}>
+                  {lockRequestBusy ? "Locking…" : unlockBusy ? "Checking…" : "Unlock"}
                 </Button>
               )}
               {settings.windowsHello && !remoteFallbackActive && (
                 <Button
                   variant="outline"
                   onClick={() => void unlockWithHello()}
-                  disabled={unlockBusy}
+                  disabled={unlockBusy || lockRequestBusy}
                 >
                   <ScanFace size={15} />
-                  {unlockBusy ? "Checking…" : "Use Windows Hello"}
+                  {lockRequestBusy ? "Locking…" : unlockBusy ? "Checking…" : "Use Windows Hello"}
                 </Button>
               )}
             </div>

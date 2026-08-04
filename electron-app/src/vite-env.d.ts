@@ -42,6 +42,18 @@ declare global {
     usageCount?: number;
   }
 
+  interface SessionChangePayload {
+    reason:
+      | "lock-screen"
+      | "unlock-screen"
+      | "suspend"
+      | "resume"
+      | "console-connect"
+      | "console-disconnect"
+      | "remote-connect"
+      | "remote-disconnect";
+  }
+
   type ScreenCaptureResult =
     | { status: "success"; text: string }
     | { status: "cancelled" | "no-qr-code" | "failed" };
@@ -56,6 +68,7 @@ declare global {
         set: (enabled: boolean) => Promise<AutoStartResult>;
       };
       onTrayUsageRecorded: (listener: (usage: TrayUsagePayload) => void) => () => void;
+      onSessionChanged: (listener: (change: SessionChangePayload) => void) => () => void;
       captureScreen: () => Promise<ScreenCaptureResult>;
       onScreenCaptureReady: (listener: (capture: ScreenCapturePayload) => void) => () => void;
       completeScreenCapture: (result: ScreenCaptureResult) => void;

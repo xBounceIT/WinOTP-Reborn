@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 let latestScreenCapture;
 const screenCaptureListeners = new Set();
 const trayUsageListeners = new Set();
+const sessionChangeListeners = new Set();
 
 ipcRenderer.on("screen-capture-ready", (_event, capture) => {
   latestScreenCapture = capture;
@@ -13,6 +14,16 @@ ipcRenderer.on("tray-usage-recorded", (_event, usage) => {
   trayUsageListeners.forEach((listener) => {
     try {
       listener(usage);
+    } catch {
+      // A renderer listener must not break delivery to other listeners.
+    }
+  });
+});
+
+ipcRenderer.on("session-changed", (_event, change) => {
+  sessionChangeListeners.forEach((listener) => {
+    try {
+      listener(change);
     } catch {
       // A renderer listener must not break delivery to other listeners.
     }
@@ -34,6 +45,14 @@ contextBridge.exposeInMainWorld("winotp", {
 
     trayUsageListeners.add(listener);
     return () => trayUsageListeners.delete(listener);
+  },
+  onSessionChanged: (listener) => {
+    if (typeof listener !== "function") {
+      return () => undefined;
+    }
+
+    sessionChangeListeners.add(listener);
+    return () => sessionChangeListeners.delete(listener);
   },
   captureScreen: () => ipcRenderer.invoke("capture-screen"),
   onScreenCaptureReady: (listener) => {

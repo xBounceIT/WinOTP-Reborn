@@ -6,6 +6,7 @@ const {
   dialog,
   ipcMain,
   Menu,
+  powerMonitor,
   safeStorage,
   screen,
   shell,
@@ -18,6 +19,14 @@ const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
+const {
+  SESSION_CHANGE_WINDOW_MESSAGE,
+  getSessionChangeCode,
+  getSessionChangeReason,
+  isRelevantSessionChangeCode,
+  registerSessionNotification,
+  unregisterSessionNotification,
+} = require("./session-monitor.cjs");
 const { generateTotpCode } = require("./totp.cjs");
 const { getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
 const {
@@ -25,6 +34,8 @@ const {
   isLoopbackRendererUrl,
   isTrustedRendererEvent,
 } = require("./security.cjs");
+
+const SESSION_NOTIFICATION_RETRY_DELAYS_MS = [1_000, 5_000];
 const { createTrayController } = require("./tray.cjs");
 
 let mainWindow;
@@ -187,6 +198,128 @@ function updateTrayState(event, state) {
   }
 
   trayController?.setState(state);
+}
+
+function notifyRendererOfSessionChange(reason) {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    mainWindow.webContents.isDestroyed()
+  ) {
+    return;
+  }
+
+  mainWindow.webContents.send("session-changed", { reason });
+}
+
+function registerPowerSessionChangeMonitoring() {
+  for (const eventName of ["lock-screen", "unlock-screen", "suspend", "resume"]) {
+    powerMonitor.on(eventName, () => notifyRendererOfSessionChange(eventName));
+  }
+}
+
+function registerWindowsSessionChangeMonitoring(window) {
+  if (
+    process.platform !== "win32" ||
+    typeof window.hookWindowMessage !== "function" ||
+    typeof window.unhookWindowMessage !== "function"
+  ) {
+    return () => undefined;
+  }
+
+  let windowHandle;
+  try {
+    windowHandle = window.getNativeWindowHandle();
+    window.hookWindowMessage(SESSION_CHANGE_WINDOW_MESSAGE, (wParam) => {
+      const code = getSessionChangeCode(wParam);
+      if (isRelevantSessionChangeCode(code)) {
+        notifyRendererOfSessionChange(getSessionChangeReason(code));
+      }
+    });
+  } catch (error) {
+    console.warn("Failed to hook Windows session-change notifications.", error);
+    return () => undefined;
+  }
+
+  let disposed = false;
+  let registered = false;
+  let retryTimer;
+  let retryIndex = 0;
+  const unregister = () => {
+    void unregisterSessionNotification(windowHandle).catch((error) => {
+      console.warn("Failed to unregister Windows session-change notifications.", error);
+    });
+  };
+
+  const scheduleRegistrationRetry = () => {
+    if (disposed || retryIndex >= SESSION_NOTIFICATION_RETRY_DELAYS_MS.length) {
+      return false;
+    }
+
+    const delay = SESSION_NOTIFICATION_RETRY_DELAYS_MS[retryIndex];
+    retryIndex += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      attemptRegistration();
+    }, delay);
+    return true;
+  };
+
+  const attemptRegistration = () => {
+    if (disposed) {
+      return;
+    }
+
+    void registerSessionNotification(windowHandle)
+      .then((result) => {
+        if (result?.ok) {
+          if (disposed) {
+            unregister();
+            return;
+          }
+
+          registered = true;
+          return;
+        }
+
+        if (scheduleRegistrationRetry()) {
+          return;
+        }
+
+        console.warn("Failed to register Windows session-change notifications.");
+      })
+      .catch((error) => {
+        if (scheduleRegistrationRetry()) {
+          return;
+        }
+
+        console.warn("Failed to register Windows session-change notifications.", error);
+      });
+  };
+
+  attemptRegistration();
+
+  return () => {
+    if (disposed) {
+      return;
+    }
+
+    disposed = true;
+    if (retryTimer !== undefined) {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+    }
+    try {
+      window.unhookWindowMessage(SESSION_CHANGE_WINDOW_MESSAGE);
+    } catch (error) {
+      console.warn("Failed to unhook Windows session-change notifications.", error);
+    }
+
+    if (registered) {
+      registered = false;
+      unregister();
+    }
+  };
 }
 
 function loadRenderer(window, query = {}) {
@@ -1082,6 +1215,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
     },
   });
+  const cleanupWindowsSessionChangeMonitoring = registerWindowsSessionChangeMonitoring(mainWindow);
 
   const rejectUnexpectedNavigation = (event, url) => {
     if (!isAllowedRendererUrl(url, navigationOptions)) {
@@ -1093,6 +1227,7 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.on("close", (event) => {
     if (isQuitting) {
+      cleanupWindowsSessionChangeMonitoring();
       return;
     }
 
@@ -1106,7 +1241,10 @@ function createWindow() {
     if (state?.minimizeOnClose) {
       event.preventDefault();
       mainWindow.minimize();
+      return;
     }
+
+    cleanupWindowsSessionChangeMonitoring();
   });
 
   if (isDev && !app.isPackaged) {
@@ -1121,6 +1259,7 @@ function createWindow() {
     }
   });
   mainWindow.on("closed", () => {
+    cleanupWindowsSessionChangeMonitoring();
     mainWindow = undefined;
   });
 }
@@ -1145,6 +1284,7 @@ if (!hasSingleInstanceLock) {
     registerBackupIpc();
     registerSecurityIpc();
     registerAutoStartIpc();
+    registerPowerSessionChangeMonitoring();
     ipcMain.handle("open-external", (event, url) => {
       if (!isTrustedRendererEvent(event, mainWindow)) {
         return false;
