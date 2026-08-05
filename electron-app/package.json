@@ -5,22 +5,28 @@
   "description": "Electron desktop app for WinOTP",
   "author": "xBounceIT",
   "desktopName": "WinOTP",
-  "main": "electron/main.cjs",
+  "main": "electron-dist/electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron electron/main.cjs --dev\"",
+    "dev": "npm run build:core && npm run build:electron && node --experimental-strip-types scripts/dev.mts",
     "build": "npm run typecheck && vite build",
-    "test": "node --experimental-strip-types --test",
-    "test:electron": "node --test electron/*.test.cjs",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint src vite.config.ts",
-    "format": "oxfmt --write src vite.config.ts",
-    "format:check": "oxfmt --check src vite.config.ts",
-    "build:updater": "node scripts/build-updater.mjs",
-    "prepackage": "npm run build:updater",
+    "test": "npm run build:electron && node --test electron-dist/electron/*.test.cjs electron-dist/test/*.test.cjs test/*.test.ts",
+    "test:electron": "npm run build:electron && node --test electron-dist/electron/*.test.cjs electron-dist/test/*.test.cjs",
+    "pretest": "npm run build:core",
+    "pretest:electron": "npm run build:core",
+    "typecheck": "npm run typecheck:renderer && npm run typecheck:electron",
+    "typecheck:renderer": "tsc --noEmit -p tsconfig.json",
+    "typecheck:electron": "tsc --noEmit -p tsconfig.electron.json",
+    "lint": "oxlint src electron scripts vite.config.ts",
+    "format": "oxfmt --write src electron scripts vite.config.ts",
+    "format:check": "oxfmt --check src electron scripts vite.config.ts",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:updater": "node --experimental-strip-types scripts/build-updater.mts",
+    "build:core": "node --experimental-strip-types scripts/build-updater.mts --core-only",
+    "prepackage": "npm run build:updater && npm run build:electron",
     "package": "electron-builder --publish never",
     "preview": "vite preview",
-    "electron": "electron electron/main.cjs"
+    "electron": "npm run build:core && npm run build:electron && electron ."
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -57,15 +63,15 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*.cjs",
-      "!electron/**/*.test.cjs",
+      "electron-dist/**/*.cjs",
+      "!electron-dist/**/*.test.cjs",
       "package.json"
     ],
     "extraResources": [
       {
         "from": "native",
         "to": "updater",
-        "filter": ["winotp-updater*"]
+        "filter": ["winotp-updater*", "winotp-core*"]
       }
     ],
     "win": {

@@ -1,14 +1,16 @@
 # WinOTP
 
-WinOTP is a secure TOTP authenticator for Windows. The application is migrating from the former native C# desktop frontend to Electron; `electron-app/` is now the primary application surface.
+WinOTP is a secure, cross-platform TOTP authenticator built with TypeScript 7, Electron, and Rust. All application source is TypeScript or Rust; compiled Electron CommonJS files are generated build output only.
 
 ## Current architecture
 
-- `electron-app/` — Electron main process, preload bridge, and React renderer.
-- `WinOTP.Core.csproj` — transitional Windows-only support library containing legacy credential, backup, update, and migration logic while equivalent Electron bridges are completed.
-- `WinOTP.Tests/` — regression coverage for the transitional support library and migration behavior.
+- `electron-app/` — TypeScript 7 Electron main process, preload bridge, React renderer, tests, and OS adapters. Main-process `.cts` sources compile to the ignored `electron-dist/` runtime directory.
+- `rust/winotp-core/` — portable account model, OTP generation, URI/import mapping, backup cryptography, ordering, settings, and protection policy.
+- `rust/winotp-updater/` — platform-neutral update discovery and installer verification sidecar.
 
-The Electron main process stores accounts in `%LOCALAPPDATA%\WinOTP_Reborn\accounts.db`. TOTP secrets are encrypted with Electron `safeStorage` before they are written to SQLite. On first launch, valid entries from the previous Windows Credential Manager store are imported once. The same launch also migrates the native `settings.json`, app-lock credentials from the `WinOTP_AppLock` resource, and the automatic-backup password from the `WinOTP_Backup` resource into Electron settings, `security.json`, and `.backup-password` storage.
+The Electron main process stores accounts in its per-user `WinOTP_Reborn/accounts.db` directory. TOTP secrets and security credentials are encrypted with Electron `safeStorage` before they are written to disk; Electron maps that API to DPAPI, Keychain, or the Linux secret-service backend as appropriate. On Windows, valid entries from the previous Credential Manager store are imported once. The same launch migrates the legacy settings and credentials when they are available.
+
+Rust is authoritative for data normalization, OTP and backup cryptography, imports, ordering rules, settings normalization, and protection decisions. Electron owns the cross-platform shell boundary: SQLite and OS-backed storage, window/login-item APIs, desktop capture, and renderer-only browser work such as `jsqr` and WebCrypto.
 
 ## Run the Electron app
 
@@ -32,28 +34,27 @@ npm run test:electron
 npm run build
 ```
 
-The app currently supports the home, add-account, manual-entry, import, settings, multi-display QR screen-capture, backup, protection, and update flows. The update service is implemented in Rust and exposed to the renderer through a narrow Electron IPC bridge.
+The app currently supports the home, add-account, manual-entry, import, settings, multi-display QR screen-capture, backup, protection, and update flows. Portable behavior is implemented in Rust and exposed through a narrow JSON sidecar bridge; Electron IPC exposes only renderer-safe operations.
 
-## Test the transitional support code
-
-The C# project is no longer an application entry point. It remains only to validate Windows-specific migration and compatibility behavior until those pieces are fully moved into Electron.
+## Test the Rust core
 
 ```powershell
-dotnet test WinOTP.Tests\WinOTP.Tests.csproj
-dotnet build WinOTP.Core.csproj
+cargo test --manifest-path rust/Cargo.toml --workspace
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 ```
 
-Packaging automatically builds the platform-specific Rust updater sidecar through the `prepackage` lifecycle hook. To build it separately for a packaged Electron build:
+Packaging automatically builds both platform-specific Rust sidecars through the `prepackage` lifecycle hook. To build them separately for a packaged Electron build:
 
 ```powershell
 cd electron-app
 npm run build:updater
+npm run build:core
 npm run package -- --win --x64
 ```
 
 ## Security
 
-- Account secrets are encrypted with Windows-backed Electron `safeStorage` before database storage.
+- Account secrets are encrypted with OS-backed Electron `safeStorage` before database storage.
 - Legacy Windows Credential Manager entries are read only for the one-time migration; existing Electron credentials and settings remain authoritative when already present.
 - Backup data remains local and password-protected where the corresponding Electron bridge is enabled.
 - No cloud synchronization is performed.

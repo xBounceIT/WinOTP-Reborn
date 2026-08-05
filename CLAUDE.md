@@ -1,13 +1,14 @@
 # WinOTP - Reborn
 
-This repository is migrating its Windows TOTP manager from a native C# frontend to Electron.
+This repository contains the cross-platform WinOTP application: TypeScript 7 Electron sources and a Rust core. C#/.NET is no longer part of the application.
 
 ## Tooling
 
 - Treat `electron-app/` as the primary application surface.
-- Run Electron checks from `electron-app/` with npm.
-- Run `dotnet` directly from the shell for the transitional `WinOTP.Core.csproj` and `WinOTP.Tests` projects.
+- Treat `electron-app/src/` and `electron-app/electron/` as TypeScript source; `electron-app/electron-dist/` is generated runtime output.
+- Treat `rust/winotp-core/` as the source of truth for portable application logic.
+- Run Electron checks from `electron-app/` with npm and Rust checks from the repository root with Cargo.
 
-## Migration boundary
+## Platform boundary
 
-Keep new UI and renderer-facing behavior in Electron. The C# project should contain only Windows-specific compatibility and migration code that has not yet moved to an Electron bridge.
+Keep UI and renderer-facing behavior in TypeScript Electron code. Keep portable domain rules and cryptography in Rust. Electron owns OS-backed secure storage, desktop capture, and login items; Rust owns portable rules plus the native Windows Hello, session notification, and legacy Credential Manager bridge.

@@ -1,18 +1,21 @@
 # WinOTP - Reborn
 
-This repository is migrating its Windows TOTP manager from a native C# frontend to Electron.
+WinOTP is a cross-platform Electron desktop app written in TypeScript 7 with a Rust domain and cryptography core. The former C#/.NET application surface has been retired.
 
 ## Architecture
 
 - Treat `electron-app/` as the primary application surface.
-- Keep `WinOTP.Core.csproj` limited to transitional Windows-specific support and migration logic.
-- Do not add new application UI behavior to the C# support project; implement new UI and renderer-facing behavior in Electron.
+- Treat `electron-app/src/` and `electron-app/electron/` as TypeScript source; the main-process `.cts` files compile to ignored `electron-dist/` runtime output.
+- Treat `rust/winotp-core/` as the source of truth for portable account, OTP, import, backup, ordering, settings, and protection policy logic.
+- Keep operating-system integration in Electron adapters or small Rust platform modules; do not add Windows-only behavior to the portable core.
+- Do not reintroduce C# projects or source files.
 
 ## Checks
 
-- Electron: run the typecheck, lint, format check, unit tests, and production build from `electron-app/`.
-- Transitional C#: run `dotnet test WinOTP.Tests\WinOTP.Tests.csproj` and build `WinOTP.Core.csproj` when changing the support code.
+- Electron/TypeScript: run `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test`, and `npm run build` from `electron-app/`.
+- Electron runtime: run `npm run build:electron` to compile TypeScript main-process code into `electron-dist/`.
+- Rust: run `cargo test --manifest-path rust/Cargo.toml --workspace` and `cargo fmt --manifest-path rust/Cargo.toml --all -- --check` when changing the core or updater.
 
 ## Releases
 
-Electron packaging and release automation are intentionally paused while the remaining native bridges are migrated. Do not restore the retired native installer pipeline for Electron releases.
+Electron packaging and release automation use the TypeScript-built Electron runtime and Rust sidecars. Do not restore the retired native installer pipeline for Electron releases.

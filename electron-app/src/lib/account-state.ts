@@ -40,10 +40,7 @@ export function mergePersistedAccounts(
       ...account,
       usageCount: mergeUsageCount(nextAccounts[existingIndex].usageCount, account.usageCount),
     };
-    const lastUsedAt = mergeLastUsedAt(
-      nextAccounts[existingIndex].lastUsedAt,
-      account.lastUsedAt,
-    );
+    const lastUsedAt = mergeLastUsedAt(nextAccounts[existingIndex].lastUsedAt, account.lastUsedAt);
     if (lastUsedAt !== undefined) {
       mergedAccount.lastUsedAt = lastUsedAt;
     }

@@ -262,9 +262,11 @@ export default function App() {
           );
           void accountsBridge.acknowledgeMigration().catch(() => undefined);
         } else if (result.issues.length > 0) {
+          console.error("Some stored WinOTP accounts could not be loaded.", result.issues);
           showToast("Some stored accounts could not be loaded.");
         }
-      } catch {
+      } catch (error) {
+        console.error("Failed to load stored WinOTP accounts.", error);
         if (!cancelled) {
           setAccountsLoading(false);
           setAccountsError("Unable to load accounts from the local SQLite database.");
@@ -1733,7 +1735,7 @@ export default function App() {
         backupFolderPath={
           backupStatus?.effectiveFolderPath ||
           settings.customBackupFolderPath ||
-          "%LocalAppData%\\WinOTP_Reborn\\Backups"
+          "Default WinOTP backup folder"
         }
         hasStoredBackupPassword={backupStatus?.hasStoredPassword ?? false}
         onAutomaticBackupChange={changeAutomaticBackup}

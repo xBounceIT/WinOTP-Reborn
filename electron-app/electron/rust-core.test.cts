@@ -1,0 +1,88 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+
+const {
+  RustCoreUnavailableError,
+  getCoreBinaryCandidates,
+  resolveRustCoreBinary,
+  runRustCoreAsync,
+  tryRunRustCore,
+} = require("./rust-core.cjs");
+
+test("finds the packaged core beside Electron resources without an app object", () => {
+  const candidates = getCoreBinaryCandidates({
+    platform: "win32",
+    environment: { RESOURCES_PATH: "C:\\Program Files\\WinOTP\\resources" },
+    dirname: "C:\\Program Files\\WinOTP\\resources\\app.asar\\electron",
+  });
+
+  assert.ok(
+    candidates.includes(
+      path.join("C:\\Program Files\\WinOTP\\resources", "updater", "winotp-core.exe"),
+    ),
+  );
+});
+
+test("finds the unpackaged core from the compiled Electron layout", () => {
+  const candidates = getCoreBinaryCandidates({
+    platform: "win32",
+    environment: {},
+    dirname: "C:\\work\\WinOTP\\electron-dist\\electron",
+  });
+
+  assert.ok(candidates.includes(path.join("C:\\work\\WinOTP", "native", "winotp-core.exe")));
+});
+
+test("resolves the packaged core from the resource directory", () => {
+  const resourcePath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-resources-"));
+  const binaryPath = path.join(resourcePath, "updater", "winotp-core.exe");
+
+  try {
+    fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+    fs.writeFileSync(binaryPath, "test");
+    assert.equal(
+      resolveRustCoreBinary({
+        platform: "win32",
+        environment: { RESOURCES_PATH: resourcePath },
+        dirname: path.join(resourcePath, "app.asar", "electron"),
+      }),
+      binaryPath,
+    );
+  } finally {
+    fs.rmSync(resourcePath, { recursive: true, force: true });
+  }
+});
+
+test("runs a Rust core operation through the asynchronous bridge", async () => {
+  const result = await runRustCoreAsync("version", {
+    informationalVersion: "v2.3.4+build.9",
+  });
+
+  assert.deepEqual(result, { version: "2.3.4" });
+});
+
+test("reports a missing asynchronous Rust core as unavailable", async () => {
+  const binaryPath = path.join(os.tmpdir(), `winotp-core-missing-${process.pid}`);
+
+  await assert.rejects(
+    runRustCoreAsync("version", {}, { binaryPath }),
+    (error) => error instanceof RustCoreUnavailableError,
+  );
+});
+
+test("does not hide a Rust operation failure behind the JavaScript fallback", () => {
+  assert.throws(
+    () => tryRunRustCore("unsupported-operation", {}, { binaryPath: resolveCoreBinary() }),
+    /Unsupported WinOTP core operation/,
+  );
+});
+
+function resolveCoreBinary() {
+  const candidates = getCoreBinaryCandidates();
+  const binary = candidates.find((candidate) => fs.existsSync(candidate));
+  assert.ok(binary, "the test core binary must be built before Electron tests run");
+  return binary;
+}

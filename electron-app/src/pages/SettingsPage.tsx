@@ -420,9 +420,7 @@ export function SettingsPage({
         const result = await onAutomaticBackupChange(true, password);
         if (result.success) {
           setPasswordDialog(undefined);
-          onToast(
-            `Automatic backup enabled. Files will be stored in:\n${result.effectiveFolderPath}`,
-          );
+          onToast("Automatic backups enabled");
         } else {
           setPasswordError(result.message ?? "Unable to enable automatic backup.");
         }
@@ -788,7 +786,7 @@ export function SettingsPage({
             />
             <ToggleRow
               label="Start WinOTP when I sign in"
-              hint="Automatically launch the app in the background when you sign in to Windows."
+              hint="Automatically launch the app in the background when you sign in."
               checked={settings.autoStart}
               disabled={Boolean(busyAction)}
               onCheckedChange={(checked) => void handleAutoStartChange(checked)}

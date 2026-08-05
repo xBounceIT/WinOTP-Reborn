@@ -1,0 +1,424 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CredentialStatus {
+    NotSet,
+    Set,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WindowsHelloAvailability {
+    Available,
+    Unavailable,
+    RemoteSession,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WindowsHelloVerificationStatus {
+    Verified,
+    Unavailable,
+    RemoteSession,
+    Failed,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppLockMode {
+    None,
+    Pin,
+    Password,
+    WindowsHello,
+    WindowsHelloRemotePin,
+    WindowsHelloRemotePassword,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppLockResolution {
+    pub mode: AppLockMode,
+    pub is_pin_effective: bool,
+    pub is_password_effective: bool,
+    pub is_windows_hello_effective: bool,
+    pub is_windows_hello_remote_pin_effective: bool,
+    pub is_windows_hello_remote_password_effective: bool,
+    pub has_pin_error: bool,
+    pub has_password_error: bool,
+    pub has_windows_hello_error: bool,
+    pub has_windows_hello_remote_pin_error: bool,
+    pub has_windows_hello_remote_password_error: bool,
+    pub has_windows_hello_remote_session: bool,
+    pub disable_unavailable_pin: bool,
+    pub disable_unavailable_password: bool,
+    pub disable_unavailable_windows_hello: bool,
+    pub disable_unavailable_windows_hello_remote_pin: bool,
+    pub disable_unavailable_windows_hello_remote_password: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppLockInputs {
+    pub pin_enabled: bool,
+    pub pin_status: CredentialStatus,
+    pub password_enabled: bool,
+    pub password_status: CredentialStatus,
+    pub windows_hello_enabled: bool,
+    pub windows_hello_availability: WindowsHelloAvailability,
+    pub remote_pin_enabled: bool,
+    pub remote_pin_status: CredentialStatus,
+    pub remote_password_enabled: bool,
+    pub remote_password_status: CredentialStatus,
+}
+
+impl AppLockResolution {
+    pub fn has_unavailable_configured_protection(&self) -> bool {
+        self.disable_unavailable_pin
+            || self.disable_unavailable_password
+            || self.disable_unavailable_windows_hello
+            || self.disable_unavailable_windows_hello_remote_pin
+            || self.disable_unavailable_windows_hello_remote_password
+    }
+
+    pub fn has_configured_protection_error(&self) -> bool {
+        self.has_pin_error
+            || self.has_password_error
+            || self.has_windows_hello_error
+            || self.has_windows_hello_remote_pin_error
+            || self.has_windows_hello_remote_password_error
+    }
+}
+
+pub fn resolve_app_lock(inputs: AppLockInputs) -> AppLockResolution {
+    let AppLockInputs {
+        pin_enabled,
+        pin_status,
+        password_enabled,
+        password_status,
+        windows_hello_enabled,
+        windows_hello_availability,
+        remote_pin_enabled,
+        remote_pin_status,
+        remote_password_enabled,
+        remote_password_status,
+    } = inputs;
+    let is_pin_effective = pin_enabled && pin_status == CredentialStatus::Set;
+    let is_password_effective = password_enabled && password_status == CredentialStatus::Set;
+    let is_windows_hello_effective =
+        windows_hello_enabled && windows_hello_availability == WindowsHelloAvailability::Available;
+    let is_windows_hello_remote_pin_effective = windows_hello_enabled
+        && remote_pin_enabled
+        && windows_hello_availability == WindowsHelloAvailability::RemoteSession
+        && remote_pin_status == CredentialStatus::Set;
+    let is_windows_hello_remote_password_effective = windows_hello_enabled
+        && remote_password_enabled
+        && windows_hello_availability == WindowsHelloAvailability::RemoteSession
+        && remote_password_status == CredentialStatus::Set;
+
+    let has_pin_error = pin_enabled && pin_status == CredentialStatus::Error;
+    let has_password_error = password_enabled && password_status == CredentialStatus::Error;
+    let has_windows_hello_error =
+        windows_hello_enabled && windows_hello_availability == WindowsHelloAvailability::Error;
+    let has_windows_hello_remote_pin_error =
+        remote_pin_enabled && remote_pin_status == CredentialStatus::Error;
+    let has_windows_hello_remote_password_error =
+        remote_password_enabled && remote_password_status == CredentialStatus::Error;
+    let has_windows_hello_remote_session = windows_hello_enabled
+        && windows_hello_availability == WindowsHelloAvailability::RemoteSession;
+
+    let disable_unavailable_pin = pin_enabled && pin_status == CredentialStatus::NotSet;
+    let disable_unavailable_password =
+        password_enabled && password_status == CredentialStatus::NotSet;
+    let disable_unavailable_windows_hello = windows_hello_enabled
+        && windows_hello_availability == WindowsHelloAvailability::Unavailable;
+    let disable_unavailable_windows_hello_remote_pin =
+        remote_pin_enabled && remote_pin_status == CredentialStatus::NotSet;
+    let disable_unavailable_windows_hello_remote_password =
+        remote_password_enabled && remote_password_status == CredentialStatus::NotSet;
+
+    let mode = if is_pin_effective {
+        AppLockMode::Pin
+    } else if is_password_effective {
+        AppLockMode::Password
+    } else if is_windows_hello_effective {
+        AppLockMode::WindowsHello
+    } else if is_windows_hello_remote_pin_effective {
+        AppLockMode::WindowsHelloRemotePin
+    } else if is_windows_hello_remote_password_effective {
+        AppLockMode::WindowsHelloRemotePassword
+    } else {
+        AppLockMode::None
+    };
+
+    AppLockResolution {
+        mode,
+        is_pin_effective,
+        is_password_effective,
+        is_windows_hello_effective,
+        is_windows_hello_remote_pin_effective,
+        is_windows_hello_remote_password_effective,
+        has_pin_error,
+        has_password_error,
+        has_windows_hello_error,
+        has_windows_hello_remote_pin_error,
+        has_windows_hello_remote_password_error,
+        has_windows_hello_remote_session,
+        disable_unavailable_pin,
+        disable_unavailable_password,
+        disable_unavailable_windows_hello,
+        disable_unavailable_windows_hello_remote_pin,
+        disable_unavailable_windows_hello_remote_password,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationTrigger {
+    Startup,
+    SettingsChange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationDecision {
+    pub should_show_lock_screen: bool,
+    pub should_ensure_initial_page: bool,
+    pub should_start_monitoring: bool,
+}
+
+pub fn resolve_presentation(
+    trigger: PresentationTrigger,
+    resolution: AppLockResolution,
+) -> PresentationDecision {
+    let protected = resolution.mode != AppLockMode::None;
+    match (trigger, protected) {
+        (PresentationTrigger::Startup, true) => PresentationDecision {
+            should_show_lock_screen: true,
+            should_ensure_initial_page: false,
+            should_start_monitoring: false,
+        },
+        (PresentationTrigger::Startup, false) => PresentationDecision {
+            should_show_lock_screen: false,
+            should_ensure_initial_page: true,
+            should_start_monitoring: true,
+        },
+        (PresentationTrigger::SettingsChange, true) => PresentationDecision {
+            should_show_lock_screen: false,
+            should_ensure_initial_page: false,
+            should_start_monitoring: true,
+        },
+        (PresentationTrigger::SettingsChange, false) => PresentationDecision {
+            should_show_lock_screen: false,
+            should_ensure_initial_page: true,
+            should_start_monitoring: true,
+        },
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TemporaryBypassReason {
+    ServiceError,
+    RemoteSession,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectionPresentationState {
+    pub mode: AppLockMode,
+    pub show_recovery_dialog: bool,
+    pub temporary_bypass_reason: Option<TemporaryBypassReason>,
+}
+
+impl ProtectionPresentationState {
+    pub fn has_remote_session_context(&self) -> bool {
+        matches!(
+            self.mode,
+            AppLockMode::WindowsHelloRemotePin | AppLockMode::WindowsHelloRemotePassword
+        ) || self.temporary_bypass_reason == Some(TemporaryBypassReason::RemoteSession)
+    }
+}
+
+pub const CONSOLE_CONNECT_SESSION_CHANGE: u32 = 0x1;
+pub const CONSOLE_DISCONNECT_SESSION_CHANGE: u32 = 0x2;
+pub const REMOTE_CONNECT_SESSION_CHANGE: u32 = 0x3;
+pub const REMOTE_DISCONNECT_SESSION_CHANGE: u32 = 0x4;
+
+pub fn should_resolve_on_reconciliation(
+    windows_hello_enabled: bool,
+    previous_state: ProtectionPresentationState,
+) -> bool {
+    windows_hello_enabled || previous_state.has_remote_session_context()
+}
+
+pub fn should_refresh_before_credential_verification(
+    current_lock_mode: AppLockMode,
+    resolution: AppLockResolution,
+) -> bool {
+    matches!(
+        current_lock_mode,
+        AppLockMode::WindowsHelloRemotePin | AppLockMode::WindowsHelloRemotePassword
+    ) && resolution.mode != current_lock_mode
+}
+
+pub fn should_present_resolved_protection_state(
+    previous_state: ProtectionPresentationState,
+    current_state: ProtectionPresentationState,
+) -> bool {
+    previous_state != current_state
+}
+
+pub fn should_require_immediate_lock_on_settings_change(
+    previous_state: ProtectionPresentationState,
+    current_state: ProtectionPresentationState,
+) -> bool {
+    previous_state.temporary_bypass_reason == Some(TemporaryBypassReason::RemoteSession)
+        && matches!(
+            current_state.mode,
+            AppLockMode::WindowsHelloRemotePin | AppLockMode::WindowsHelloRemotePassword
+        )
+}
+
+pub fn should_reconcile_on_session_change(code: u32) -> bool {
+    matches!(
+        code,
+        CONSOLE_CONNECT_SESSION_CHANGE
+            | CONSOLE_DISCONNECT_SESSION_CHANGE
+            | REMOTE_CONNECT_SESSION_CHANGE
+            | REMOTE_DISCONNECT_SESSION_CHANGE
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectionViewState {
+    pub resolution: AppLockResolution,
+    pub pin_enabled: bool,
+    pub password_enabled: bool,
+    pub windows_hello_enabled: bool,
+    pub remote_pin_enabled: bool,
+    pub remote_password_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProtectionInputs {
+    pub pin_enabled: bool,
+    pub password_enabled: bool,
+    pub windows_hello_enabled: bool,
+    pub remote_pin_enabled: bool,
+    pub remote_password_enabled: bool,
+    pub pin_status: CredentialStatus,
+    pub password_status: CredentialStatus,
+    pub windows_hello_availability: WindowsHelloAvailability,
+    pub remote_pin_status: CredentialStatus,
+    pub remote_password_status: CredentialStatus,
+}
+
+pub fn reconcile_protection_view_state(inputs: ProtectionInputs) -> ProtectionViewState {
+    let ProtectionInputs {
+        mut pin_enabled,
+        mut password_enabled,
+        mut windows_hello_enabled,
+        mut remote_pin_enabled,
+        mut remote_password_enabled,
+        pin_status,
+        password_status,
+        windows_hello_availability,
+        remote_pin_status,
+        remote_password_status,
+    } = inputs;
+    if !windows_hello_enabled {
+        remote_pin_enabled = false;
+        remote_password_enabled = false;
+    }
+    let mut resolution = resolve_app_lock(AppLockInputs {
+        pin_enabled,
+        pin_status,
+        password_enabled,
+        password_status,
+        windows_hello_enabled,
+        windows_hello_availability,
+        remote_pin_enabled,
+        remote_pin_status,
+        remote_password_enabled,
+        remote_password_status,
+    });
+    if resolution.has_unavailable_configured_protection() {
+        if resolution.disable_unavailable_pin {
+            pin_enabled = false;
+        }
+        if resolution.disable_unavailable_password {
+            password_enabled = false;
+        }
+        if resolution.disable_unavailable_windows_hello {
+            windows_hello_enabled = false;
+            remote_pin_enabled = false;
+            remote_password_enabled = false;
+        } else if resolution.disable_unavailable_windows_hello_remote_pin {
+            remote_pin_enabled = false;
+        }
+        if !resolution.disable_unavailable_windows_hello
+            && resolution.disable_unavailable_windows_hello_remote_password
+        {
+            remote_password_enabled = false;
+        }
+        resolution = resolve_app_lock(AppLockInputs {
+            pin_enabled,
+            pin_status,
+            password_enabled,
+            password_status,
+            windows_hello_enabled,
+            windows_hello_availability,
+            remote_pin_enabled,
+            remote_pin_status,
+            remote_password_enabled,
+            remote_password_status,
+        });
+    }
+    ProtectionViewState {
+        resolution,
+        pin_enabled,
+        password_enabled,
+        windows_hello_enabled,
+        remote_pin_enabled,
+        remote_password_enabled,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolution_prefers_pin_then_password_then_windows_hello() {
+        let resolution = resolve_app_lock(AppLockInputs {
+            pin_enabled: true,
+            pin_status: CredentialStatus::Set,
+            password_enabled: true,
+            password_status: CredentialStatus::Set,
+            windows_hello_enabled: true,
+            windows_hello_availability: WindowsHelloAvailability::Available,
+            remote_pin_enabled: false,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_enabled: false,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert_eq!(resolution.mode, AppLockMode::Pin);
+    }
+
+    #[test]
+    fn unavailable_methods_are_disabled_without_clearing_transient_errors() {
+        let state = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: true,
+            password_enabled: false,
+            windows_hello_enabled: true,
+            remote_pin_enabled: true,
+            remote_password_enabled: true,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Error,
+            remote_pin_status: CredentialStatus::Set,
+            remote_password_status: CredentialStatus::Set,
+        });
+        assert!(!state.pin_enabled);
+        assert!(state.windows_hello_enabled);
+        assert!(state.resolution.has_windows_hello_error);
+    }
+}
