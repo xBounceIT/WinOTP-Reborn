@@ -101,7 +101,7 @@ function createTotpPreviewRunner(generator: (...args: any[]) => any = generateTo
 
   return async (...args: any[]) => {
     if (inFlight) {
-      return [];
+      return inFlight;
     }
 
     const request = Promise.resolve().then(() => generator(...args));

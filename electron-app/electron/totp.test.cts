@@ -62,7 +62,7 @@ test("generates a batch of TOTP codes through the Rust core", () => {
   assert.deepEqual(codes, ["94287082", "46119246"]);
 });
 
-test("does not overlap TOTP preview sidecar requests", async () => {
+test("coalesces overlapping TOTP preview sidecar requests", async () => {
   let release;
   let calls = 0;
   const runner = createTotpPreviewRunner(() => {
@@ -75,8 +75,11 @@ test("does not overlap TOTP preview sidecar requests", async () => {
   });
 
   const first = runner([], 1);
-  assert.deepEqual(await runner([], 2), []);
+  const overlapping = runner([], 2);
+  await Promise.resolve();
   release(["first"]);
   assert.deepEqual(await first, ["first"]);
+  assert.deepEqual(await overlapping, ["first"]);
+  assert.equal(calls, 1);
   assert.deepEqual(await runner([], 3), ["next"]);
 });

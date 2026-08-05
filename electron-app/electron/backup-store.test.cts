@@ -292,6 +292,25 @@ test("refuses to export when account migration left incomplete data", () => {
   }
 });
 
+test("exports accounts when only legacy usage-stat migration fails", () => {
+  const directoryPath = createTemporaryDirectory();
+  const exportPath = path.join(directoryPath, "usage-migration-failed.wotpbackup");
+  fs.writeFileSync(path.join(directoryPath, "usage-stats.json"), "not-json");
+  const accountStore = createRealAccountStore(directoryPath);
+  const store = createBackupStore(directoryPath, accountStore);
+
+  try {
+    assert.equal(accountStore.saveAccount(account).success, true);
+    const result = store.exportBackup(exportPath, "backup-pass-1");
+
+    assert.equal(result.success, true);
+    assert.equal(result.accountCount, 1);
+  } finally {
+    accountStore.close();
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
 test("does not overwrite Electron account, settings, or backup state files", () => {
   const directoryPath = createTemporaryDirectory();
   const store = createBackupStore(directoryPath, createAccountStore([account]));

@@ -448,7 +448,6 @@ class AccountStore {
       } catch {
         // Keep account access available even if the migration marker cannot be written.
       }
-      this.failMigration(message);
     };
 
     let contents;
@@ -549,9 +548,6 @@ class AccountStore {
       };
       this.setMetadataStatus(USAGE_MIGRATION_KEY, usageMigrationResult);
       this.database.exec("COMMIT");
-      if (issueCount > 0) {
-        this.failMigration(usageMigrationResult.message);
-      }
     } catch {
       try {
         this.database.exec("ROLLBACK");
@@ -570,7 +566,6 @@ class AccountStore {
       } catch {
         // Keep account access available even if the migration marker cannot be written.
       }
-      this.failMigration("The legacy usage statistics could not be migrated.");
     }
   }
 

@@ -1632,17 +1632,17 @@ export default function App() {
       }
     };
     try {
-      if (!kind && !settingsAtStart.windowsHello) {
-        releaseFailedLock();
-        return false;
-      }
-
-      if (securityMigrationPending && protectionConfigured) {
+      if (securityMigrationPending) {
         showManualLockError(
           "Security credential migration is incomplete; the app remains locked.",
           reason,
         );
         setAppLocked(true);
+        return false;
+      }
+
+      if (!kind && !settingsAtStart.windowsHello) {
+        releaseFailedLock();
         return false;
       }
 

@@ -337,7 +337,7 @@ test("migrates Windows usage statistics into the account database", () => {
   }
 });
 
-test("keeps malformed Windows usage statistics retryable", () => {
+test("keeps malformed Windows usage statistics retryable without failing account migration", () => {
   const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
   const usageStatsPath = path.join(directoryPath, "usage-stats.json");
   fs.writeFileSync(
@@ -351,8 +351,7 @@ test("keeps malformed Windows usage statistics retryable", () => {
       entries: [{ id: "legacy-1", payload: makeLegacyPayload() }],
     }));
     const failedResult = failed.readAccounts();
-    assert.equal(failedResult.migration.status, "failed");
-    assert.match(failedResult.migration.message, /usage statistics/i);
+    assert.equal(failedResult.migration.status, "completed");
     failed.close();
 
     fs.writeFileSync(
@@ -371,7 +370,7 @@ test("keeps malformed Windows usage statistics retryable", () => {
   }
 });
 
-test("rejects oversized Windows usage statistics without parsing them", () => {
+test("rejects oversized Windows usage statistics without failing account migration", () => {
   const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
   const usageStatsPath = path.join(directoryPath, "usage-stats.json");
   const descriptor = fs.openSync(usageStatsPath, "w");
@@ -381,8 +380,7 @@ test("rejects oversized Windows usage statistics without parsing them", () => {
   try {
     const store = createTestStore(directoryPath, () => ({ ok: true, entries: [] }));
     const result = store.readAccounts();
-    assert.equal(result.migration.status, "failed");
-    assert.match(result.migration.message, /too large/i);
+    assert.equal(result.migration.status, "completed");
     store.close();
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
