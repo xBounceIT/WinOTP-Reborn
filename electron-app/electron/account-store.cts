@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { safeStorage } = require("electron");
+const { isSecureStorageAvailable } = require("./safe-storage.cjs");
 const { readLegacyCredentials } = require("./legacy-credential-reader.cjs");
 const { runRustCore } = require("./rust-core.cjs");
 
@@ -211,7 +212,7 @@ class AccountStore {
   }
 
   ensureEncryptionAvailable() {
-    if (!this.encryption || !this.encryption.isEncryptionAvailable()) {
+    if (!isSecureStorageAvailable(this.encryption)) {
       throw new AccountStoreError("OS-backed secret encryption is unavailable.");
     }
   }

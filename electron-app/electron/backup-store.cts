@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { isSecureStorageAvailable } = require("./safe-storage.cjs");
 
 const { getAppDataDirectory } = require("./account-store.cjs");
 const { runRustCore } = require("./rust-core.cjs");
@@ -342,7 +343,7 @@ class BackupStore {
     }
 
     try {
-      if (!this.encryption.isEncryptionAvailable() || !fs.existsSync(this.passwordPath)) {
+      if (!isSecureStorageAvailable(this.encryption) || !fs.existsSync(this.passwordPath)) {
         return undefined;
       }
 
@@ -387,7 +388,7 @@ class BackupStore {
     }
 
     try {
-      if (!this.encryption?.isEncryptionAvailable?.()) {
+      if (!isSecureStorageAvailable(this.encryption)) {
         return failure("VaultAccessFailed", "OS-backed password encryption is unavailable.");
       }
 

@@ -75,11 +75,13 @@ test("coalesces overlapping TOTP preview sidecar requests", async () => {
   });
 
   const first = runner([], 1);
-  const overlapping = runner([], 2);
+  const overlapping = runner([], 1);
+  const newer = runner([], 2);
+  assert.equal(overlapping, first);
   await Promise.resolve();
   release(["first"]);
   assert.deepEqual(await first, ["first"]);
   assert.deepEqual(await overlapping, ["first"]);
-  assert.equal(calls, 1);
-  assert.deepEqual(await runner([], 3), ["next"]);
+  assert.deepEqual(await newer, ["next"]);
+  assert.equal(calls, 2);
 });

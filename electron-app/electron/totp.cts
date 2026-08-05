@@ -97,22 +97,28 @@ async function generateTotpPreviews(accounts, timestamp = Date.now()) {
 }
 
 function createTotpPreviewRunner(generator: (...args: any[]) => any = generateTotpPreviews) {
-  let inFlight;
+  let activeKey;
+  let activeRequest;
+  let tail = Promise.resolve();
 
-  return async (...args: any[]) => {
-    if (inFlight) {
-      return inFlight;
+  return (...args: any[]) => {
+    const key = JSON.stringify(args);
+    if (activeRequest && activeKey === key) {
+      return activeRequest;
     }
 
-    const request = Promise.resolve().then(() => generator(...args));
-    inFlight = request;
-    try {
-      return await request;
-    } finally {
-      if (inFlight === request) {
-        inFlight = undefined;
+    const request = tail.then(() => generator(...args));
+    tail = request.catch(() => undefined);
+    activeKey = key;
+    activeRequest = request;
+    const clearActiveRequest = () => {
+      if (activeRequest === request) {
+        activeKey = undefined;
+        activeRequest = undefined;
       }
-    }
+    };
+    void request.then(clearActiveRequest, clearActiveRequest);
+    return request;
   };
 }
 

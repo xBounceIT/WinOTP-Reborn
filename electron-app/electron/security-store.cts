@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { isSecureStorageAvailable } = require("./safe-storage.cjs");
 const crypto = require("node:crypto");
 const { runRustCore } = require("./rust-core.cjs");
 
@@ -201,11 +202,7 @@ class SecurityStore {
   }
 
   ensureEncryptionAvailable() {
-    if (!this.encryption || typeof this.encryption.isEncryptionAvailable !== "function") {
-      throw new Error("OS-backed security storage is unavailable.");
-    }
-
-    if (!this.encryption.isEncryptionAvailable()) {
+    if (!isSecureStorageAvailable(this.encryption)) {
       throw new Error("OS-backed security storage is unavailable.");
     }
   }
