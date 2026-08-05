@@ -16,6 +16,7 @@ test("creates a hidden packaged Windows login item", () => {
       openAtLogin: true,
       path: "C:\\Program Files\\WinOTP\\WinOTP.exe",
       args: ["--hidden"],
+      name: "WinOTP_Reborn",
     },
   );
 });
@@ -33,6 +34,7 @@ test("keeps development auto-start pointed at the Electron app", () => {
       openAtLogin: true,
       path: "C:\\tools\\electron.exe",
       args: ["C:\\work\\WinOTP-Reborn\\electron-app", "--hidden"],
+      name: "WinOTP_Reborn",
     },
   );
 });
@@ -87,7 +89,46 @@ test("updates and verifies the operating system auto-start state", () => {
     openAtLogin: false,
     path: "C:\\WinOTP\\WinOTP.exe",
     args: ["--hidden"],
+    name: "WinOTP_Reborn",
   });
+});
+
+test("recognizes the argument-less v1 Windows login item", () => {
+  const app = {
+    getLoginItemSettings() {
+      return {
+        openAtLogin: false,
+        executableWillLaunchAtLogin: true,
+      };
+    },
+  };
+
+  assert.deepEqual(
+    getAutoStartStatus(app, {
+      platform: "win32",
+      execPath: "C:\\WinOTP_Reborn\\WinOTP.exe",
+    }),
+    { success: true, enabled: true },
+  );
+});
+
+test("reports a Windows login item disabled by the operating system as disabled", () => {
+  const app = {
+    getLoginItemSettings() {
+      return {
+        openAtLogin: true,
+        executableWillLaunchAtLogin: false,
+      };
+    },
+  };
+
+  assert.deepEqual(
+    getAutoStartStatus(app, {
+      platform: "win32",
+      execPath: "C:\\WinOTP_Reborn\\WinOTP.exe",
+    }),
+    { success: true, enabled: false },
+  );
 });
 
 test("reports OS auto-start failures without changing renderer state", () => {

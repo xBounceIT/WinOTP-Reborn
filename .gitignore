@@ -12,6 +12,7 @@ electron-app/node_modules/
 electron-app/dist/
 electron-app/electron-dist/
 electron-app/native/*
+electron-app/release/
 !electron-app/native/.gitkeep
 
 # IDEs/editors

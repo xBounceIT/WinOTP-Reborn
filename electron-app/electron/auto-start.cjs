@@ -1,4 +1,5 @@
 const hiddenLaunchArgument = "--hidden";
+const windowsLoginItemName = "WinOTP_Reborn";
 
 function createLoginItemSettings({
   enabled,
@@ -16,6 +17,7 @@ function createLoginItemSettings({
   if (platform === "win32") {
     settings.path = execPath;
     settings.args = isPackaged ? [hiddenLaunchArgument] : [appPath, hiddenLaunchArgument];
+    settings.name = windowsLoginItemName;
   }
 
   return settings;
@@ -44,9 +46,14 @@ function getAutoStartStatus(app, options = {}) {
         ? { path: loginItemSettings.path, args: loginItemSettings.args }
         : undefined;
 
+    const loginItem = app.getLoginItemSettings(settingsOptions);
     return {
       success: true,
-      enabled: Boolean(app.getLoginItemSettings(settingsOptions).openAtLogin),
+      enabled: Boolean(
+        platform === "win32"
+          ? (loginItem.executableWillLaunchAtLogin ?? loginItem.openAtLogin)
+          : loginItem.openAtLogin,
+      ),
     };
   } catch {
     return unavailableResult("The operating system auto-start service is unavailable.");

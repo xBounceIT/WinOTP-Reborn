@@ -14,6 +14,50 @@ test("preserves the native never-lock default when the timeout is absent", () =>
   assert.equal(mapLegacySettings({}).autoLock, "0");
 });
 
+test("maps every persisted v1 preference to its v2 equivalent", () => {
+  assert.deepEqual(
+    mapLegacySettings({
+      ShowNextCodeWhenFiveSecondsRemain: true,
+      AccountSortOption: 4,
+      AccountCustomOrderIds: [" account-2 ", "account-1", "account-2", ""],
+      IsPinProtectionEnabled: true,
+      IsPasswordProtectionEnabled: true,
+      IsWindowsHelloEnabled: true,
+      IsWindowsHelloRemotePinEnabled: true,
+      IsWindowsHelloRemotePasswordEnabled: true,
+      AutoLockTimeoutMinutes: 30,
+      IsAutomaticBackupEnabled: true,
+      CustomBackupFolderPath: " C:\\WinOTP Backups ",
+      IsUpdateCheckEnabled: false,
+      UpdateChannel: 1,
+      MinimizeOnClose: false,
+      MinimizeToTrayOnClose: true,
+      ShowTotpInTrayMenu: true,
+      AutoStartOnBoot: true,
+    }),
+    {
+      showNextCode: true,
+      accountSortOption: "CustomOrder",
+      accountCustomOrderIds: ["account-2", "account-1"],
+      pinProtection: true,
+      passwordProtection: true,
+      windowsHello: true,
+      remotePin: true,
+      remotePassword: true,
+      autoLock: "30",
+      autoStart: true,
+      minimizeOnClose: false,
+      minimizeToTray: true,
+      showTotpInTray: true,
+      automaticBackup: true,
+      customBackupFolderPath: "C:\\WinOTP Backups",
+      updateOnStartup: false,
+      updateChannel: "Pre-release",
+      theme: "dark",
+    },
+  );
+});
+
 test("does not read Windows migration sources off Windows", () => {
   const directoryPath = createDirectory();
   const legacySettingsPath = path.join(directoryPath, "settings.json");
