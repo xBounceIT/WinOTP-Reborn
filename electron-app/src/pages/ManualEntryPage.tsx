@@ -61,10 +61,6 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
       setError("Enter an issuer or account name.");
       return;
     }
-    if (!/^[A-Z2-7]+$/.test(secret) || secret.length < 8) {
-      setError("Enter a valid Base32 secret using letters A–Z and digits 2–7.");
-      return;
-    }
     if (!Number.isInteger(period) || period < 10 || period > 120) {
       setError("Period must be a whole number between 10 and 120 seconds.");
       return;
