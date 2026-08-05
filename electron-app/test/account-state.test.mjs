@@ -6,8 +6,6 @@ import {
   loadAccountsUntilCurrent,
   mergePersistedAccounts,
 } from "../src/lib/account-state.ts";
-import type { OtpAccount } from "../src/lib/types.ts";
-
 test("does not apply an account load that started before a mutation", () => {
   assert.equal(canApplyAccountLoad(4, 4), true);
   assert.equal(canApplyAccountLoad(4, 5), false);
@@ -56,7 +54,7 @@ test("merges imported accounts without losing newer usage counts", () => {
   ]);
 });
 
-function createAccount(id: string, usageCount: number): OtpAccount {
+function createAccount(id, usageCount) {
   return {
     id,
     issuer: "Example",

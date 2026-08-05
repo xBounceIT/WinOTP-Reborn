@@ -21,7 +21,10 @@ pub use backup::{
     decrypt_payload, encrypt_payload, is_valid_backup_password, BackupEncryption, BackupEnvelope,
     BackupError, BackupPayload,
 };
-pub use import::{parse_legacy_account, parse_otp_uri, parse_winauth_line};
+pub use import::{
+    parse_legacy_account, parse_legacy_json, parse_otp_uri, parse_winauth_line, parse_winauth_text,
+    ParsedAccountImport,
+};
 pub use models::{
     is_valid_base32, normalize_account, parse_stored_json, CredentialIssue, OtpAccount,
     OtpAlgorithm, SortOption,

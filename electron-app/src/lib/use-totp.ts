@@ -1,24 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { generateTotpCode, getRemainingSeconds } from "@/lib/totp";
-import type { OtpAccount } from "@/lib/types";
+import type { OtpAccount, TotpPreview } from "@/lib/types";
 
-interface CodeState {
-  code: string;
-  nextCode: string;
+type CodeState = TotpPreview;
+
+function placeholderPreview(digits: number): CodeState {
+  const code = "—".repeat(digits === 8 ? 8 : 6);
+  return { code, nextCode: code, remainingSeconds: 0 };
 }
 
-export function useTotp(accounts: OtpAccount[]) {
+export function useTotp(accounts: OtpAccount[], enabled = true) {
   const [timestamp, setTimestamp] = useState(() => Date.now());
   const [codes, setCodes] = useState<Record<string, CodeState>>({});
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     let timer = 0;
+    let cancelled = false;
 
     function scheduleNextTick() {
+      if (cancelled) {
+        return;
+      }
+
       const millisecondsToNextSecond = 1000 - (Date.now() % 1000);
       timer = window.setTimeout(
         () => {
+          if (cancelled) {
+            return;
+          }
           setTimestamp(Date.now());
           scheduleNextTick();
         },
@@ -27,22 +40,40 @@ export function useTotp(accounts: OtpAccount[]) {
     }
 
     scheduleNextTick();
-    return () => window.clearTimeout(timer);
-  }, []);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [enabled]);
 
   const codeTimestamp = Math.floor(timestamp / 1000) * 1000;
 
   useEffect(() => {
     let cancelled = false;
 
+    if (!enabled) {
+      setCodes({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
     async function updateCodes() {
-      const entries = await Promise.all(
-        accounts.map(async (account) => {
-          const remaining = getRemainingSeconds(account, codeTimestamp);
-          const nextCode = await generateTotpCode(account, codeTimestamp + remaining * 1000);
-          const code = await generateTotpCode(account, codeTimestamp);
-          return [account.id, { code, nextCode }] as const;
-        }),
+      const bridge = window.winotp?.totp;
+      let previews: TotpPreview[] = [];
+      try {
+        previews = bridge
+          ? await bridge.previews(
+              accounts.map((account) => account.id),
+              codeTimestamp,
+            )
+          : [];
+      } catch {
+        // Keep placeholders visible while the Rust sidecar is unavailable.
+      }
+      const entries = accounts.map(
+        (account, index) =>
+          [account.id, previews[index] ?? placeholderPreview(account.digits)] as const,
       );
 
       if (!cancelled) {
@@ -54,13 +85,16 @@ export function useTotp(accounts: OtpAccount[]) {
     return () => {
       cancelled = true;
     };
-  }, [accounts, codeTimestamp]);
+  }, [accounts, codeTimestamp, enabled]);
+
+  const visibleCodes = enabled ? codes : {};
 
   const accountTiming = useMemo(
     () =>
       Object.fromEntries(
         accounts.map((account) => {
-          const remaining = getRemainingSeconds(account, timestamp);
+          const remaining =
+            visibleCodes[account.id]?.remainingSeconds ?? Math.max(1, account.period);
           const period = Math.max(1, account.period);
           const progress = (remaining - 1) / period;
           return [
@@ -72,8 +106,8 @@ export function useTotp(accounts: OtpAccount[]) {
           ];
         }),
       ),
-    [accounts, timestamp],
+    [accounts, visibleCodes],
   );
 
-  return { accountTiming, codes };
+  return { accountTiming, codes: visibleCodes };
 }

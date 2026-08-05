@@ -4,6 +4,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+pub const MAX_BASE32_SECRET_LENGTH: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
@@ -259,6 +260,8 @@ pub fn is_valid_base32(input: &str) -> bool {
     let trimmed = input.trim();
     let unpadded = trimmed.trim_end_matches('=');
     !unpadded.is_empty()
+        && unpadded.len() <= MAX_BASE32_SECRET_LENGTH
+        && !matches!(unpadded.len() % 8, 1 | 3 | 6)
         && trimmed.starts_with(unpadded)
         && unpadded.chars().all(|character| {
             character.is_ascii_uppercase() && !"0189".contains(character)
@@ -331,6 +334,10 @@ mod tests {
         assert!(is_valid_base32("JBSWY3DPEHPK3PXP=="));
         assert!(!is_valid_base32("JBSWY3DPEHPK3PXP=bad"));
         assert!(!is_valid_base32("NOT-BASE32"));
+        assert!(!is_valid_base32("A"));
+        assert!(!is_valid_base32("ABC"));
+        assert!(!is_valid_base32("ABCDEF"));
+        assert!(!is_valid_base32(&"A".repeat(MAX_BASE32_SECRET_LENGTH + 1)));
     }
 
     #[test]

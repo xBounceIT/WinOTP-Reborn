@@ -15,8 +15,8 @@ test("recognizes only object-shaped persisted settings", () => {
   assert.equal(isPersistedSettingsValue(42), false);
 });
 
-test("does not replace settings changed before main-process hydration", () => {
+test("hydrates main settings unless the user changed settings first", () => {
   assert.equal(shouldHydrateMainSettings(false, false), true);
-  assert.equal(shouldHydrateMainSettings(true, false), false);
+  assert.equal(shouldHydrateMainSettings(true, false), true);
   assert.equal(shouldHydrateMainSettings(false, true), false);
 });

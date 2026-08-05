@@ -73,6 +73,17 @@ test("reports a missing asynchronous Rust core as unavailable", async () => {
   );
 });
 
+test("rejects oversized Rust core requests before launching the sidecar", async () => {
+  await assert.rejects(
+    runRustCoreAsync(
+      "version",
+      { payload: "x".repeat(64) },
+      { binaryPath: resolveCoreBinary(), maxInputBytes: 16 },
+    ),
+    /request is too large/,
+  );
+});
+
 test("does not hide a Rust operation failure behind the JavaScript fallback", () => {
   assert.throws(
     () => tryRunRustCore("unsupported-operation", {}, { binaryPath: resolveCoreBinary() }),

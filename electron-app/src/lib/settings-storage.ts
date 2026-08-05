@@ -3,8 +3,8 @@ export function isPersistedSettingsValue(value: unknown): value is Record<string
 }
 
 export function shouldHydrateMainSettings(
-  hasStoredSettings: boolean,
+  _hasStoredSettings: boolean,
   userChangedSettings: boolean,
 ) {
-  return !hasStoredSettings && !userChangedSettings;
+  return !userChangedSettings;
 }

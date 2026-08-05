@@ -67,12 +67,31 @@ contextBridge.exposeInMainWorld("winotp", {
     return () => screenCaptureListeners.delete(listener);
   },
   completeScreenCapture: (result) => ipcRenderer.send("screen-capture-result", result),
+  core: {
+    parseOtpUri: (uri) =>
+      ipcRenderer.invoke("core:parse-otp-uri", uri).then((result) => result ?? undefined),
+    parseWinAuthLine: (line) => ipcRenderer.invoke("core:parse-winauth-line", line),
+    parseLegacyJson: (content) => ipcRenderer.invoke("core:parse-legacy-json", content),
+    parseWinAuthText: (content) => ipcRenderer.invoke("core:parse-winauth-text", content),
+    sortAccounts: (input) => ipcRenderer.invoke("core:sort-accounts", input),
+    pruneCustomOrderIds: (input) => ipcRenderer.invoke("core:prune-custom-order-ids", input),
+    orderDropIndex: (input) => ipcRenderer.invoke("core:order-drop-index", input),
+    orderProject: (input) => ipcRenderer.invoke("core:order-project", input),
+    reconcileProtection: (input) => ipcRenderer.invoke("core:reconcile-protection", input),
+    screenCaptureMap: (input) => ipcRenderer.invoke("core:screen-capture-map", input),
+    screenCaptureExpand: (input) => ipcRenderer.invoke("core:screen-capture-expand", input),
+    screenCapturePadding: (input) => ipcRenderer.invoke("core:screen-capture-padding", input),
+  },
+  totp: {
+    previews: (ids, timestamp) => ipcRenderer.invoke("totp:previews", ids, timestamp),
+  },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
     save: (settings) => ipcRenderer.invoke("settings:save", settings),
   },
   accounts: {
     list: () => ipcRenderer.invoke("accounts:list"),
+    get: (id) => ipcRenderer.invoke("accounts:get", id),
     acknowledgeMigration: () => ipcRenderer.invoke("accounts:ack-migration"),
     save: (account) => ipcRenderer.invoke("accounts:save", account),
     delete: (id) => ipcRenderer.invoke("accounts:delete", id),

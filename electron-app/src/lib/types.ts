@@ -25,6 +25,57 @@ export interface OtpAccount {
   lastUsedAt?: string;
 }
 
+export interface ParsedAccountImport {
+  accounts: OtpAccount[];
+  skippedCount: number;
+}
+
+export interface TotpPreview {
+  code: string;
+  nextCode: string;
+  remainingSeconds: number;
+}
+
+export interface ProtectionViewState {
+  resolution: {
+    mode: string;
+    isPinEffective: boolean;
+    isPasswordEffective: boolean;
+    isWindowsHelloEffective: boolean;
+    isWindowsHelloRemotePinEffective: boolean;
+    isWindowsHelloRemotePasswordEffective: boolean;
+    hasPinError: boolean;
+    hasPasswordError: boolean;
+    hasWindowsHelloError: boolean;
+    hasWindowsHelloRemotePinError: boolean;
+    hasWindowsHelloRemotePasswordError: boolean;
+    hasWindowsHelloRemoteSession: boolean;
+    disableUnavailablePin: boolean;
+    disableUnavailablePassword: boolean;
+    disableUnavailableWindowsHello: boolean;
+    disableUnavailableWindowsHelloRemotePin: boolean;
+    disableUnavailableWindowsHelloRemotePassword: boolean;
+  };
+  pinEnabled: boolean;
+  passwordEnabled: boolean;
+  windowsHelloEnabled: boolean;
+  remotePinEnabled: boolean;
+  remotePasswordEnabled: boolean;
+}
+
+export interface ProtectionCoreInput {
+  pinEnabled: boolean;
+  passwordEnabled: boolean;
+  windowsHelloEnabled: boolean;
+  remotePinEnabled: boolean;
+  remotePasswordEnabled: boolean;
+  pinStatus: "NotSet" | "Set" | "Error";
+  passwordStatus: "NotSet" | "Set" | "Error";
+  windowsHelloAvailability: "Available" | "Unavailable" | "RemoteSession" | "Error";
+  remotePinStatus: "NotSet" | "Set" | "Error";
+  remotePasswordStatus: "NotSet" | "Set" | "Error";
+}
+
 export interface AccountStorageIssue {
   code: string;
   accountId: string;

@@ -5,7 +5,12 @@ const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { test } = require("node:test");
 
-const { AccountStore, normalizeAccount, normalizeAccounts } = require("./account-store.cjs");
+const {
+  AccountStore,
+  normalizeAccount,
+  normalizeAccounts,
+  sanitizeAccount,
+} = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 
 test("retries account-store initialization after a failed attempt", () => {
@@ -83,6 +88,21 @@ test("normalizes account batches through the Rust core contract", () => {
   assert.equal(normalized[0].account.id, "first-account");
   assert.equal(normalized[0].account.algorithm, "SHA256");
   assert.equal(normalized[1].account.digits, 8);
+});
+
+test("sanitizes account responses without mutating the stored account object", () => {
+  const account = {
+    id: "account-1",
+    issuer: "GitHub",
+    accountName: "dangelicodes",
+    secret: "JBSWY3DPEHPK3PXP",
+  };
+
+  const sanitized = sanitizeAccount(account);
+
+  assert.equal(sanitized.secret, "");
+  assert.equal(account.secret, "JBSWY3DPEHPK3PXP");
+  assert.notEqual(sanitized, account);
 });
 
 test("closes the database when initialization fails", () => {

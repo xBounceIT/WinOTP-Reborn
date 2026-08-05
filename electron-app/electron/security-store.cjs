@@ -1,10 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { runRustCore } = require("./rust-core.cjs");
 
 const SECURITY_FILE_NAME = "security.json";
 const SECURITY_FILE_VERSION = 1;
-const MAX_PASSWORD_LENGTH = 128;
 const credentialKinds = new Set(["pin", "password", "remotePin", "remotePassword"]);
 
 function getDefaultEncryption() {
@@ -53,24 +53,7 @@ function validateKind(kind) {
 }
 
 function validateSecret(kind, secret) {
-  if (typeof secret !== "string" || secret.trim().length === 0) {
-    throw new Error("A security credential is required.");
-  }
-
-  if (kind === "pin" || kind === "remotePin") {
-    if (!/^\d{4,6}$/.test(secret)) {
-      throw new Error("PIN must contain 4-6 digits.");
-    }
-    return;
-  }
-
-  if (secret.length < 4) {
-    throw new Error("Password must be at least 4 characters.");
-  }
-
-  if (secret.length > MAX_PASSWORD_LENGTH) {
-    throw new Error(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`);
-  }
+  runRustCore("validate-security-credential", { kind, secret });
 }
 
 function secretsEqual(left, right) {

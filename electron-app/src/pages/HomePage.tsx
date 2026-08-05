@@ -8,7 +8,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 
 import { AccountCard } from "@/components/AccountCard";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { moveAccountId, sortAccounts, sortOptions } from "@/lib/account-order";
+import { projectOrderWithCore, sortAccountsWithCore, sortOptions } from "@/lib/account-order";
 import type { OtpAccount, Route, SortOption } from "@/lib/types";
 
 interface HomePageProps {
@@ -69,20 +69,32 @@ export function HomePage({
   const [search, setSearch] = useState("");
   const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [visibleAccounts, setVisibleAccounts] = useState<OtpAccount[]>(accounts);
   const isCustomOrder = sort === "CustomOrder";
   const canReorder = isCustomOrder && search.trim().length === 0;
 
-  const visibleAccounts = useMemo(() => {
+  const filteredAccounts = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const filtered = query
+    return query
       ? accounts.filter((account) =>
           `${account.issuer} ${account.accountName}`.toLowerCase().includes(query),
         )
       : accounts;
-    return sortAccounts(filtered, sort, customOrderIds);
-  }, [accounts, customOrderIds, search, sort]);
+  }, [accounts, search]);
 
-  function moveAccount(accountId: string, direction: -1 | 1) {
+  useEffect(() => {
+    let cancelled = false;
+    void sortAccountsWithCore(filteredAccounts, sort, customOrderIds).then((result) => {
+      if (!cancelled) {
+        setVisibleAccounts(result);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customOrderIds, filteredAccounts, sort]);
+
+  async function moveAccount(accountId: string, direction: -1 | 1) {
     if (!canReorder) {
       return;
     }
@@ -93,11 +105,12 @@ export function HomePage({
       return;
     }
 
-    const nextOrderIds = moveAccountId(
+    const targetIndex = visibleAccounts.findIndex((account) => account.id === target.id);
+    const insertionIndex = targetIndex + (direction > 0 ? 1 : 0);
+    const nextOrderIds = await projectOrderWithCore(
       visibleAccounts.map((account) => account.id),
       accountId,
-      target.id,
-      direction > 0,
+      insertionIndex,
     );
     onCustomOrderChange(nextOrderIds);
   }
@@ -120,7 +133,7 @@ export function HomePage({
     setDropTargetId(accountId);
   }
 
-  function handleDrop(event: DragEvent<HTMLDivElement>, accountId: string) {
+  async function handleDrop(event: DragEvent<HTMLDivElement>, accountId: string) {
     if (!canReorder) {
       return;
     }
@@ -135,11 +148,11 @@ export function HomePage({
 
     const bounds = event.currentTarget.getBoundingClientRect();
     const placeAfter = event.clientY >= bounds.top + bounds.height / 2;
-    const nextOrderIds = moveAccountId(
+    const targetIndex = visibleAccounts.findIndex((account) => account.id === accountId);
+    const nextOrderIds = await projectOrderWithCore(
       visibleAccounts.map((account) => account.id),
       draggedId,
-      accountId,
-      placeAfter,
+      targetIndex + (placeAfter ? 1 : 0),
     );
     onCustomOrderChange(nextOrderIds);
     setDraggedAccountId(null);

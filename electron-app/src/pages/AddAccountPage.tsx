@@ -83,7 +83,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
         return;
       }
 
-      const account = parseOtpUri(text);
+      const account = await parseOtpUri(text);
       if (!account) {
         onToast("The QR code does not contain a valid OTP URI.");
         return;
@@ -126,7 +126,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
         return;
       }
 
-      const account = parseOtpUri(result.text);
+      const account = await parseOtpUri(result.text);
       if (!account) {
         onToast("The QR code does not contain a valid OTP URI.");
         return;

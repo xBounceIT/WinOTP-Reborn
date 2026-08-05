@@ -1,16 +1,17 @@
 # WinOTP
 
-WinOTP is a secure, cross-platform TOTP authenticator built with TypeScript 7, Electron, and Rust. All application source is TypeScript or Rust; compiled Electron CommonJS files are generated build output only.
+WinOTP is a secure, cross-platform TOTP authenticator built with a TypeScript frontend, a plain-JavaScript Electron shell, and Rust.
 
 ## Current architecture
 
-- `electron-app/` — TypeScript 7 Electron main process, preload bridge, React renderer, tests, and OS adapters. Main-process `.cts` sources compile to the ignored `electron-dist/` runtime directory.
+- `electron-app/src/` — TypeScript 7 React renderer and its typed frontend adapters.
+- `electron-app/electron/` — plain CommonJS JavaScript Electron main process, preload bridge, storage, and OS adapters. The build copies these `.cjs` sources to the ignored `electron-dist/` runtime directory.
 - `rust/winotp-core/` — portable account model, OTP generation, URI/import mapping, backup cryptography, ordering, settings, and protection policy.
 - `rust/winotp-updater/` — platform-neutral update discovery and installer verification sidecar.
 
 The Electron main process stores accounts in its per-user `WinOTP_Reborn/accounts.db` directory. TOTP secrets and security credentials are encrypted with Electron `safeStorage` before they are written to disk; Electron maps that API to DPAPI, Keychain, or the Linux secret-service backend as appropriate. On Windows, valid entries from the previous Credential Manager store are imported once. The same launch migrates the legacy settings and credentials when they are available.
 
-Rust is authoritative for data normalization, OTP and backup cryptography, imports, ordering rules, settings normalization, and protection decisions. Electron owns the cross-platform shell boundary: SQLite and OS-backed storage, window/login-item APIs, desktop capture, and renderer-only browser work such as `jsqr` and WebCrypto.
+Rust is authoritative for data normalization, OTP and backup cryptography, imports, ordering rules, settings normalization, and protection decisions. Electron owns the cross-platform shell boundary: SQLite and OS-backed storage, window/login-item APIs, desktop capture, and renderer-only browser work such as `jsqr`.
 
 ## Run the Electron app
 

@@ -6,7 +6,7 @@ const test = require("node:test");
 const packageJson = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
 );
-const mainSource = fs.readFileSync(path.resolve(process.cwd(), "electron/main.cts"), "utf8");
+const mainSource = fs.readFileSync(path.resolve(process.cwd(), "electron/main.cjs"), "utf8");
 
 test("Electron release packaging covers the supported desktop targets", () => {
   const build = packageJson.build;
@@ -15,12 +15,12 @@ test("Electron release packaging covers the supported desktop targets", () => {
   assert.equal(build.appId, "com.xbounceit.winotp");
   assert.equal(build.productName, "WinOTP");
   assert.equal(packageJson.main, "electron-dist/electron/main.cjs");
-  assert.equal(packageJson.scripts["build:electron"], "tsc -p tsconfig.electron.json");
+  assert.equal(packageJson.scripts["build:electron"], "node scripts/build-electron.mjs");
   assert.match(packageJson.scripts.dev, /^npm run build:core &&/);
   assert.match(packageJson.scripts.electron, /^npm run build:core &&/);
   assert.equal(
     packageJson.scripts.dev,
-    "npm run build:core && npm run build:electron && node --experimental-strip-types scripts/dev.mts",
+    "npm run build:core && npm run build:electron && node scripts/dev.mjs",
   );
   assert.match(packageJson.scripts.electron, /electron \./);
   assert.doesNotMatch(mainSource, /registerSessionNotification/);

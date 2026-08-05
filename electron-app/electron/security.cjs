@@ -9,6 +9,28 @@ function isTrustedRendererEvent(event, mainWindow) {
   );
 }
 
+function isRendererUnlockedState(rendererUnlocked, trayState) {
+  return rendererUnlocked === true && trayState?.locked === false;
+}
+
+function hasConfiguredProtection(settings) {
+  return Boolean(
+    settings?.pinProtection === true ||
+    settings?.passwordProtection === true ||
+    settings?.windowsHello === true,
+  );
+}
+
+function isUnprotectedProfile(settings, migrationPending = false) {
+  return migrationPending !== true && !hasConfiguredProtection(settings);
+}
+
+function isTrustedScreenCaptureEvent(event, captureWebContents) {
+  return Boolean(
+    captureWebContents?.has(event?.sender) && event?.senderFrame === event.sender.mainFrame,
+  );
+}
+
 function isLoopbackRendererUrl(url) {
   let target;
 
@@ -22,6 +44,29 @@ function isLoopbackRendererUrl(url) {
   return (
     (target.protocol === "http:" || target.protocol === "https:") &&
     loopbackHosts.has(target.hostname) &&
+    !target.username &&
+    !target.password
+  );
+}
+
+function shouldUseDevelopmentRenderer({ isPackaged, isDevelopment, rendererUrl }) {
+  return !isPackaged && isDevelopment === true && isLoopbackRendererUrl(rendererUrl);
+}
+
+function isAllowedExternalUrl(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  let target;
+  try {
+    target = new URL(value);
+  } catch {
+    return false;
+  }
+
+  return (
+    (target.protocol === "http:" || target.protocol === "https:") &&
     !target.username &&
     !target.password
   );
@@ -60,6 +105,12 @@ function isAllowedRendererUrl(url, { isDev, rendererUrl, rendererFilePath }) {
 
 module.exports = {
   isAllowedRendererUrl,
+  isAllowedExternalUrl,
+  hasConfiguredProtection,
+  isUnprotectedProfile,
   isLoopbackRendererUrl,
+  isRendererUnlockedState,
+  shouldUseDevelopmentRenderer,
+  isTrustedScreenCaptureEvent,
   isTrustedRendererEvent,
 };

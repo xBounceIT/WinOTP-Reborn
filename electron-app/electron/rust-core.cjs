@@ -3,6 +3,7 @@ const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 
 const CORE_BINARY_NAME = process.platform === "win32" ? "winotp-core.exe" : "winotp-core";
+const DEFAULT_MAX_INPUT_BYTES = 64 * 1024 * 1024;
 
 class RustCoreUnavailableError extends Error {
   constructor(message = "The WinOTP Rust core is unavailable.") {
@@ -79,14 +80,27 @@ function parseRustCoreOutput(stdout) {
   return response.result;
 }
 
+function serializeRustCoreRequest(operation, input, maxInputBytes = DEFAULT_MAX_INPUT_BYTES) {
+  const request = JSON.stringify({ operation, input });
+  if (Buffer.byteLength(request, "utf8") > maxInputBytes) {
+    throw new Error("The WinOTP Rust core request is too large.");
+  }
+  return request;
+}
+
 function runRustCore(operation, input = {}, options = {}) {
+  const request = serializeRustCoreRequest(
+    operation,
+    input,
+    options.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES,
+  );
   const binaryPath = options.binaryPath ?? resolveRustCoreBinary(options);
   if (!binaryPath) {
     throw new RustCoreUnavailableError();
   }
 
   const child = spawnSync(binaryPath, [], {
-    input: JSON.stringify({ operation, input }),
+    input: request,
     encoding: "utf8",
     timeout: options.timeoutMs ?? 15_000,
     maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
@@ -103,6 +117,17 @@ function runRustCore(operation, input = {}, options = {}) {
 }
 
 function runRustCoreAsync(operation, input = {}, options = {}) {
+  let request;
+  try {
+    request = serializeRustCoreRequest(
+      operation,
+      input,
+      options.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES,
+    );
+  } catch (error) {
+    return Promise.reject(error);
+  }
+
   const binaryPath = options.binaryPath ?? resolveRustCoreBinary(options);
   if (!binaryPath) {
     return Promise.reject(new RustCoreUnavailableError());
@@ -118,6 +143,7 @@ function runRustCoreAsync(operation, input = {}, options = {}) {
     environment: _environment,
     platform: _platform,
     dirname: _dirname,
+    maxInputBytes: _maxInputBytes,
     ...spawnOptions
   } = options;
 
@@ -222,7 +248,7 @@ function runRustCoreAsync(operation, input = {}, options = {}) {
       settle(new Error("The WinOTP Rust core timed out."));
     }, timeoutMs);
 
-    child.stdin.end(JSON.stringify({ operation, input }));
+    child.stdin.end(request);
   });
 }
 
@@ -243,11 +269,13 @@ function tryRunRustCore(operation, input = {}, options = {}) {
 
 module.exports = {
   CORE_BINARY_NAME,
+  DEFAULT_MAX_INPUT_BYTES,
   RustCoreUnavailableError,
   getCoreBinaryCandidates,
   hasRustCoreBinary,
   resolveRustCoreBinary,
   runRustCore,
   runRustCoreAsync,
+  serializeRustCoreRequest,
   tryRunRustCore,
 };

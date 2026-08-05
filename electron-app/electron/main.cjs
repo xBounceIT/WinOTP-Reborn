@@ -14,20 +14,32 @@ const {
 } = require("electron");
 const path = require("node:path");
 const { createDisplayCapturePlan, getThumbnailSize } = require("./screen-capture.cjs");
-const { AccountStore } = require("./account-store.cjs");
+const { AccountStore, sanitizeAccount } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
 const { createUpdateService, defaultUpdateState } = require("./update-service.cjs");
-const { SettingsStore } = require("./settings-store.cjs");
+const { SettingsStore, normalizeSettings } = require("./settings-store.cjs");
 const { migrateLegacySettingsForApp, runLegacyMigration } = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
-const { generateTotpCode, generateTotpCodes } = require("./totp.cjs");
+const {
+  createTotpPreviewRunner,
+  generateTotpCode,
+  generateTotpCodes,
+  generateTotpPreviews,
+} = require("./totp.cjs");
 const { getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
+const { runRustCoreAsync } = require("./rust-core.cjs");
 const {
   isAllowedRendererUrl,
+  isAllowedExternalUrl,
+  hasConfiguredProtection,
+  isUnprotectedProfile,
   isLoopbackRendererUrl,
+  isRendererUnlockedState,
+  shouldUseDevelopmentRenderer,
+  isTrustedScreenCaptureEvent,
   isTrustedRendererEvent,
 } = require("./security.cjs");
 
@@ -35,6 +47,7 @@ const { createTrayController, orderAccountsByIds } = require("./tray.cjs");
 
 let mainWindow;
 let trayController;
+let rendererUnlocked = false;
 let screenCaptureRequest;
 let screenCaptureInProgress = false;
 let securityStore;
@@ -44,6 +57,7 @@ let legacySettingsMigrationFailed = false;
 let legacyAppLockMigrationPending = false;
 let windowsHelloOperationInProgress = false;
 let isQuitting = false;
+const runTotpPreviews = createTotpPreviewRunner(generateTotpPreviews);
 const titleBarHeight = 32;
 const defaultTitleBarTheme = {
   color: "#000000",
@@ -131,7 +145,7 @@ function loadStoredAccounts() {
 
 function refreshTrayCodes() {
   const state = trayController?.getState();
-  if (!state || !state.showTotpInTray || state.locked) {
+  if (!state || !state.showTotpInTray || state.locked || !isRendererUnlocked()) {
     return;
   }
 
@@ -158,7 +172,7 @@ function refreshTrayCodes() {
 
 function copyTrayCode(accountId) {
   const state = trayController?.getState();
-  if (!state || !state.showTotpInTray || state.locked) {
+  if (!state || !state.showTotpInTray || state.locked || !isRendererUnlocked()) {
     return;
   }
 
@@ -201,10 +215,44 @@ function updateTrayState(event, state) {
     return;
   }
 
-  trayController?.setState(state);
+  if (state?.locked === true) {
+    rendererUnlocked = false;
+  }
+
+  const nextState = state && typeof state === "object" ? state : {};
+  const canShowUnlockedState = rendererUnlocked || isCurrentProfileUnprotected();
+  trayController?.setState(
+    canShowUnlockedState ? nextState : { ...nextState, locked: true, accounts: [] },
+  );
+}
+
+function isRendererUnlocked() {
+  const trayState = trayController?.getState();
+  return (
+    isRendererUnlockedState(rendererUnlocked, trayState) ||
+    (trayState?.locked === false && isCurrentProfileUnprotected())
+  );
+}
+
+function isCurrentProfileUnprotected() {
+  try {
+    return isUnprotectedProfile(getSettingsStore().getSettings(), legacyAppLockMigrationPending);
+  } catch {
+    return false;
+  }
+}
+
+function clearRendererUnlockState() {
+  rendererUnlocked = false;
+  const trayState = trayController?.getState();
+  if (trayState) {
+    trayController.setState({ ...trayState, locked: true, accounts: [] });
+  }
 }
 
 function notifyRendererOfSessionChange(reason) {
+  clearRendererUnlockState();
+
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return;
   }
@@ -222,8 +270,15 @@ function registerPowerSessionChangeMonitoring() {
 }
 
 function loadRenderer(window, query = {}) {
-  if (isDevelopment() && !app.isPackaged) {
-    const rendererUrl = new URL(process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173");
+  const configuredRendererUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173";
+  if (
+    shouldUseDevelopmentRenderer({
+      isPackaged: app.isPackaged,
+      isDevelopment: process.argv.includes("--dev") || Boolean(process.env.VITE_DEV_SERVER_URL),
+      rendererUrl: configuredRendererUrl,
+    })
+  ) {
+    const rendererUrl = new URL(configuredRendererUrl);
     Object.entries(query).forEach(([key, value]) => {
       rendererUrl.searchParams.set(key, value);
     });
@@ -298,6 +353,7 @@ function createScreenCaptureWindow(display) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       preload: path.join(__dirname, "preload.cjs"),
     },
   });
@@ -441,8 +497,8 @@ function wait(milliseconds) {
 
 async function captureScreen(event) {
   if (
-    !mainWindow ||
-    event.sender !== mainWindow.webContents ||
+    !isTrustedRendererEvent(event, mainWindow) ||
+    !isRendererUnlocked() ||
     screenCaptureRequest ||
     screenCaptureInProgress
   ) {
@@ -702,6 +758,81 @@ function settingsUnavailableResult() {
   };
 }
 
+function lockedSettingsResult() {
+  return {
+    success: false,
+    message: "Unlock WinOTP before changing protection settings.",
+  };
+}
+
+function credentialStatusForCore(isSet) {
+  return isSet === true ? "Set" : "NotSet";
+}
+
+function helloAvailabilityForCore(status) {
+  switch (status) {
+    case "available":
+      return "Available";
+    case "remote-session":
+      return "RemoteSession";
+    case "unavailable":
+      return "Unavailable";
+    default:
+      return "Error";
+  }
+}
+
+function protectionInputForCore(settings, status, helloAvailability) {
+  return {
+    pinEnabled: settings.pinProtection === true,
+    passwordEnabled: settings.passwordProtection === true,
+    windowsHelloEnabled: settings.windowsHello === true,
+    remotePinEnabled: settings.remotePin === true,
+    remotePasswordEnabled: settings.remotePassword === true,
+    pinStatus: credentialStatusForCore(status.pinSet),
+    passwordStatus: credentialStatusForCore(status.passwordSet),
+    windowsHelloAvailability: helloAvailabilityForCore(helloAvailability),
+    remotePinStatus: credentialStatusForCore(status.remotePinSet),
+    remotePasswordStatus: credentialStatusForCore(status.remotePasswordSet),
+  };
+}
+
+const protectionSettingKeys = [
+  "pinProtection",
+  "passwordProtection",
+  "windowsHello",
+  "remotePin",
+  "remotePassword",
+];
+
+function hasSameProtectionSettings(left, right) {
+  return protectionSettingKeys.every((key) => left?.[key] === right?.[key]);
+}
+
+async function reconcileLockedProtectionSettings(settings) {
+  try {
+    const securityStatus = getSecurityStore().getStatus();
+    const helloAvailability = await getWindowsHelloAvailability();
+    const state = await runRustCoreAsync(
+      "reconcile-protection",
+      protectionInputForCore(settings, securityStatus, helloAvailability.status),
+    );
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      return undefined;
+    }
+
+    return {
+      pinProtection: state.pinEnabled === true,
+      passwordProtection: state.passwordEnabled === true,
+      windowsHello: state.windowsHelloEnabled === true,
+      remotePin: state.remotePinEnabled === true,
+      remotePassword: state.remotePasswordEnabled === true,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function registerSettingsIpc() {
   ipcMain.handle("settings:get", (event) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
@@ -721,13 +852,33 @@ function registerSettingsIpc() {
     }
   });
 
-  ipcMain.handle("settings:save", (event, settings) => {
+  ipcMain.handle("settings:save", async (event, settings) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return settingsUnavailableResult();
     }
 
     try {
-      return getSettingsStore().saveSettings(settings);
+      const store = getSettingsStore();
+      const nextSettings = normalizeSettings(settings);
+      const currentSettings = store.getSettings();
+      if (!isRendererUnlocked()) {
+        if (legacyAppLockMigrationPending && hasConfiguredProtection(currentSettings)) {
+          return lockedSettingsResult();
+        }
+
+        const safeProtectionSettings = await reconcileLockedProtectionSettings(currentSettings);
+        if (
+          !safeProtectionSettings ||
+          !hasSameProtectionSettings(nextSettings, {
+            ...currentSettings,
+            ...safeProtectionSettings,
+          })
+        ) {
+          return lockedSettingsResult();
+        }
+      }
+
+      return store.saveSettings(nextSettings);
     } catch (error) {
       console.error("Failed to save Electron settings.", error);
       return settingsUnavailableResult();
@@ -746,6 +897,162 @@ function backupUnavailableResult() {
     effectiveFolderPath: "",
     hasStoredPassword: false,
   };
+}
+
+function lockedBackupResult() {
+  return {
+    ...backupUnavailableResult(),
+    errorCode: "Locked",
+    message: "Unlock WinOTP before accessing backups.",
+  };
+}
+
+const CORE_IMPORT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+const MAX_ACCOUNT_INPUT_BYTES = 256 * 1024;
+
+function boundedCoreText(value, maximumBytes, label) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be text.`);
+  }
+  if (Buffer.byteLength(value, "utf8") > maximumBytes) {
+    throw new Error(`${label} is too large.`);
+  }
+  return value;
+}
+
+function boundedAccountInput(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Account data is invalid.");
+  }
+
+  const serialized = JSON.stringify(value);
+  if (
+    typeof serialized !== "string" ||
+    Buffer.byteLength(serialized, "utf8") > MAX_ACCOUNT_INPUT_BYTES
+  ) {
+    throw new Error("Account data is too large.");
+  }
+  return value;
+}
+
+function runCoreFromRenderer(event, operation, input, options = {}) {
+  const isTrustedMainRenderer = isTrustedRendererEvent(event, mainWindow);
+  const isTrustedCaptureOverlay =
+    options.allowScreenCaptureOverlay === true &&
+    isTrustedScreenCaptureEvent(event, screenCaptureRequest?.webContents);
+  if (!isTrustedMainRenderer && !isTrustedCaptureOverlay) {
+    return Promise.reject(new Error("The renderer is not authorized."));
+  }
+
+  const { allowScreenCaptureOverlay: _allowScreenCaptureOverlay, ...coreOptions } = options;
+
+  return runRustCoreAsync(operation, input, {
+    maxInputBytes: coreOptions.maxInputBytes ?? 8 * 1024 * 1024,
+    maxBuffer: coreOptions.maxBuffer ?? 8 * 1024 * 1024,
+    timeoutMs: coreOptions.timeoutMs ?? 15_000,
+  });
+}
+
+function registerCoreIpc() {
+  ipcMain.handle("core:parse-otp-uri", (event, uri) =>
+    runCoreFromRenderer(event, "parse-otp-uri", {
+      uri: boundedCoreText(uri, 8 * 1024, "The OTP URI"),
+    }),
+  );
+  ipcMain.handle("core:parse-winauth-line", (event, line) =>
+    runCoreFromRenderer(event, "parse-winauth-line", {
+      line:
+        line === null || line === undefined
+          ? line
+          : boundedCoreText(line, 8 * 1024, "The WinAuth line"),
+    }),
+  );
+  ipcMain.handle("core:parse-legacy-json", (event, content) =>
+    runCoreFromRenderer(
+      event,
+      "parse-legacy-json",
+      { content: boundedCoreText(content, CORE_IMPORT_MAX_BUFFER_BYTES, "The import file") },
+      {
+        maxInputBytes: CORE_IMPORT_MAX_BUFFER_BYTES + 8 * 1024,
+        maxBuffer: CORE_IMPORT_MAX_BUFFER_BYTES,
+      },
+    ),
+  );
+  ipcMain.handle("core:parse-winauth-text", (event, content) =>
+    runCoreFromRenderer(
+      event,
+      "parse-winauth-text",
+      { content: boundedCoreText(content, CORE_IMPORT_MAX_BUFFER_BYTES, "The import file") },
+      {
+        maxInputBytes: CORE_IMPORT_MAX_BUFFER_BYTES + 8 * 1024,
+        maxBuffer: CORE_IMPORT_MAX_BUFFER_BYTES,
+      },
+    ),
+  );
+  ipcMain.handle("core:sort-accounts", (event, input) =>
+    runCoreFromRenderer(event, "sort-accounts", input),
+  );
+  ipcMain.handle("core:prune-custom-order-ids", (event, input) =>
+    runCoreFromRenderer(event, "prune-custom-order-ids", input),
+  );
+  ipcMain.handle("core:order-drop-index", (event, input) =>
+    runCoreFromRenderer(event, "order-drop-index", input),
+  );
+  ipcMain.handle("core:order-project", (event, input) =>
+    runCoreFromRenderer(event, "order-project", input),
+  );
+  ipcMain.handle("core:reconcile-protection", (event, input) =>
+    runCoreFromRenderer(event, "reconcile-protection", input),
+  );
+  ipcMain.handle("core:screen-capture-map", (event, input) =>
+    runCoreFromRenderer(event, "screen-capture-map", input, {
+      allowScreenCaptureOverlay: true,
+    }),
+  );
+  ipcMain.handle("core:screen-capture-expand", (event, input) =>
+    runCoreFromRenderer(event, "screen-capture-expand", input, {
+      allowScreenCaptureOverlay: true,
+    }),
+  );
+  ipcMain.handle("core:screen-capture-padding", (event, input) =>
+    runCoreFromRenderer(event, "screen-capture-padding", input, {
+      allowScreenCaptureOverlay: true,
+    }),
+  );
+}
+
+function createMissingAccount(id) {
+  return {
+    id,
+    issuer: "",
+    accountName: "",
+    secret: "",
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    usageCount: 0,
+  };
+}
+
+function registerTotpIpc() {
+  ipcMain.handle("totp:previews", async (event, ids, timestamp) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return [];
+    }
+    if (!isRendererUnlocked()) {
+      return [];
+    }
+
+    const requestedIds = Array.isArray(ids)
+      ? ids.map((id) => String(id ?? "").trim()).slice(0, 1_000)
+      : [];
+    const storedAccounts = accountStoreLoader.get()?.readAccounts().accounts ?? [];
+    const accountById = new Map(storedAccounts.map((account) => [account.id, account]));
+    const accounts = requestedIds.map((id) => accountById.get(id) ?? createMissingAccount(id));
+    const previews = await runTotpPreviews(accounts, timestamp);
+    return isRendererUnlocked() ? previews : [];
+  });
 }
 
 function withBackupStatus(service, result) {
@@ -807,11 +1114,33 @@ function registerAccountIpc() {
     }
 
     try {
-      return store.readAccounts();
+      return store.readAccounts({ includeSecrets: false });
     } catch (error) {
       accountStoreLoader.close();
       console.error("Failed to load accounts from the local database.", error);
       return accountStoreUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("accounts:get", (event, id) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return undefined;
+    }
+    if (!isRendererUnlocked()) {
+      return undefined;
+    }
+
+    const store = accountStoreLoader.get();
+    if (!store) {
+      return undefined;
+    }
+
+    try {
+      return store.getAccount(id);
+    } catch (error) {
+      accountStoreLoader.close();
+      console.error("Failed to load an account for editing.", error);
+      return undefined;
     }
   });
 
@@ -838,6 +1167,13 @@ function registerAccountIpc() {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return { success: false, message: "The renderer is not authorized." };
     }
+    if (!isRendererUnlocked()) {
+      return {
+        success: false,
+        errorCode: "Locked",
+        message: "Unlock WinOTP before changing accounts.",
+      };
+    }
 
     const store = accountStoreLoader.get();
     if (!store) {
@@ -845,7 +1181,11 @@ function registerAccountIpc() {
     }
 
     try {
-      return attachAutomaticBackupResult(store.saveAccount(account));
+      const result = store.saveAccount(boundedAccountInput(account));
+      const rendererResult = result?.account
+        ? { ...result, account: sanitizeAccount(result.account) }
+        : result;
+      return attachAutomaticBackupResult(rendererResult);
     } catch (error) {
       accountStoreLoader.close();
       console.error("Failed to save an account to the local database.", error);
@@ -856,6 +1196,13 @@ function registerAccountIpc() {
   ipcMain.handle("accounts:delete", async (event, id) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return { success: false, message: "The renderer is not authorized." };
+    }
+    if (!isRendererUnlocked()) {
+      return {
+        success: false,
+        errorCode: "Locked",
+        message: "Unlock WinOTP before changing accounts.",
+      };
     }
 
     const store = accountStoreLoader.get();
@@ -875,6 +1222,13 @@ function registerAccountIpc() {
   ipcMain.handle("accounts:record-usage", (event, id) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return { success: false, message: "The renderer is not authorized." };
+    }
+    if (!isRendererUnlocked()) {
+      return {
+        success: false,
+        errorCode: "Locked",
+        message: "Unlock WinOTP before recording account usage.",
+      };
     }
 
     const store = accountStoreLoader.get();
@@ -910,6 +1264,9 @@ function registerBackupIpc() {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
     }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
+    }
 
     try {
       const service = getBackupStore();
@@ -923,6 +1280,9 @@ function registerBackupIpc() {
   ipcMain.handle("backup:enable-automatic", async (event, password, customFolderPath) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
+    }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
     }
 
     try {
@@ -938,6 +1298,9 @@ function registerBackupIpc() {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
     }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
+    }
 
     try {
       const service = getBackupStore();
@@ -951,6 +1314,9 @@ function registerBackupIpc() {
   ipcMain.handle("backup:choose-folder", async (event) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
+    }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
     }
 
     try {
@@ -977,6 +1343,9 @@ function registerBackupIpc() {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
     }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
+    }
 
     try {
       const service = getBackupStore();
@@ -990,6 +1359,9 @@ function registerBackupIpc() {
   ipcMain.handle("backup:import", async (event, password) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
+    }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
     }
 
     try {
@@ -1018,6 +1390,9 @@ function registerBackupIpc() {
   ipcMain.handle("backup:export", async (event, passwordOverride) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return backupUnavailableResult();
+    }
+    if (!isRendererUnlocked()) {
+      return lockedBackupResult();
     }
 
     try {
@@ -1062,12 +1437,56 @@ function securityUnavailableResult() {
   };
 }
 
+function lockedSecurityResult() {
+  return {
+    success: false,
+    errorCode: "Locked",
+    message: "Unlock WinOTP before changing security credentials.",
+  };
+}
+
 function getSecurityStore() {
   if (!securityStore) {
     securityStore = new SecurityStore(app);
   }
 
   return securityStore;
+}
+
+async function canAuthorizeRendererUnlock(kind) {
+  try {
+    const settings = getSettingsStore().getSettings();
+    if (kind === "pin") {
+      return settings.pinProtection === true;
+    }
+    if (kind === "password") {
+      return settings.passwordProtection === true;
+    }
+    if (
+      (kind !== "remotePin" && kind !== "remotePassword") ||
+      settings.windowsHello !== true ||
+      settings[kind] !== true
+    ) {
+      return false;
+    }
+
+    const availability = await getWindowsHelloAvailability();
+    return availability.status === "remote-session";
+  } catch {
+    return false;
+  }
+}
+
+function canAuthorizeWindowsHelloUnlock() {
+  try {
+    const settings = getSettingsStore().getSettings();
+    return (
+      settings.windowsHello === true ||
+      isUnprotectedProfile(settings, legacyAppLockMigrationPending)
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function runWindowsHelloOperation(operation) {
@@ -1108,6 +1527,9 @@ function registerSecurityIpc() {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return securityUnavailableResult();
     }
+    if (!isRendererUnlocked()) {
+      return lockedSecurityResult();
+    }
 
     try {
       getSecurityStore().setCredential(kind, secret);
@@ -1120,13 +1542,19 @@ function registerSecurityIpc() {
     }
   });
 
-  ipcMain.handle("security:verify-credential", (event, kind, secret) => {
+  ipcMain.handle("security:verify-credential", async (event, kind, secret) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return securityUnavailableResult();
     }
 
     try {
-      return { success: true, ...getSecurityStore().verifyCredential(kind, secret) };
+      const result = getSecurityStore().verifyCredential(kind, secret);
+      if (result.verified === true) {
+        if (rendererUnlocked || (await canAuthorizeRendererUnlock(kind))) {
+          rendererUnlocked = true;
+        }
+      }
+      return { success: true, ...result };
     } catch {
       return securityUnavailableResult();
     }
@@ -1135,6 +1563,9 @@ function registerSecurityIpc() {
   ipcMain.handle("security:remove-credential", (event, kind) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return securityUnavailableResult();
+    }
+    if (!isRendererUnlocked()) {
+      return lockedSecurityResult();
     }
 
     try {
@@ -1171,9 +1602,15 @@ function registerSecurityIpc() {
       };
     }
 
-    return runWindowsHelloOperation(() =>
-      verifyWindowsHello({ windowHandle: mainWindow.getNativeWindowHandle() }),
-    );
+    return runWindowsHelloOperation(async () => {
+      const result = await verifyWindowsHello({
+        windowHandle: mainWindow.getNativeWindowHandle(),
+      });
+      if (result.status === "verified" && (rendererUnlocked || canAuthorizeWindowsHelloUnlock())) {
+        rendererUnlocked = true;
+      }
+      return result;
+    });
   });
 }
 
@@ -1271,6 +1708,7 @@ function createWindow() {
   };
   mainWindow.webContents.on("will-navigate", rejectUnexpectedNavigation);
   mainWindow.webContents.on("will-redirect", rejectUnexpectedNavigation);
+  mainWindow.webContents.on("did-start-loading", clearRendererUnlockState);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.on("close", (event) => {
     if (isQuitting) {
@@ -1303,6 +1741,7 @@ function createWindow() {
     }
   });
   mainWindow.on("closed", () => {
+    clearRendererUnlockState();
     mainWindow = undefined;
   });
 }
@@ -1330,23 +1769,32 @@ if (!hasSingleInstanceLock) {
     registerUpdateIpc();
     registerSecurityIpc();
     registerAutoStartIpc();
+    registerCoreIpc();
+    registerTotpIpc();
     registerPowerSessionChangeMonitoring();
-    ipcMain.handle("open-external", (event, url) => {
+    ipcMain.handle("open-external", async (event, url) => {
       if (!isTrustedRendererEvent(event, mainWindow)) {
         return false;
       }
 
-      if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
+      if (!isAllowedExternalUrl(url)) {
         return false;
       }
 
-      shell.openExternal(url);
-      return true;
+      try {
+        await shell.openExternal(url);
+        return true;
+      } catch {
+        return false;
+      }
     });
     ipcMain.handle("capture-screen", captureScreen);
     ipcMain.on("set-tray-state", updateTrayState);
     ipcMain.on("screen-capture-result", (event, result) => {
-      if (!screenCaptureRequest || !screenCaptureRequest.webContents.has(event.sender)) {
+      if (
+        !screenCaptureRequest ||
+        !isTrustedScreenCaptureEvent(event, screenCaptureRequest.webContents)
+      ) {
         return;
       }
 

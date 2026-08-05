@@ -1,5 +1,5 @@
 import { LockKeyhole, ScanFace } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { NavigationRail } from "@/components/NavigationRail";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,8 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import {
   isSortOption,
   normalizeCustomOrderIds,
-  reconcileCustomOrderIds,
-  sortAccounts,
+  pruneCustomOrderIdsWithCore,
+  sortAccountsWithCore,
 } from "@/lib/account-order";
 import { mergeLastUsedAt, mergeUsageCount } from "@/lib/account-usage";
 import { loadAccountsUntilCurrent, mergePersistedAccounts } from "@/lib/account-state";
@@ -25,16 +25,18 @@ import {
 } from "@/lib/auto-lock";
 import { useTotp } from "@/lib/use-totp";
 import {
+  canApplyProtectionReconciliation,
   directCredentialKind,
   emptySecurityStatus,
   credentialLabel,
+  hasConfiguredProtection,
   isPinCredential,
   isSecurityNormalizationReady,
-  normalizeSecuritySettings,
   remoteCredentialKind,
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
+  shouldReleaseFailedLock,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
 import type {
@@ -45,6 +47,8 @@ import type {
   BackupImportResult,
   BackupOperationResult,
   OtpAccount,
+  ProtectionCoreInput,
+  ProtectionViewState,
   Route,
   SecurityCredentialKind,
   SecurityCredentialStatus,
@@ -85,6 +89,10 @@ function getTrayAccountLabel(account: OtpAccount) {
   }
 
   return issuer || accountName || "Account";
+}
+
+function sanitizeAccountForRenderer(account: OtpAccount): OtpAccount {
+  return { ...account, secret: "" };
 }
 
 function resolveThemeColor(variable: "--background" | "--foreground") {
@@ -153,6 +161,55 @@ function hasStoredAppSettings() {
   }
 }
 
+function credentialStatusForCore(isSet: boolean): "NotSet" | "Set" {
+  return isSet ? "Set" : "NotSet";
+}
+
+function helloAvailabilityForCore(
+  status: WindowsHelloAvailabilityStatus,
+): ProtectionCoreInput["windowsHelloAvailability"] {
+  switch (status) {
+    case "available":
+      return "Available";
+    case "remote-session":
+      return "RemoteSession";
+    case "unavailable":
+      return "Unavailable";
+    default:
+      return "Error";
+  }
+}
+
+function protectionInputForCore(
+  settings: AppSettings,
+  status: SecurityCredentialStatus,
+  helloAvailability: WindowsHelloAvailabilityStatus,
+): ProtectionCoreInput {
+  return {
+    pinEnabled: settings.pinProtection,
+    passwordEnabled: settings.passwordProtection,
+    windowsHelloEnabled: settings.windowsHello,
+    remotePinEnabled: settings.remotePin,
+    remotePasswordEnabled: settings.remotePassword,
+    pinStatus: credentialStatusForCore(status.pinSet),
+    passwordStatus: credentialStatusForCore(status.passwordSet),
+    windowsHelloAvailability: helloAvailabilityForCore(helloAvailability),
+    remotePinStatus: credentialStatusForCore(status.remotePinSet),
+    remotePasswordStatus: credentialStatusForCore(status.remotePasswordSet),
+  };
+}
+
+function applyProtectionViewState(settings: AppSettings, state: ProtectionViewState): AppSettings {
+  return {
+    ...settings,
+    pinProtection: state.pinEnabled,
+    passwordProtection: state.passwordEnabled,
+    windowsHello: state.windowsHelloEnabled,
+    remotePin: state.remotePinEnabled,
+    remotePassword: state.remotePasswordEnabled,
+  };
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
   const [accounts, setAccounts] = useState<OtpAccount[]>([]);
@@ -163,9 +220,7 @@ export default function App() {
   const [updateState, setUpdateState] = useState<UpdateState>(() => initialUpdateState(settings));
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
-  const [locked, setLocked] = useState(() =>
-    Boolean(settings.pinProtection || settings.passwordProtection || settings.windowsHello),
-  );
+  const [locked, setLocked] = useState(true);
   const [remoteFallbackActive, setRemoteFallbackActive] = useState(false);
   const [unlockValue, setUnlockValue] = useState("");
   const [unlockError, setUnlockError] = useState("");
@@ -173,6 +228,7 @@ export default function App() {
   const [lockRequestBusy, setLockRequestBusy] = useState(false);
   const [securityReady, setSecurityReady] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsSourceAvailable, setSettingsSourceAvailable] = useState(false);
   const [settingsPersistenceReady, setSettingsPersistenceReady] = useState(false);
   const [securityMigrationPending, setSecurityMigrationPending] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
@@ -195,6 +251,7 @@ export default function App() {
   const startupLockHandled = useRef(false);
   const pendingSessionLock = useRef(false);
   const sessionChangeVersion = useRef(0);
+  const protectionReconciliationVersion = useRef(0);
   const requestLockRef = useRef<((reason: LockRequestReason) => Promise<boolean>) | undefined>(
     undefined,
   );
@@ -207,11 +264,76 @@ export default function App() {
   securityStorageAvailableRef.current = securityStorageAvailable;
   securityStatusRef.current = securityStatus;
   requestLockRef.current = requestLock;
-  const { accountTiming, codes } = useTotp(accounts);
-  const orderedAccounts = useMemo(
-    () => sortAccounts(accounts, settings.accountSortOption, settings.accountCustomOrderIds),
-    [accounts, settings.accountCustomOrderIds, settings.accountSortOption],
+  const { accountTiming, codes } = useTotp(
+    accounts,
+    settingsLoaded && settingsSourceAvailable && securityReady && !locked,
   );
+  const [orderedAccounts, setOrderedAccounts] = useState<OtpAccount[]>(accounts);
+
+  useEffect(() => {
+    let cancelled = false;
+    void sortAccountsWithCore(
+      accounts,
+      settings.accountSortOption,
+      settings.accountCustomOrderIds,
+    ).then((result) => {
+      if (!cancelled) {
+        setOrderedAccounts(result);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accounts, settings.accountCustomOrderIds, settings.accountSortOption]);
+
+  async function resolveProtectionViewState(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ): Promise<ProtectionViewState | undefined> {
+    const core = window.winotp?.core;
+    if (!core) {
+      return undefined;
+    }
+
+    try {
+      const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
+      const availability = helloResult?.success ? helloResult.status : "error";
+      return await core.reconcileProtection(
+        protectionInputForCore(settingsValue, status, availability),
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function disableUnavailableProtectionIfSafe(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ) {
+    if (securityMigrationPending) {
+      return false;
+    }
+
+    const reconciliationVersion = ++protectionReconciliationVersion.current;
+    const state = await resolveProtectionViewState(settingsValue, status);
+    if (
+      !state ||
+      reconciliationVersion !== protectionReconciliationVersion.current ||
+      !canApplyProtectionReconciliation(
+        settingsValue,
+        status,
+        settingsRef.current,
+        securityStatusRef.current,
+      )
+    ) {
+      return false;
+    }
+
+    const nextSettings = applyProtectionViewState(settingsValue, state);
+    setSettings((current) => (current === settingsValue ? nextSettings : current));
+    markSettingsChanged();
+    return !hasConfiguredProtection(nextSettings);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -326,13 +448,18 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!securityReady || !settingsLoaded || startupLockHandled.current) {
+    if (
+      !securityReady ||
+      !settingsLoaded ||
+      !settingsSourceAvailable ||
+      startupLockHandled.current
+    ) {
       return;
     }
 
     startupLockHandled.current = true;
     void requestLock("startup");
-  }, [securityReady, settingsLoaded]);
+  }, [securityReady, settingsLoaded, settingsSourceAvailable]);
 
   useEffect(() => {
     if (!securityReady) {
@@ -512,6 +639,7 @@ export default function App() {
       const settingsBridge = window.winotp?.settings;
       if (!settingsBridge) {
         if (!cancelled) {
+          setSettingsSourceAvailable(false);
           setSettingsLoaded(true);
           setSettingsPersistenceReady(true);
           setSecurityMigrationPending(false);
@@ -523,6 +651,7 @@ export default function App() {
         const result = await settingsBridge.get();
         if (!cancelled) {
           const settingsChanged = settingsHydrationTouchedRef.current;
+          setSettingsSourceAvailable(result.success);
           setSecurityMigrationPending(
             result.success ? result.securityMigrationPending === true : true,
           );
@@ -537,6 +666,7 @@ export default function App() {
         }
       } catch {
         if (!cancelled) {
+          setSettingsSourceAvailable(false);
           setSecurityMigrationPending(true);
           setSettingsPersistenceReady(settingsHydrationTouchedRef.current || hasStoredSettings);
         }
@@ -554,7 +684,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!settingsLoaded || !settingsPersistenceReady) {
+    if (!settingsLoaded || !settingsSourceAvailable || !settingsPersistenceReady) {
       return;
     }
 
@@ -568,7 +698,7 @@ export default function App() {
     if (settingsBridge) {
       void settingsBridge.save(settings).catch(() => undefined);
     }
-  }, [settings, settingsLoaded, settingsPersistenceReady]);
+  }, [settings, settingsLoaded, settingsPersistenceReady, settingsSourceAvailable]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
@@ -586,13 +716,40 @@ export default function App() {
       return;
     }
 
-    setSettings((current) => normalizeSecuritySettings(current, securityStatus));
+    let cancelled = false;
+    const reconciliationVersion = ++protectionReconciliationVersion.current;
+    async function reconcileProtection() {
+      const state = await resolveProtectionViewState(settings, securityStatus);
+      if (
+        !cancelled &&
+        reconciliationVersion === protectionReconciliationVersion.current &&
+        state &&
+        canApplyProtectionReconciliation(
+          settings,
+          securityStatus,
+          settingsRef.current,
+          securityStatusRef.current,
+        )
+      ) {
+        setSettings((current) => applyProtectionViewState(current, state));
+      }
+    }
+
+    void reconcileProtection();
+    return () => {
+      cancelled = true;
+    };
   }, [
     securityMigrationPending,
     securityReady,
     securityStatus,
     securityStorageAvailable,
     settingsLoaded,
+    settings.passwordProtection,
+    settings.pinProtection,
+    settings.remotePassword,
+    settings.remotePin,
+    settings.windowsHello,
   ]);
 
   useEffect(() => {
@@ -718,13 +875,14 @@ export default function App() {
       minimizeToTray: settings.minimizeToTray,
       showTotpInTray: settings.showTotpInTray,
       locked,
-      accounts: settings.showTotpInTray
-        ? orderedAccounts.map((account) => ({
-            id: account.id,
-            label: getTrayAccountLabel(account),
-            code: codes[account.id]?.code ?? "—".repeat(account.digits),
-          }))
-        : [],
+      accounts:
+        settings.showTotpInTray && !locked
+          ? orderedAccounts.map((account) => ({
+              id: account.id,
+              label: getTrayAccountLabel(account),
+              code: codes[account.id]?.code ?? "—".repeat(account.digits),
+            }))
+          : [],
     });
   }, [
     codes,
@@ -745,6 +903,18 @@ export default function App() {
 
   function setAppLocked(nextLocked: boolean) {
     lockedRef.current = nextLocked;
+    if (nextLocked) {
+      window.winotp?.setTrayState({
+        minimizeOnClose: settings.minimizeOnClose,
+        minimizeToTray: settings.minimizeToTray,
+        showTotpInTray: settings.showTotpInTray,
+        locked: true,
+        accounts: [],
+      });
+      setEditingAccount(undefined);
+      setUnlockValue("");
+      setUnlockError("");
+    }
     setLocked(nextLocked);
   }
 
@@ -767,20 +937,24 @@ export default function App() {
     nextAccounts: OtpAccount[],
     issues: readonly { code: string }[] = [],
   ) {
-    setSettings((current) => {
-      const nextOrderIds = reconcileCustomOrderIds(
-        current.accountCustomOrderIds,
-        nextAccounts,
-        issues,
-      );
-      if (
-        nextOrderIds.length === current.accountCustomOrderIds.length &&
-        nextOrderIds.every((id, index) => id === current.accountCustomOrderIds[index])
-      ) {
-        return current;
+    const savedOrderIds = normalizeCustomOrderIds(settingsRef.current.accountCustomOrderIds);
+    if (issues.length > 0) {
+      if (savedOrderIds.length !== settingsRef.current.accountCustomOrderIds.length) {
+        setSettings((current) => ({ ...current, accountCustomOrderIds: savedOrderIds }));
       }
+      return;
+    }
 
-      return { ...current, accountCustomOrderIds: nextOrderIds };
+    void pruneCustomOrderIdsWithCore(savedOrderIds, nextAccounts).then((nextOrderIds) => {
+      setSettings((current) => {
+        if (
+          nextOrderIds.length === current.accountCustomOrderIds.length &&
+          nextOrderIds.every((id, index) => id === current.accountCustomOrderIds[index])
+        ) {
+          return current;
+        }
+        return { ...current, accountCustomOrderIds: nextOrderIds };
+      });
     });
   }
 
@@ -791,9 +965,18 @@ export default function App() {
     }
   }
 
-  function editAccount(account: OtpAccount) {
-    setEditingAccount(account);
-    setRoute("manual");
+  async function editAccount(account: OtpAccount) {
+    try {
+      const editableAccount = await window.winotp?.accounts.get(account.id);
+      if (!editableAccount) {
+        showToast("Unable to load the account for editing.");
+        return;
+      }
+      setEditingAccount(editableAccount);
+      setRoute("manual");
+    } catch {
+      showToast("Unable to load the account for editing.");
+    }
   }
 
   async function saveAccount(account: OtpAccount) {
@@ -804,7 +987,7 @@ export default function App() {
         return;
       }
 
-      const persistedAccount = result.account;
+      const persistedAccount = sanitizeAccountForRenderer(result.account);
       accountMutationVersion.current += 1;
       const wasEditing = Boolean(editingAccount);
       setAccounts((current) => mergePersistedAccounts(current, [persistedAccount]));
@@ -836,7 +1019,7 @@ export default function App() {
         }
 
         importedCount += 1;
-        persistedAccounts.push(result.account);
+        persistedAccounts.push(sanitizeAccountForRenderer(result.account));
         automaticBackupFailed ||= result.automaticBackup?.success === false;
       } catch {
         failedCount += 1;
@@ -1340,6 +1523,11 @@ export default function App() {
   }
 
   async function disableUnavailableWindowsHello() {
+    if (securityMigrationPending) {
+      setUnlockError("Security credential migration is incomplete; the app remains locked.");
+      return;
+    }
+
     setAppLocked(false);
     setRemoteFallbackActive(false);
     setUnlockValue("");
@@ -1407,12 +1595,6 @@ export default function App() {
     }
   }
 
-  function releasePendingStartupLock(reason: LockRequestReason) {
-    if (reason === "startup") {
-      setAppLocked(false);
-    }
-  }
-
   async function requestLock(reason: LockRequestReason) {
     if (lockedRef.current && reason !== "startup" && reason !== "session") {
       return true;
@@ -1430,6 +1612,7 @@ export default function App() {
     const settingsAtStart = settingsRef.current;
     const securityStatusAtStart = securityStatusRef.current;
     const kind = directCredentialKind(settingsAtStart);
+    const protectionConfigured = hasConfiguredProtection(settingsAtStart);
     let lockApplied = false;
     const applyLock = () => {
       lockApplied = !lockedRef.current;
@@ -1438,14 +1621,22 @@ export default function App() {
       setUnlockError("");
     };
     const releaseFailedLock = () => {
-      if (lockApplied) {
+      if (shouldReleaseFailedLock(lockApplied, protectionConfigured)) {
         setAppLocked(false);
       }
-      releasePendingStartupLock(reason);
     };
     try {
       if (!kind && !settingsAtStart.windowsHello) {
         releaseFailedLock();
+        return false;
+      }
+
+      if (securityMigrationPending && protectionConfigured) {
+        showManualLockError(
+          "Security credential migration is incomplete; the app remains locked.",
+          reason,
+        );
+        setAppLocked(true);
         return false;
       }
 
@@ -1465,13 +1656,19 @@ export default function App() {
       }
 
       if (kind && !securityStatusAtStart[securityStatusKey(kind)]) {
-        markSettingsChanged();
-        setSettings((current) => normalizeSecuritySettings(current, securityStatusAtStart));
+        const disabled = await disableUnavailableProtectionIfSafe(
+          settingsAtStart,
+          securityStatusAtStart,
+        );
         showManualLockError(
-          `Set up your ${kind === "pin" ? "PIN" : "password"} before locking the app.`,
+          disabled
+            ? `Your ${kind === "pin" ? "PIN" : "password"} protection was disabled because no credential is saved.`
+            : `Your ${kind === "pin" ? "PIN" : "password"} protection could not be reconciled; the app remains locked.`,
           reason,
         );
-        releaseFailedLock();
+        if (disabled) {
+          setAppLocked(false);
+        }
         return false;
       }
 
@@ -1556,11 +1753,18 @@ export default function App() {
     }
 
     if (!securityStatus[securityStatusKey(kind)]) {
-      setAppLocked(false);
-      markSettingsChanged();
-      setSettings((current) => normalizeSecuritySettings(current, securityStatus));
-      setUnlockError("");
-      showToast("This protection has no saved credential and was disabled.");
+      const disabled = await disableUnavailableProtectionIfSafe(
+        settingsRef.current,
+        securityStatusRef.current,
+      );
+      setUnlockValue("");
+      if (disabled) {
+        setAppLocked(false);
+        setUnlockError("");
+        showToast("This protection has no saved credential and was disabled.");
+      } else {
+        setUnlockError("This protection could not be reconciled; the app remains locked.");
+      }
       return;
     }
 
@@ -1591,16 +1795,23 @@ export default function App() {
 
       if (!verification.available) {
         const unavailableStatus = {
-          ...securityStatus,
+          ...securityStatusRef.current,
           [securityStatusKey(kind)]: false,
         };
+        securityStatusRef.current = unavailableStatus;
         setSecurityStatus(unavailableStatus);
-        setAppLocked(false);
-        markSettingsChanged();
-        setSettings((current) => normalizeSecuritySettings(current, unavailableStatus));
+        const disabled = await disableUnavailableProtectionIfSafe(
+          settingsRef.current,
+          unavailableStatus,
+        );
         setUnlockValue("");
-        setUnlockError("");
-        showToast("This protection could not be verified and was disabled.");
+        if (disabled) {
+          setAppLocked(false);
+          setUnlockError("");
+          showToast("This protection could not be verified and was disabled.");
+        } else {
+          setUnlockError("This protection could not be reconciled; the app remains locked.");
+        }
         return;
       }
 
@@ -1759,6 +1970,7 @@ export default function App() {
   const activeCredential = remoteFallbackActive
     ? remoteCredentialKind(settings)
     : directCredentialKind(settings);
+  const protectionReady = settingsLoaded && settingsSourceAvailable && securityReady;
 
   return (
     <TooltipProvider>
@@ -1768,10 +1980,12 @@ export default function App() {
           <span className="window-titlebar__title">WinOTP</span>
         </div>
 
-        <div className="app-body" aria-hidden={locked} inert={locked}>
-          <NavigationRail route={route} onNavigate={navigate} />
-          <main className="content-frame">{renderPage()}</main>
-        </div>
+        {!locked && (
+          <div className="app-body">
+            <NavigationRail route={route} onNavigate={navigate} />
+            <main className="content-frame">{renderPage()}</main>
+          </div>
+        )}
 
         {locked && (
           <div
@@ -1784,9 +1998,11 @@ export default function App() {
             <div className="lock-overlay__panel">
               <LockKeyhole className="lock-overlay__icon" size={54} strokeWidth={1.35} />
               <h1 id="lock-title" className="lock-overlay__title">
-                WinOTP is locked
+                {protectionReady ? "WinOTP is locked" : "Preparing secure storage…"}
               </h1>
-              {activeCredential ? (
+              {!protectionReady ? (
+                <p className="lock-overlay__detail">Checking protection settings…</p>
+              ) : activeCredential ? (
                 <>
                   <p className="lock-overlay__detail">
                     Enter your {credentialLabel(activeCredential)} to unlock
@@ -1810,13 +2026,13 @@ export default function App() {
               ) : (
                 <p className="lock-overlay__detail">Use Windows Hello to unlock</p>
               )}
-              {unlockError && <div className="inline-error">{unlockError}</div>}
-              {activeCredential && (
+              {protectionReady && unlockError && <div className="inline-error">{unlockError}</div>}
+              {protectionReady && activeCredential && (
                 <Button onClick={() => void unlock()} disabled={unlockBusy || lockRequestBusy}>
                   {lockRequestBusy ? "Locking…" : unlockBusy ? "Checking…" : "Unlock"}
                 </Button>
               )}
-              {settings.windowsHello && !remoteFallbackActive && (
+              {protectionReady && settings.windowsHello && !remoteFallbackActive && (
                 <Button
                   variant="outline"
                   onClick={() => void unlockWithHello()}

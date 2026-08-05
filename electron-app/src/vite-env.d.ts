@@ -12,6 +12,10 @@ import type {
   BackupImportResult,
   BackupOperationResult,
   OtpAccount,
+  ParsedAccountImport,
+  ProtectionCoreInput,
+  ProtectionViewState,
+  SortOption,
   SecurityCredentialKind,
   SecurityOperationResult,
   SecurityStatusResult,
@@ -20,6 +24,7 @@ import type {
   WindowsHelloAvailabilityResult,
   WindowsHelloVerificationResult,
   TrayState,
+  TotpPreview,
 } from "@/lib/types";
 
 declare global {
@@ -63,6 +68,54 @@ declare global {
     | { status: "success"; text: string }
     | { status: "cancelled" | "no-qr-code" | "failed" };
 
+  interface CoreSortInput {
+    accounts: OtpAccount[];
+    sortOption: SortOption;
+    customOrderIds: string[];
+  }
+
+  interface CorePruneOrderInput {
+    accounts: OtpAccount[];
+    orderIds: string[];
+  }
+
+  interface CoreOrderDropInput {
+    bounds: Array<{
+      id: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      sourceIndex?: number;
+    }>;
+    x: number;
+    y: number;
+  }
+
+  interface CoreOrderProjectInput {
+    orderIds: string[];
+    draggedId: string;
+    insertionIndex: number;
+  }
+
+  interface CoreScreenCaptureMapInput {
+    selectionX: number;
+    selectionY: number;
+    selectionWidth: number;
+    selectionHeight: number;
+    canvasWidth: number;
+    canvasHeight: number;
+    imageWidth: number;
+    imageHeight: number;
+  }
+
+  interface CoreScreenCaptureExpandInput {
+    rect: { x: number; y: number; width: number; height: number };
+    imageWidth: number;
+    imageHeight: number;
+    padding: number;
+  }
+
   interface Window {
     winotp?: {
       openExternal: (url: string) => Promise<boolean>;
@@ -77,12 +130,42 @@ declare global {
       captureScreen: () => Promise<ScreenCaptureResult>;
       onScreenCaptureReady: (listener: (capture: ScreenCapturePayload) => void) => () => void;
       completeScreenCapture: (result: ScreenCaptureResult) => void;
+      core: {
+        parseOtpUri: (uri: string) => Promise<OtpAccount | undefined>;
+        parseWinAuthLine: (line: string) => Promise<OtpAccount | undefined>;
+        parseLegacyJson: (content: string) => Promise<ParsedAccountImport>;
+        parseWinAuthText: (content: string) => Promise<ParsedAccountImport>;
+        sortAccounts: (input: CoreSortInput) => Promise<OtpAccount[]>;
+        pruneCustomOrderIds: (input: CorePruneOrderInput) => Promise<string[]>;
+        orderDropIndex: (input: CoreOrderDropInput) => Promise<number>;
+        orderProject: (input: CoreOrderProjectInput) => Promise<string[]>;
+        reconcileProtection: (input: ProtectionCoreInput) => Promise<ProtectionViewState>;
+        screenCaptureMap: (input: CoreScreenCaptureMapInput) => Promise<{
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }>;
+        screenCaptureExpand: (input: CoreScreenCaptureExpandInput) => Promise<{
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }>;
+        screenCapturePadding: (input: {
+          rect: { x: number; y: number; width: number; height: number };
+        }) => Promise<number>;
+      };
+      totp: {
+        previews: (ids: string[], timestamp?: number) => Promise<TotpPreview[]>;
+      };
       settings: {
         get: () => Promise<AppSettingsResult>;
         save: (settings: AppSettings) => Promise<AppSettingsResult>;
       };
       accounts: {
         list: () => Promise<AccountLoadResult>;
+        get: (id: string) => Promise<OtpAccount | undefined>;
         acknowledgeMigration: () => Promise<boolean>;
         save: (account: OtpAccount) => Promise<AccountSaveResult>;
         delete: (id: string) => Promise<AccountDeleteResult>;

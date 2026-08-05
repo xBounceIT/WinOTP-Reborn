@@ -60,7 +60,9 @@ export function ImportPage({ onToast, onImport }: ImportPageProps) {
     try {
       const content = await file.text();
       const parsed =
-        source === "legacy" ? parseLegacyWinOtpJson(content) : parseWinAuthText(content);
+        source === "legacy"
+          ? await parseLegacyWinOtpJson(content)
+          : await parseWinAuthText(content);
 
       if (parsed.accounts.length === 0 && parsed.skippedCount === 0) {
         onToast(

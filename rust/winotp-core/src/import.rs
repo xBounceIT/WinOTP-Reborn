@@ -1,4 +1,5 @@
 use percent_encoding::percent_decode_str;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use url::Url;
 use uuid::Uuid;
@@ -6,6 +7,16 @@ use uuid::Uuid;
 use crate::models::{
     get_string, is_valid_base32, normalize_timestamp_value, OtpAccount, OtpAlgorithm,
 };
+
+pub const MAX_IMPORTED_ACCOUNT_COUNT: usize = 1_000;
+const MAX_IMPORTED_ACCOUNT_COUNT_LABEL: &str = "1,000";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedAccountImport {
+    pub accounts: Vec<OtpAccount>,
+    pub skipped_count: usize,
+}
 
 fn decode_component(value: &str) -> Option<String> {
     percent_decode_str(value)
@@ -139,14 +150,85 @@ pub fn parse_winauth_line(raw_line: Option<&str>) -> Result<OtpAccount, String> 
     Ok(account)
 }
 
+pub fn parse_legacy_json(content: &str) -> Result<ParsedAccountImport, String> {
+    let value: Value = serde_json::from_str(content.trim_start_matches('\u{feff}'))
+        .map_err(|_| "The file is not a valid WinOTP backup JSON file.".to_string())?;
+    let entries = value
+        .as_object()
+        .ok_or_else(|| "The file is not a valid WinOTP backup JSON file.".to_string())?;
+
+    let mut accounts = Vec::new();
+    let mut skipped_count = 0;
+    for (entry_id, source) in entries {
+        if !source.is_object() {
+            skipped_count += 1;
+            continue;
+        }
+
+        match parse_legacy_account(entry_id, source) {
+            Ok(account) => {
+                if accounts.len() >= MAX_IMPORTED_ACCOUNT_COUNT {
+                    return Err(format!(
+                        "The import contains more than {MAX_IMPORTED_ACCOUNT_COUNT_LABEL} accounts."
+                    ));
+                }
+                accounts.push(account);
+            }
+            Err(_) => skipped_count += 1,
+        }
+    }
+
+    Ok(ParsedAccountImport {
+        accounts,
+        skipped_count,
+    })
+}
+
+pub fn parse_winauth_text(content: Option<&str>) -> Result<ParsedAccountImport, String> {
+    let mut accounts = Vec::new();
+    let mut skipped_count = 0;
+    for line in content
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        match parse_winauth_line(Some(line)) {
+            Ok(account) => {
+                if accounts.len() >= MAX_IMPORTED_ACCOUNT_COUNT {
+                    return Err(format!(
+                        "The import contains more than {MAX_IMPORTED_ACCOUNT_COUNT_LABEL} accounts."
+                    ));
+                }
+                accounts.push(account);
+            }
+            Err(_) => skipped_count += 1,
+        }
+    }
+
+    Ok(ParsedAccountImport {
+        accounts,
+        skipped_count,
+    })
+}
+
 pub fn parse_legacy_account(entry_id: &str, source: &Value) -> Result<OtpAccount, String> {
     if source.is_null() {
         return Err(format!("Entry {entry_id} is null."));
     }
 
-    let secret = get_string(source, "secret");
-    if secret.trim().is_empty() {
+    let secret = get_string(source, "secret")
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase()
+        .trim_end_matches('=')
+        .to_string();
+    if secret.is_empty() {
         return Err(format!("Entry {entry_id} has an empty secret."));
+    }
+    if !is_valid_base32(&secret) {
+        return Err(format!("Entry {entry_id} has an invalid Base32 secret."));
     }
 
     let created = get_string(source, "created");
@@ -154,8 +236,8 @@ pub fn parse_legacy_account(entry_id: &str, source: &Value) -> Result<OtpAccount
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
     Ok(OtpAccount {
         id: Uuid::new_v4().simple().to_string(),
-        issuer: get_string(source, "issuer"),
-        account_name: get_string(source, "name"),
+        issuer: get_string(source, "issuer").trim().to_string(),
+        account_name: get_string(source, "name").trim().to_string(),
         secret,
         algorithm: OtpAlgorithm::Sha1,
         digits: 6,
@@ -220,6 +302,27 @@ mod tests {
         .unwrap();
         assert_eq!(account.issuer, "Service");
         assert!(account.account_name.is_empty());
+    }
+
+    #[test]
+    fn parses_legacy_json_and_normalizes_secret() {
+        let result = parse_legacy_json(
+            r#"{"valid":{"ISSUER":"ACME","Name":"jdoe","Secret":" JBS WY3DPEHPK3PXP "},"empty":{"secret":" "},"null":null}"#,
+        )
+        .unwrap();
+        assert_eq!(result.accounts.len(), 1);
+        assert_eq!(result.skipped_count, 2);
+        assert_eq!(result.accounts[0].secret, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn parses_winauth_text_and_counts_invalid_lines() {
+        let result = parse_winauth_text(Some(
+            "WinAuth export\notpauth://totp/Valid?secret=JBSWY3DPEHPK3PXP\notpauth://totp/Invalid?digits=6",
+        ))
+        .unwrap();
+        assert_eq!(result.accounts.len(), 1);
+        assert_eq!(result.skipped_count, 2);
     }
 
     #[test]

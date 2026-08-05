@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+const MAX_PASSWORD_LENGTH: usize = 128;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CredentialStatus {
     NotSet,
@@ -295,6 +297,35 @@ pub struct ProtectionViewState {
     pub windows_hello_enabled: bool,
     pub remote_pin_enabled: bool,
     pub remote_password_enabled: bool,
+}
+
+pub fn validate_credential(kind: &str, secret: &str) -> Result<(), String> {
+    if secret.trim().is_empty() {
+        return Err("A security credential is required.".to_string());
+    }
+
+    if matches!(kind, "pin" | "remotePin") {
+        if !secret.chars().all(|character| character.is_ascii_digit())
+            || !(4..=6).contains(&secret.chars().count())
+        {
+            return Err("PIN must contain 4-6 digits.".to_string());
+        }
+        return Ok(());
+    }
+
+    if !matches!(kind, "password" | "remotePassword") {
+        return Err("Unsupported security credential.".to_string());
+    }
+    let length = secret.chars().count();
+    if length < 4 {
+        return Err("Password must be at least 4 characters.".to_string());
+    }
+    if length > MAX_PASSWORD_LENGTH {
+        return Err(format!(
+            "Password must be at most {MAX_PASSWORD_LENGTH} characters."
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

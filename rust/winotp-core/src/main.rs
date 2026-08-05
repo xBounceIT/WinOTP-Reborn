@@ -2,7 +2,9 @@ use std::io::{self, Read};
 
 use serde_json::{json, Value};
 
-use winotp_core::{backup, import, models, otp, platform, screen_capture, security, settings};
+use winotp_core::{
+    backup, import, models, ordering, otp, platform, screen_capture, security, settings,
+};
 
 fn error_response(message: impl Into<String>) -> Value {
     json!({ "ok": false, "error": message.into() })
@@ -83,6 +85,17 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
             input.get("source").unwrap_or(&Value::Null),
         )
         .map(|account| serde_json::to_value(account).unwrap()),
+        "parse-legacy-json" => import::parse_legacy_json(
+            input
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        )
+        .and_then(|result| serde_json::to_value(result).map_err(|error| error.to_string())),
+        "parse-winauth-text" => {
+            import::parse_winauth_text(input.get("content").and_then(Value::as_str))
+                .and_then(|result| serde_json::to_value(result).map_err(|error| error.to_string()))
+        }
         "totp-code" => {
             let account =
                 models::normalize_account(input.get("account").unwrap_or(&Value::Null), None)?;
@@ -124,6 +137,50 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                         Err(error) => json!({
                             "ok": false,
                             "error": error.to_string(),
+                        }),
+                    }
+                })
+                .collect::<Vec<_>>();
+            Ok(Value::Array(results))
+        }
+        "totp-previews" => {
+            let accounts = input
+                .get("accounts")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "TOTP input is invalid.".to_string())?;
+            let timestamp = input
+                .get("unixSeconds")
+                .and_then(Value::as_i64)
+                .unwrap_or_else(|| chrono::Utc::now().timestamp());
+            let results = accounts
+                .iter()
+                .map(|value| {
+                    let account = models::normalize_account(value, None);
+                    match account {
+                        Ok(account) => {
+                            let remaining = otp::remaining_seconds(&account, timestamp);
+                            let current = otp::generate_totp_code_at(&account, timestamp);
+                            let next = otp::generate_totp_code_at(
+                                &account,
+                                timestamp.saturating_add(remaining),
+                            );
+                            match (current, next) {
+                                (Ok(code), Ok(next_code)) => json!({
+                                    "ok": true,
+                                    "code": code,
+                                    "nextCode": next_code,
+                                    "remainingSeconds": remaining,
+                                }),
+                                (Err(error), _) | (_, Err(error)) => json!({
+                                    "ok": false,
+                                    "error": error,
+                                    "remainingSeconds": remaining,
+                                }),
+                            }
+                        }
+                        Err(error) => json!({
+                            "ok": false,
+                            "error": error,
                         }),
                     }
                 })
@@ -207,6 +264,66 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
         }
         "normalize-settings" => serde_json::to_value(settings::normalize_settings(input))
             .map_err(|error| error.to_string()),
+        "sort-accounts" => {
+            let accounts = serde_json::from_value::<Vec<models::OtpAccount>>(
+                input.get("accounts").cloned().unwrap_or_else(|| json!([])),
+            )
+            .map_err(|error| error.to_string())?;
+            let sort_option = parse_sort_option(input.get("sortOption"));
+            let custom_order_ids = parse_string_vec(input.get("customOrderIds"));
+            serde_json::to_value(ordering::sort_accounts(
+                &accounts,
+                sort_option,
+                &custom_order_ids,
+            ))
+            .map_err(|error| error.to_string())
+        }
+        "prune-custom-order-ids" => {
+            let accounts = serde_json::from_value::<Vec<models::OtpAccount>>(
+                input.get("accounts").cloned().unwrap_or_else(|| json!([])),
+            )
+            .map_err(|error| error.to_string())?;
+            let order_ids = parse_string_vec(input.get("orderIds"));
+            Ok(json!(ordering::prune_custom_order_ids(
+                &order_ids, &accounts
+            )))
+        }
+        "validate-security-credential" => {
+            let kind = input
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let secret = input
+                .get("secret")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            security::validate_credential(kind, secret).map(|()| json!({}))
+        }
+        "order-drop-index" => {
+            let bounds = serde_json::from_value::<Vec<ordering::ItemBounds>>(
+                input.get("bounds").cloned().unwrap_or_else(|| json!([])),
+            )
+            .map_err(|error| error.to_string())?;
+            let x = input.get("x").and_then(Value::as_f64).unwrap_or(0.0);
+            let y = input.get("y").and_then(Value::as_f64).unwrap_or(0.0);
+            Ok(json!(ordering::get_drop_insertion_index(&bounds, x, y)))
+        }
+        "order-project" => {
+            let order_ids = parse_string_vec(input.get("orderIds"));
+            let dragged_id = input
+                .get("draggedId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let insertion_index = input
+                .get("insertionIndex")
+                .and_then(Value::as_i64)
+                .unwrap_or(0) as i32;
+            Ok(json!(ordering::project_order(
+                &order_ids,
+                dragged_id,
+                insertion_index,
+            )))
+        }
         "resolve-app-lock" => {
             let resolution = security::resolve_app_lock(security::AppLockInputs {
                 pin_enabled: input
@@ -238,6 +355,38 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                 remote_password_status: parse_credential_status(input.get("remotePasswordStatus")),
             });
             serde_json::to_value(resolution).map_err(|error| error.to_string())
+        }
+        "reconcile-protection" => {
+            let state = security::reconcile_protection_view_state(security::ProtectionInputs {
+                pin_enabled: input
+                    .get("pinEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                password_enabled: input
+                    .get("passwordEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                windows_hello_enabled: input
+                    .get("windowsHelloEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                remote_pin_enabled: input
+                    .get("remotePinEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                remote_password_enabled: input
+                    .get("remotePasswordEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                pin_status: parse_credential_status(input.get("pinStatus")),
+                password_status: parse_credential_status(input.get("passwordStatus")),
+                windows_hello_availability: parse_hello_availability(
+                    input.get("windowsHelloAvailability"),
+                ),
+                remote_pin_status: parse_credential_status(input.get("remotePinStatus")),
+                remote_password_status: parse_credential_status(input.get("remotePasswordStatus")),
+            });
+            serde_json::to_value(state).map_err(|error| error.to_string())
         }
         "format-import-summary" => Ok(json!({
             "message": import::import_summary(
@@ -306,6 +455,13 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
             ))
             .map_err(|error| error.to_string())
         }
+        "screen-capture-padding" => {
+            let rect = serde_json::from_value::<screen_capture::PixelRect>(
+                input.get("rect").cloned().unwrap_or(Value::Null),
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(json!(screen_capture::quiet_zone_padding(rect)))
+        }
         "version" => Ok(json!({
             "version": settings::get_app_version(
                 input.get("informationalVersion").and_then(Value::as_str),
@@ -323,6 +479,46 @@ fn parse_credential_status(value: Option<&Value>) -> security::CredentialStatus 
         "Set" | "set" => security::CredentialStatus::Set,
         "Error" | "error" => security::CredentialStatus::Error,
         _ => security::CredentialStatus::NotSet,
+    }
+}
+
+fn parse_string_vec(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_sort_option(value: Option<&Value>) -> models::SortOption {
+    match value {
+        Some(Value::Number(number)) => match number.as_u64() {
+            Some(1) => models::SortOption::DateAddedAsc,
+            Some(2) => models::SortOption::AlphabeticalAsc,
+            Some(3) => models::SortOption::AlphabeticalDesc,
+            Some(4) => models::SortOption::CustomOrder,
+            Some(5) => models::SortOption::UsageBased,
+            _ => models::SortOption::DateAddedDesc,
+        },
+        Some(Value::String(value)) => match value.trim() {
+            "DateAddedAsc" => models::SortOption::DateAddedAsc,
+            "AlphabeticalAsc" => models::SortOption::AlphabeticalAsc,
+            "AlphabeticalDesc" => models::SortOption::AlphabeticalDesc,
+            "CustomOrder" => models::SortOption::CustomOrder,
+            "UsageBased" => models::SortOption::UsageBased,
+            "1" => models::SortOption::DateAddedAsc,
+            "2" => models::SortOption::AlphabeticalAsc,
+            "3" => models::SortOption::AlphabeticalDesc,
+            "4" => models::SortOption::CustomOrder,
+            "5" => models::SortOption::UsageBased,
+            _ => models::SortOption::DateAddedDesc,
+        },
+        _ => models::SortOption::DateAddedDesc,
     }
 }
 

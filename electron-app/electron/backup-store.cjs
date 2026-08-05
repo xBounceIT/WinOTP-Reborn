@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { getAppDataDirectory } = require("./account-store.cjs");
-const { tryRunRustCore } = require("./rust-core.cjs");
+const { runRustCore } = require("./rust-core.cjs");
 
 const BACKUP_EXTENSION = ".wotpbackup";
 const AUTOMATIC_BACKUP_PREFIX = "auto-";
@@ -12,7 +12,6 @@ const MAX_BACKUP_FILE_SIZE_BYTES = 32 * 1024 * 1024;
 const RUST_CORE_MAX_BUFFER_BYTES = MAX_BACKUP_FILE_SIZE_BYTES * 2;
 const MAX_BACKUP_ACCOUNT_COUNT = 1_000;
 const MINIMUM_PASSWORD_LENGTH = 8;
-const KEY_SIZE_BYTES = 32;
 const SALT_SIZE_BYTES = 16;
 const NONCE_SIZE_BYTES = 12;
 const TAG_SIZE_BYTES = 16;
@@ -151,7 +150,7 @@ function decodeBase64(value, expectedLength, label) {
 }
 
 function encryptPayload(payload, password) {
-  const rustEnvelope = tryRunRustCore(
+  const rustEnvelope = runRustCore(
     "backup-encrypt",
     {
       accounts: payload.accounts,
@@ -160,35 +159,10 @@ function encryptPayload(payload, password) {
     },
     { maxBuffer: RUST_CORE_MAX_BUFFER_BYTES },
   );
-  if (rustEnvelope !== undefined) {
-    if (!rustEnvelope || typeof rustEnvelope !== "object" || Array.isArray(rustEnvelope)) {
-      throw new Error("The WinOTP Rust core returned invalid backup data.");
-    }
-    return rustEnvelope;
+  if (!rustEnvelope || typeof rustEnvelope !== "object" || Array.isArray(rustEnvelope)) {
+    throw new Error("The WinOTP Rust core returned invalid backup data.");
   }
-
-  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
-  const salt = crypto.randomBytes(SALT_SIZE_BYTES);
-  const nonce = crypto.randomBytes(NONCE_SIZE_BYTES);
-  const key = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, KEY_SIZE_BYTES, "sha256");
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  const tag = cipher.getAuthTag();
-
-  return {
-    format: "winotp-backup",
-    version: 1,
-    createdAtUtc: payload.exportedAtUtc,
-    accountCount: payload.accounts.length,
-    encryption: {
-      scheme: BACKUP_SCHEME,
-      iterations: PBKDF2_ITERATIONS,
-      salt: salt.toString("base64"),
-      nonce: nonce.toString("base64"),
-      tag: tag.toString("base64"),
-    },
-    ciphertext: ciphertext.toString("base64"),
-  };
+  return rustEnvelope;
 }
 
 function decodeEnvelope(envelope) {
@@ -220,52 +194,16 @@ function decodeEnvelope(envelope) {
 }
 
 function decryptPayload(envelope, password) {
-  const decoded = decodeEnvelope(envelope);
-  const rustPayload = tryRunRustCore(
+  decodeEnvelope(envelope);
+  const rustPayload = runRustCore(
     "backup-decrypt",
     { envelope, password },
     { maxBuffer: RUST_CORE_MAX_BUFFER_BYTES },
   );
-  if (rustPayload !== undefined) {
-    if (!rustPayload || typeof rustPayload !== "object" || Array.isArray(rustPayload)) {
-      throw new Error("The WinOTP Rust core returned invalid backup payload data.");
-    }
-    return rustPayload;
+  if (!rustPayload || typeof rustPayload !== "object" || Array.isArray(rustPayload)) {
+    throw new Error("The WinOTP Rust core returned invalid backup payload data.");
   }
-
-  const key = crypto.pbkdf2Sync(
-    password,
-    decoded.salt,
-    PBKDF2_ITERATIONS,
-    KEY_SIZE_BYTES,
-    "sha256",
-  );
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, decoded.nonce);
-  decipher.setAuthTag(decoded.tag);
-  const plaintext = Buffer.concat([decipher.update(decoded.ciphertext), decipher.final()]);
-  let payload;
-  try {
-    payload = JSON.parse(plaintext.toString("utf8"));
-  } catch {
-    throw new BackupFormatError("The backup file payload is not valid JSON.");
-  }
-
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    typeof payload.source !== "string" ||
-    payload.source.trim().length === 0 ||
-    typeof payload.exportedAtUtc !== "string" ||
-    !Array.isArray(payload.accounts) ||
-    payload.accounts.length !== envelope.accountCount
-  ) {
-    throw new BackupFormatError("The backup file payload is invalid.");
-  }
-  if (payload.accounts.length > MAX_BACKUP_ACCOUNT_COUNT) {
-    throw new BackupFormatError("The backup contains too many accounts.");
-  }
-
-  return payload;
+  return rustPayload;
 }
 
 class BackupStore {

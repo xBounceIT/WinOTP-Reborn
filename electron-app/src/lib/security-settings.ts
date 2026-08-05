@@ -65,32 +65,6 @@ export function settingForCredential(kind: SecurityCredentialKind): keyof AppSet
   }
 }
 
-export function normalizeSecuritySettings(
-  settings: AppSettings,
-  status: SecurityCredentialStatus,
-): AppSettings {
-  const normalized = {
-    ...settings,
-    pinProtection: settings.pinProtection && status.pinSet,
-    passwordProtection: settings.passwordProtection && status.passwordSet,
-    remotePin: settings.remotePin && status.remotePinSet,
-    remotePassword: settings.remotePassword && status.remotePasswordSet,
-  };
-
-  if (normalized.pinProtection) {
-    normalized.passwordProtection = false;
-    normalized.windowsHello = false;
-  } else if (normalized.passwordProtection) {
-    normalized.windowsHello = false;
-  }
-
-  if (normalized.remotePin) {
-    normalized.remotePassword = false;
-  }
-
-  return normalized;
-}
-
 export function directCredentialKind(settings: AppSettings): SecurityCredentialKind | undefined {
   if (settings.pinProtection) {
     return "pin";
@@ -103,6 +77,14 @@ export function directCredentialKind(settings: AppSettings): SecurityCredentialK
   return undefined;
 }
 
+export function hasConfiguredProtection(settings: AppSettings) {
+  return Boolean(settings.pinProtection || settings.passwordProtection || settings.windowsHello);
+}
+
+export function shouldReleaseFailedLock(lockApplied: boolean, protectionConfigured: boolean) {
+  return lockApplied || !protectionConfigured;
+}
+
 export function remoteCredentialKind(settings: AppSettings): SecurityCredentialKind | undefined {
   if (settings.remotePin) {
     return "remotePin";
@@ -113,6 +95,15 @@ export function remoteCredentialKind(settings: AppSettings): SecurityCredentialK
   }
 
   return undefined;
+}
+
+export function canApplyProtectionReconciliation(
+  settingsAtStart: AppSettings,
+  statusAtStart: SecurityCredentialStatus,
+  currentSettings: AppSettings,
+  currentStatus: SecurityCredentialStatus,
+) {
+  return settingsAtStart === currentSettings && statusAtStart === currentStatus;
 }
 
 export function securityVerificationFromResult(

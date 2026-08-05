@@ -33,21 +33,6 @@ function getSelection(start: ScreenRect, end: ScreenRect): ScreenRect {
   };
 }
 
-function expandSelection(selection: ScreenRect, bounds: ScreenRect): ScreenRect {
-  const padding = Math.max(8, Math.round(Math.min(selection.width, selection.height) * 0.08));
-  const left = Math.max(bounds.x, selection.x - padding);
-  const top = Math.max(bounds.y, selection.y - padding);
-  const right = Math.min(bounds.x + bounds.width, selection.x + selection.width + padding);
-  const bottom = Math.min(bounds.y + bounds.height, selection.y + selection.height + padding);
-
-  return {
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
-  };
-}
-
 function getDisplayViewport(display: ScreenCaptureDisplay): ScreenRect {
   return {
     x: 0,
@@ -59,36 +44,13 @@ function getDisplayViewport(display: ScreenCaptureDisplay): ScreenRect {
 
 function decodeRegion(
   decoder: JsQrDecoder,
-  display: ScreenCaptureDisplay,
   image: HTMLImageElement,
-  selection: ScreenRect,
+  selection: { x: number; y: number; width: number; height: number },
 ): string | undefined {
-  const bounds = getDisplayViewport(display);
-  if (bounds.width <= 0 || bounds.height <= 0) {
-    return undefined;
-  }
-
-  const left = Math.max(selection.x, bounds.x);
-  const top = Math.max(selection.y, bounds.y);
-  const right = Math.min(selection.x + selection.width, bounds.x + bounds.width);
-  const bottom = Math.min(selection.y + selection.height, bounds.y + bounds.height);
-  const width = right - left;
-  const height = bottom - top;
-
-  if (width < minimumSelectionSize || height < minimumSelectionSize) {
-    return undefined;
-  }
-
-  const sourceX = Math.max(0, Math.floor(((left - bounds.x) / bounds.width) * image.naturalWidth));
-  const sourceY = Math.max(0, Math.floor(((top - bounds.y) / bounds.height) * image.naturalHeight));
-  const sourceRight = Math.min(
-    image.naturalWidth,
-    Math.ceil(((right - bounds.x) / bounds.width) * image.naturalWidth),
-  );
-  const sourceBottom = Math.min(
-    image.naturalHeight,
-    Math.ceil(((bottom - bounds.y) / bounds.height) * image.naturalHeight),
-  );
+  const sourceX = Math.max(0, Math.floor(selection.x));
+  const sourceY = Math.max(0, Math.floor(selection.y));
+  const sourceRight = Math.min(image.naturalWidth, Math.ceil(selection.x + selection.width));
+  const sourceBottom = Math.min(image.naturalHeight, Math.ceil(selection.y + selection.height));
   const sourceWidth = sourceRight - sourceX;
   const sourceHeight = sourceBottom - sourceY;
 
@@ -135,8 +97,31 @@ async function decodeSelection(
   }
 
   const bounds = getDisplayViewport(display);
-  for (const candidate of [selection, expandSelection(selection, bounds)]) {
-    const text = decodeRegion(decoder, display, image, candidate);
+  const core = window.winotp?.core;
+  if (!core) {
+    throw new Error("The Rust screen-capture bridge is unavailable.");
+  }
+
+  const mapped = await core.screenCaptureMap({
+    selectionX: selection.x,
+    selectionY: selection.y,
+    selectionWidth: selection.width,
+    selectionHeight: selection.height,
+    canvasWidth: bounds.width,
+    canvasHeight: bounds.height,
+    imageWidth: image.naturalWidth,
+    imageHeight: image.naturalHeight,
+  });
+  const padding = await core.screenCapturePadding({ rect: mapped });
+  const expanded = await core.screenCaptureExpand({
+    rect: mapped,
+    imageWidth: image.naturalWidth,
+    imageHeight: image.naturalHeight,
+    padding,
+  });
+
+  for (const candidate of [mapped, expanded]) {
+    const text = decodeRegion(decoder, image, candidate);
     if (text) {
       return text;
     }

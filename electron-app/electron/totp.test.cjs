@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { generateTotpCode, generateTotpCodes } = require("./totp.cjs");
+const { createTotpPreviewRunner, generateTotpCode, generateTotpCodes } = require("./totp.cjs");
 
 const rfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 const rfcSha256Secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA";
@@ -60,4 +60,23 @@ test("generates a batch of TOTP codes through the Rust core", () => {
   );
 
   assert.deepEqual(codes, ["94287082", "46119246"]);
+});
+
+test("does not overlap TOTP preview sidecar requests", async () => {
+  let release;
+  let calls = 0;
+  const runner = createTotpPreviewRunner(() => {
+    calls += 1;
+    return calls === 1
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve(["next"]);
+  });
+
+  const first = runner([], 1);
+  assert.deepEqual(await runner([], 2), []);
+  release(["first"]);
+  assert.deepEqual(await first, ["first"]);
+  assert.deepEqual(await runner([], 3), ["next"]);
 });

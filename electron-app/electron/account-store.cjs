@@ -1,10 +1,9 @@
 const fs = require("node:fs");
-const crypto = require("node:crypto");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { safeStorage } = require("electron");
 const { readLegacyCredentials } = require("./legacy-credential-reader.cjs");
-const { tryRunRustCore } = require("./rust-core.cjs");
+const { runRustCore } = require("./rust-core.cjs");
 
 const APP_DIRECTORY_NAME = "WinOTP_Reborn";
 const DATABASE_FILE_NAME = "accounts.db";
@@ -15,8 +14,6 @@ const MAX_USAGE_STATS_FILE_SIZE_BYTES = 32 * 1024 * 1024;
 const LEGACY_RESOURCE = "WinOTP";
 const ACCOUNT_NORMALIZATION_BATCH_SIZE = 256;
 const ACCOUNT_NORMALIZATION_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-
-const algorithmNames = ["SHA1", "SHA256", "SHA512"];
 
 class AccountStoreError extends Error {
   constructor(message) {
@@ -34,42 +31,6 @@ function getAppDataDirectory(app, { environment = process.env, platform = proces
   }
 
   return path.join(app.getPath("userData"), APP_DIRECTORY_NAME);
-}
-
-function normalizeAlgorithm(value) {
-  if (typeof value === "number" && Number.isInteger(value)) {
-    return algorithmNames[value] ?? "SHA1";
-  }
-
-  const normalized = String(value ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/-/g, "");
-
-  if (normalized === "0") {
-    return "SHA1";
-  }
-  if (normalized === "1") {
-    return "SHA256";
-  }
-  if (normalized === "2") {
-    return "SHA512";
-  }
-
-  return algorithmNames.includes(normalized) ? normalized : "SHA1";
-}
-
-function normalizeCreatedAt(value) {
-  if (!value) {
-    return new Date().toISOString();
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || parsed.getUTCFullYear() < 1970) {
-    return new Date().toISOString();
-  }
-
-  return parsed.toISOString();
 }
 
 function normalizeLastUsedAt(value) {
@@ -98,67 +59,16 @@ function latestLastUsedAt(current, next) {
   return currentValue >= nextValue ? currentValue : nextValue;
 }
 
-function normalizeUsageCount(value) {
-  const numeric = Number(value);
-  return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : 0;
-}
-
-function normalizeAccountWithJs(source, fallbackId) {
-  const input = source && typeof source === "object" ? source : {};
-  const explicitId = input.id ?? input.Id;
-  const idValue =
-    explicitId !== undefined && explicitId !== null && String(explicitId).trim()
-      ? explicitId
-      : fallbackId;
-  const id = String(idValue ?? "").trim() || crypto.randomUUID().replace(/-/g, "");
-  const issuer = String(input.issuer ?? input.Issuer ?? "").trim();
-  const accountName = String(input.accountName ?? input.AccountName ?? "").trim();
-  const secret = String(input.secret ?? input.Secret ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .toUpperCase();
-  const unpaddedSecret = secret.replace(/=+$/, "");
-
-  if (!unpaddedSecret || !/^[A-Z2-7]+$/.test(unpaddedSecret)) {
-    return { ok: false, error: "Secret is missing or not valid Base32." };
-  }
-
-  const digitsValue = Number(input.digits ?? input.Digits ?? 6);
-  const periodValue = Number(input.period ?? input.Period ?? 30);
-  const account = {
-    id,
-    issuer,
-    accountName,
-    secret,
-    algorithm: normalizeAlgorithm(input.algorithm ?? input.Algorithm),
-    digits: digitsValue === 8 ? 8 : 6,
-    period: Number.isInteger(periodValue) && periodValue > 0 ? periodValue : 30,
-    createdAt: normalizeCreatedAt(input.createdAt ?? input.CreatedAt),
-    usageCount: normalizeUsageCount(input.usageCount ?? input.UsageCount ?? 0),
-  };
-  const lastUsedAt = normalizeLastUsedAt(input.lastUsedAt ?? input.LastUsedAt);
-  if (lastUsedAt !== undefined) {
-    account.lastUsedAt = lastUsedAt;
-  }
-
-  return {
-    ok: true,
-    account,
-  };
-}
-
 function normalizeAccount(source, fallbackId) {
   try {
-    const rustAccount = tryRunRustCore("normalize-account", {
+    const rustAccount = runRustCore("normalize-account", {
       source,
       fallbackId,
     });
-    if (rustAccount !== undefined) {
-      if (!rustAccount || typeof rustAccount !== "object" || Array.isArray(rustAccount)) {
-        throw new Error("The WinOTP Rust core returned invalid account data.");
-      }
-      return { ok: true, account: rustAccount };
+    if (!rustAccount || typeof rustAccount !== "object" || Array.isArray(rustAccount)) {
+      throw new Error("The WinOTP Rust core returned invalid account data.");
     }
+    return { ok: true, account: rustAccount };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Account normalization failed.";
     if (message === "Secret is missing or not valid Base32.") {
@@ -166,8 +76,6 @@ function normalizeAccount(source, fallbackId) {
     }
     throw error;
   }
-
-  return normalizeAccountWithJs(source, fallbackId);
 }
 
 function normalizeAccounts(entries) {
@@ -178,7 +86,7 @@ function normalizeAccounts(entries) {
   const normalized = [];
   for (let offset = 0; offset < entries.length; offset += ACCOUNT_NORMALIZATION_BATCH_SIZE) {
     const chunk = entries.slice(offset, offset + ACCOUNT_NORMALIZATION_BATCH_SIZE);
-    const rustResults = tryRunRustCore(
+    const rustResults = runRustCore(
       "normalize-accounts",
       {
         accounts: chunk.map(({ source, fallbackId }) => ({ source, fallbackId })),
@@ -186,9 +94,6 @@ function normalizeAccounts(entries) {
       { maxBuffer: ACCOUNT_NORMALIZATION_MAX_BUFFER_BYTES },
     );
 
-    if (rustResults === undefined) {
-      return entries.map(({ source, fallbackId }) => normalizeAccountWithJs(source, fallbackId));
-    }
     if (!Array.isArray(rustResults) || rustResults.length !== chunk.length) {
       throw new Error("The WinOTP Rust core returned invalid account normalization data.");
     }
@@ -207,6 +112,14 @@ function normalizeAccounts(entries) {
   }
 
   return normalized;
+}
+
+function sanitizeAccount(account) {
+  if (!account || typeof account !== "object" || Array.isArray(account)) {
+    return account;
+  }
+
+  return { ...account, secret: "" };
 }
 
 function safeJsonParse(value) {
@@ -651,7 +564,7 @@ class AccountStore {
     }
   }
 
-  readAccounts() {
+  readAccounts({ includeSecrets = true } = {}) {
     this.ensureOpen();
     const rows = this.database
       .prepare(
@@ -715,7 +628,7 @@ class AccountStore {
         });
         continue;
       }
-      accounts.push(normalized.account);
+      accounts.push(includeSecrets ? normalized.account : sanitizeAccount(normalized.account));
     }
 
     return {
@@ -724,6 +637,15 @@ class AccountStore {
       migration: this.getMigrationNotification(),
       databasePath: this.databasePath,
     };
+  }
+
+  getAccount(id) {
+    const accountId = typeof id === "string" ? id.trim() : "";
+    if (!accountId) {
+      return undefined;
+    }
+
+    return this.readAccounts().accounts.find((account) => account.id === accountId);
   }
 
   saveAccount(source) {
@@ -828,5 +750,6 @@ module.exports = {
   getAppDataDirectory,
   normalizeAccount,
   normalizeAccounts,
+  sanitizeAccount,
   readLegacyCredentials,
 };

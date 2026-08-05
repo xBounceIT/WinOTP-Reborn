@@ -35,108 +35,104 @@ export function normalizeCustomOrderIds(value: unknown): string[] {
   return ids;
 }
 
-export function applyCustomOrder(
-  accounts: readonly OtpAccount[],
-  savedOrderIds: readonly string[] = [],
-): OtpAccount[] {
-  const accountById = new Map<string, OtpAccount>();
-  for (const account of accounts) {
-    if (account.id && !accountById.has(account.id)) {
-      accountById.set(account.id, account);
-    }
-  }
-
-  const ordered: OtpAccount[] = [];
-  const usedIds = new Set<string>();
-  for (const id of normalizeCustomOrderIds(savedOrderIds)) {
-    const account = accountById.get(id);
-    if (account && !usedIds.has(id)) {
-      usedIds.add(id);
-      ordered.push(account);
-    }
-  }
-
-  const unlisted = accounts
-    .filter((account) => !usedIds.has(account.id))
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  return [...ordered, ...unlisted];
+function bridgeAccounts(accounts: readonly OtpAccount[]) {
+  return accounts.map((account) => ({ ...account, secret: "" }));
 }
 
-export function sortAccounts(
+function accountsFromCoreResult(
+  accounts: readonly OtpAccount[],
+  result: unknown,
+): OtpAccount[] | undefined {
+  if (!Array.isArray(result)) {
+    return undefined;
+  }
+
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  if (accountById.size !== accounts.length) {
+    return undefined;
+  }
+
+  const seenIds = new Set<string>();
+  const ordered = result
+    .map((account) => {
+      if (!account || typeof account !== "object" || Array.isArray(account)) {
+        return undefined;
+      }
+      const id = (account as { id?: unknown }).id;
+      if (typeof id !== "string" || seenIds.has(id)) {
+        return undefined;
+      }
+      seenIds.add(id);
+      return accountById.get(id);
+    })
+    .filter((account): account is OtpAccount => account !== undefined);
+  return ordered.length === accounts.length && seenIds.size === accountById.size
+    ? ordered
+    : undefined;
+}
+
+export async function sortAccountsWithCore(
   accounts: readonly OtpAccount[],
   sort: SortOption,
   customOrderIds: readonly string[] = [],
-): OtpAccount[] {
-  if (sort === "CustomOrder") {
-    return applyCustomOrder(accounts, customOrderIds);
+): Promise<OtpAccount[]> {
+  const bridge = window.winotp?.core;
+  if (!bridge) {
+    return [...accounts];
   }
 
-  return [...accounts].sort((left, right) => {
-    if (sort === "AlphabeticalAsc") {
-      return `${left.issuer}${left.accountName}`.localeCompare(
-        `${right.issuer}${right.accountName}`,
-      );
-    }
-    if (sort === "AlphabeticalDesc") {
-      return `${right.issuer}${right.accountName}`.localeCompare(
-        `${left.issuer}${left.accountName}`,
-      );
-    }
-    if (sort === "DateAddedAsc") {
-      return left.createdAt.localeCompare(right.createdAt);
-    }
-    if (sort === "UsageBased") {
-      const usageDifference = (right.usageCount ?? 0) - (left.usageCount ?? 0);
-      if (usageDifference !== 0) {
-        return usageDifference;
-      }
-
-      const lastUsedDifference = (right.lastUsedAt ?? "").localeCompare(left.lastUsedAt ?? "");
-      return lastUsedDifference || right.createdAt.localeCompare(left.createdAt);
-    }
-    return right.createdAt.localeCompare(left.createdAt);
-  });
+  try {
+    const result = await bridge.sortAccounts({
+      accounts: bridgeAccounts(accounts),
+      sortOption: sort,
+      customOrderIds: normalizeCustomOrderIds(customOrderIds),
+    });
+    return accountsFromCoreResult(accounts, result) ?? [...accounts];
+  } catch {
+    return [...accounts];
+  }
 }
 
-export function moveAccountId(
-  orderIds: readonly string[],
-  draggedId: string,
-  targetId: string,
-  after = false,
-): string[] {
-  const next = [...orderIds];
-  const draggedIndex = next.indexOf(draggedId);
-  if (draggedIndex < 0 || draggedId === targetId) {
-    return next;
-  }
-
-  next.splice(draggedIndex, 1);
-  const targetIndex = next.indexOf(targetId);
-  if (targetIndex < 0) {
-    return [...orderIds];
-  }
-
-  next.splice(targetIndex + (after ? 1 : 0), 0, draggedId);
-  return next;
-}
-
-export function pruneCustomOrderIds(
+export async function pruneCustomOrderIdsWithCore(
   savedOrderIds: readonly string[],
   accounts: readonly OtpAccount[],
-): string[] {
-  const existingIds = new Set(accounts.map((account) => account.id));
-  return normalizeCustomOrderIds(savedOrderIds).filter((id) => existingIds.has(id));
-}
-
-export function reconcileCustomOrderIds(
-  savedOrderIds: readonly string[],
-  accounts: readonly OtpAccount[],
-  issues: readonly { code: string }[] = [],
-): string[] {
+): Promise<string[]> {
   const normalizedOrderIds = normalizeCustomOrderIds(savedOrderIds);
-  if (issues.length > 0) {
+  const bridge = window.winotp?.core;
+  if (!bridge) {
     return normalizedOrderIds;
   }
 
-  return pruneCustomOrderIds(normalizedOrderIds, accounts);
+  try {
+    const result = await bridge.pruneCustomOrderIds({
+      accounts: bridgeAccounts(accounts),
+      orderIds: normalizedOrderIds,
+    });
+    return Array.isArray(result) ? normalizeCustomOrderIds(result) : normalizedOrderIds;
+  } catch {
+    return normalizedOrderIds;
+  }
+}
+
+export async function projectOrderWithCore(
+  orderIds: readonly string[],
+  draggedId: string,
+  insertionIndex: number,
+): Promise<string[]> {
+  const current = [...orderIds];
+  const bridge = window.winotp?.core;
+  if (!bridge) {
+    return current;
+  }
+
+  try {
+    const result = await bridge.orderProject({
+      orderIds: current,
+      draggedId,
+      insertionIndex,
+    });
+    return Array.isArray(result) ? normalizeCustomOrderIds(result) : current;
+  } catch {
+    return current;
+  }
 }
