@@ -344,16 +344,19 @@ function createUpdateService({
   }
 
   async function install() {
-    const downloaded = state.downloadedInstallerPath ? getState() : await download();
-    if (!downloaded.success || !downloaded.state.downloadedInstallerPath) {
-      return downloaded;
+    if (!state.downloadedInstallerPath) {
+      const downloaded = await download();
+      if (!downloaded.success || !downloaded.state.downloadedInstallerPath) {
+        return downloaded;
+      }
     }
+    const downloadedState = getState();
 
     return runExclusive(async () => {
       try {
         const response = await request("install", {
-          update: downloaded.state.availableUpdate,
-          filePath: downloaded.state.downloadedInstallerPath,
+          update: downloadedState.availableUpdate,
+          filePath: downloadedState.downloadedInstallerPath,
         });
         if (!response?.state) {
           throw new Error(response?.message ?? "The Rust update bridge returned no install state.");

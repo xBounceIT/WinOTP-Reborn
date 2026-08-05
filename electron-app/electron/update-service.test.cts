@@ -31,14 +31,18 @@ function createState(overrides = {}) {
   };
 }
 
-function createSpawnMock(response) {
+function createSpawnMock(responseOrFactory) {
   return () => {
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.stdin = {
-      end: () => {
+      end: (payload) => {
         queueMicrotask(() => {
+          const response =
+            typeof responseOrFactory === "function"
+              ? responseOrFactory(JSON.parse(payload))
+              : responseOrFactory;
           child.stdout.emit("data", JSON.stringify(response));
           child.emit("close", 0, null);
         });
@@ -133,6 +137,76 @@ test("updates the service state from a real Rust bridge response", async () => {
     assert.equal(result.state.status, UPDATE_STATUS.UPDATE_AVAILABLE);
     assert.equal(result.state.availableUpdate.displayVersion, "2.1.0");
     assert.equal(result.state.currentVersion, "2.0.0");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installs an update that is already downloaded", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-update-service-"));
+  const availableUpdate = {
+    version: "2.1.0",
+    displayVersion: "2.1.0",
+    releaseTag: "v2.1.0",
+    releaseTitle: "2.1.0",
+    releaseUrl: "https://github.com/xBounceIT/WinOTP-Reborn/releases/tag/v2.1.0",
+    isPreRelease: false,
+    installerName: "WinOTP-2.1.0-win-x64-setup.exe",
+    installerUrl:
+      "https://github.com/xBounceIT/WinOTP-Reborn/releases/download/v2.1.0/WinOTP-2.1.0-win-x64-setup.exe",
+    releaseNotes: "",
+  };
+  const installerPath = path.join(root, availableUpdate.installerName);
+  const requests = [];
+
+  try {
+    const service = createUpdateService({
+      app: { isPackaged: false, getVersion: () => "2.0.0", getPath: () => root },
+      environment: { WINOTP_UPDATER_PATH: process.execPath, LOCALAPPDATA: root },
+      spawnProcess: createSpawnMock((request) => {
+        requests.push(request);
+        if (request.command === "check") {
+          return {
+            success: true,
+            state: createState({
+              status: UPDATE_STATUS.UPDATE_AVAILABLE,
+              isUpdateAvailable: true,
+              availableUpdate,
+            }),
+          };
+        }
+        if (request.command === "download") {
+          return {
+            success: true,
+            state: createState({
+              status: UPDATE_STATUS.LAUNCH_READY,
+              isUpdateAvailable: true,
+              availableUpdate,
+              downloadedInstallerPath: installerPath,
+              isDownloadedAssetDigestVerified: true,
+            }),
+            filePath: installerPath,
+            isDigestVerified: true,
+          };
+        }
+        return {
+          success: true,
+          state: createState({ status: UPDATE_STATUS.LAUNCH_READY }),
+        };
+      }),
+    });
+
+    await service.check("Stable");
+    await service.download();
+    const result = await service.install();
+
+    assert.equal(result.success, true);
+    assert.deepEqual(
+      requests.map((request) => request.command),
+      ["check", "download", "install"],
+    );
+    assert.equal(requests[2].filePath, installerPath);
+    assert.deepEqual(requests[2].update, availableUpdate);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
