@@ -155,7 +155,7 @@ function mapLegacyBackupSettings(settings) {
   };
 }
 
-function createMigrationPart(source = {}) {
+function createMigrationPart(source: any = {}) {
   const input = source && typeof source === "object" && !Array.isArray(source) ? source : undefined;
   if (
     !input ||
@@ -641,7 +641,7 @@ function migrateCredentials({
   }
 }
 
-function runLegacyMigration(app, options = {}) {
+function runLegacyMigration(app, options: any = {}) {
   const directoryPath = options.directoryPath ?? getAppDataDirectory(app);
   const migrationFilePath = options.migrationFilePath ?? getMigrationFilePath(app);
   const state = readMigrationState(migrationFilePath);
@@ -665,7 +665,7 @@ function runLegacyMigration(app, options = {}) {
   return state;
 }
 
-function migrateLegacySettingsForApp(app, options = {}) {
+function migrateLegacySettingsForApp(app, options: any = {}) {
   const directoryPath = options.directoryPath ?? getAppDataDirectory(app);
   const migrationFilePath = options.migrationFilePath ?? getMigrationFilePath(app);
   const state = readMigrationState(migrationFilePath);

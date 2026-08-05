@@ -23,7 +23,7 @@ const DEFAULT_BACKUP_FOLDER_NAME = "Backups";
 
 class BackupFormatError extends Error {}
 
-function failure(errorCode, message, extra = {}) {
+function failure(errorCode, message, extra: Record<string, unknown> = {}) {
   return {
     success: false,
     errorCode,
@@ -207,7 +207,18 @@ function decryptPayload(envelope, password) {
 }
 
 class BackupStore {
-  constructor(app, accountStoreProvider, options = {}) {
+  accountStoreProvider: any;
+  encryption: any;
+  directoryPath: string;
+  defaultBackupFolderPath: string;
+  passwordPath: string;
+  settingsPath: string;
+  automaticBackupQueue: Promise<any>;
+  configurationQueue: Promise<any>;
+  automaticReconciliationDeferred: boolean;
+  settings: any;
+
+  constructor(app, accountStoreProvider, options: any = {}) {
     this.accountStoreProvider = accountStoreProvider;
     this.encryption = options.encryption;
     this.directoryPath = options.directoryPath ?? getAppDataDirectory(app);
@@ -277,11 +288,11 @@ class BackupStore {
     };
   }
 
-  configure(settings = {}) {
+  configure(settings: any = {}) {
     return this.enqueueConfiguration(() => this.configureCore(settings));
   }
 
-  configureCore(settings = {}) {
+  configureCore(settings: any = {}) {
     if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
       return failure("ValidationFailed", "Backup settings are invalid.");
     }
@@ -402,7 +413,7 @@ class BackupStore {
     }
   }
 
-  validateBackupFolder(folderPath) {
+  validateBackupFolder(folderPath): any {
     const trimmedPath = typeof folderPath === "string" ? folderPath.trim() : "";
     if (!trimmedPath) {
       return failure("ValidationFailed", "Backup folder path is required.");

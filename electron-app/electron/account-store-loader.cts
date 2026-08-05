@@ -1,4 +1,4 @@
-function createAccountStoreLoader(factory, onError = () => {}) {
+function createAccountStoreLoader(factory, onError: (error: unknown) => void = () => {}) {
   let store;
 
   return {

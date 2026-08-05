@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
@@ -7,6 +8,9 @@ const workflow = fs.readFileSync(
   path.resolve(process.cwd(), "../.github/workflows/release.yml"),
   "utf8",
 );
+const packageVersion = JSON.parse(
+  fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
+).version;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -40,6 +44,38 @@ test("release publication is tag-verified and rerunnable", () => {
   assert.match(workflow, /gh release upload/);
   assert.match(workflow, /gh release create[\s\S]*--verify-tag/);
   assert.match(workflow, /gh release edit[\s\S]*--verify-tag/);
+});
+
+test("release tag verification uses the checked TypeScript script", () => {
+  assert.match(
+    workflow,
+    /- name: Verify tag matches package version[\s\S]*?run: node scripts\/verify-release-tag\.ts/,
+  );
+  assert.doesNotMatch(workflow, /node --input-type|<<['"]?NODE/);
+});
+
+test("release tag verification accepts only the current prefixed package version", () => {
+  const scriptPath = path.resolve(process.cwd(), "scripts/verify-release-tag.ts");
+  const run = (releaseTag) =>
+    spawnSync(process.execPath, [scriptPath], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ...(releaseTag === undefined ? { RELEASE_TAG: undefined } : { RELEASE_TAG: releaseTag }),
+      },
+      encoding: "utf8",
+      windowsHide: true,
+    });
+
+  assert.equal(run(`v${packageVersion}`).status, 0);
+
+  const wrongTag = run("v0.0.0-invalid");
+  assert.notEqual(wrongTag.status, 0);
+  assert.match(wrongTag.stderr, /does not match package\.json version/);
+
+  const missingTag = run(undefined);
+  assert.notEqual(missingTag.status, 0);
+  assert.match(missingTag.stderr, /RELEASE_TAG must be a non-empty version tag/);
 });
 
 test("release packaging verifies Rust and ships both Windows architectures", () => {

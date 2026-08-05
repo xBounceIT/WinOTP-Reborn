@@ -6,7 +6,7 @@ const test = require("node:test");
 const packageJson = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
 );
-const mainSource = fs.readFileSync(path.resolve(process.cwd(), "electron/main.cjs"), "utf8");
+const mainSource = fs.readFileSync(path.resolve(process.cwd(), "electron/main.cts"), "utf8");
 const installerSource = fs.readFileSync(path.resolve(process.cwd(), "build/installer.nsh"), "utf8");
 
 function assertAppearsBefore(source, earlier, later) {
@@ -17,19 +17,45 @@ function assertAppearsBefore(source, earlier, later) {
   assert.ok(earlierIndex < laterIndex, `${earlier} should appear before ${later}`);
 }
 
+function collectFiles(directory) {
+  return fs
+    .readdirSync(directory, { recursive: true, withFileTypes: true })
+    .flatMap((entry) => (entry.isFile() ? [path.join(entry.parentPath, entry.name)] : []));
+}
+
+test("application sources stay TypeScript-only and all CommonJS TypeScript stays checked", () => {
+  const sourceDirectories = ["src", "electron", "scripts", "test"];
+  const sourceFiles = sourceDirectories.flatMap((directory) =>
+    collectFiles(path.resolve(process.cwd(), directory)),
+  );
+  const javascriptSources = sourceFiles.filter((filePath) =>
+    /\.(?:cjs|mjs|js|jsx)$/i.test(filePath),
+  );
+  assert.deepEqual(javascriptSources, []);
+
+  const uncheckedCommonJsSources = sourceFiles.filter(
+    (filePath) =>
+      filePath.endsWith(".cts") &&
+      /(?:^|\n)\s*\/\/\s*@ts-nocheck\b/.test(fs.readFileSync(filePath, "utf8")),
+  );
+  assert.deepEqual(uncheckedCommonJsSources, []);
+  assert.equal(fs.existsSync(path.resolve(process.cwd(), "vite.config.ts")), true);
+});
+
 test("Electron release packaging covers the supported desktop targets", () => {
   const build = packageJson.build;
 
   assert.deepEqual(packageJson.dependencies ?? {}, {});
+  assert.equal(packageJson.engines.node, ">=24");
   assert.equal(build.appId, "com.xbounceit.winotp");
   assert.equal(build.productName, "WinOTP");
   assert.equal(packageJson.main, "electron-dist/electron/main.cjs");
-  assert.equal(packageJson.scripts["build:electron"], "node scripts/build-electron.mjs");
+  assert.equal(packageJson.scripts["build:electron"], "node scripts/build-electron.ts");
   assert.match(packageJson.scripts.dev, /^npm run build:core &&/);
   assert.match(packageJson.scripts.electron, /^npm run build:core &&/);
   assert.equal(
     packageJson.scripts.dev,
-    "npm run build:core && npm run build:electron && node scripts/dev.mjs",
+    "npm run build:core && npm run build:electron && node scripts/dev.ts",
   );
   assert.match(packageJson.scripts.electron, /electron \./);
   assert.doesNotMatch(mainSource, /registerSessionNotification/);

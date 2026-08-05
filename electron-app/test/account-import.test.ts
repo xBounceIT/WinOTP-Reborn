@@ -9,7 +9,9 @@ import {
   parseWinAuthLine,
   parseWinAuthText,
 } from "../src/lib/account-import.ts";
-function account(id) {
+import type { OtpAccount } from "../src/lib/types.ts";
+
+function account(id: string): OtpAccount {
   return {
     id,
     issuer: "Example",
@@ -23,14 +25,14 @@ function account(id) {
   };
 }
 
-function installBridge(core) {
-  globalThis.window = { winotp: { core } };
+function installBridge(core: any) {
+  (globalThis as any).window = { winotp: { core } };
 }
 
 test("delegates legacy JSON parsing to Rust and validates the result shape", async () => {
   let received = "";
   installBridge({
-    parseLegacyJson: async (content) => {
+    parseLegacyJson: async (content: string) => {
       received = content;
       return { accounts: [account("legacy")], skippedCount: 2 };
     },

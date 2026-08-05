@@ -23,7 +23,7 @@ function getCoreBinaryCandidates({
   environment = process.env,
   platform = process.platform,
   dirname = __dirname,
-} = {}) {
+}: any = {}) {
   const binaryName = platform === "win32" ? "winotp-core.exe" : "winotp-core";
   const candidates = [];
   if (environment.WINOTP_CORE_BINARY) {
@@ -38,13 +38,14 @@ function getCoreBinaryCandidates({
   if (environment.RESOURCES_PATH) {
     candidates.push(path.join(environment.RESOURCES_PATH, "updater", binaryName));
   }
-  if (typeof process.resourcesPath === "string" && process.resourcesPath) {
-    candidates.push(path.join(process.resourcesPath, "updater", binaryName));
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (typeof resourcesPath === "string" && resourcesPath) {
+    candidates.push(path.join(resourcesPath, "updater", binaryName));
   }
   return [...new Set(candidates)];
 }
 
-function resolveRustCoreBinary(options = {}) {
+function resolveRustCoreBinary(options: any = {}) {
   return getCoreBinaryCandidates(options).find((candidate) => {
     try {
       return fs.statSync(candidate).isFile();
@@ -54,7 +55,7 @@ function resolveRustCoreBinary(options = {}) {
   });
 }
 
-function hasRustCoreBinary(options = {}) {
+function hasRustCoreBinary(options: any = {}) {
   return Boolean(resolveRustCoreBinary(options));
 }
 
@@ -88,7 +89,7 @@ function serializeRustCoreRequest(operation, input, maxInputBytes = DEFAULT_MAX_
   return request;
 }
 
-function runRustCore(operation, input = {}, options = {}) {
+function runRustCore(operation, input = {}, options: any = {}) {
   const request = serializeRustCoreRequest(
     operation,
     input,
@@ -116,7 +117,7 @@ function runRustCore(operation, input = {}, options = {}) {
   return parseRustCoreOutput(child.stdout);
 }
 
-function runRustCoreAsync(operation, input = {}, options = {}) {
+function runRustCoreAsync(operation, input = {}, options: any = {}) {
   let request;
   try {
     request = serializeRustCoreRequest(
@@ -147,7 +148,7 @@ function runRustCoreAsync(operation, input = {}, options = {}) {
     ...spawnOptions
   } = options;
 
-  return new Promise((resolve, reject) => {
+  return new Promise<any>((resolve, reject) => {
     let child;
     try {
       child = spawn(binaryPath, [], {
@@ -173,7 +174,7 @@ function runRustCoreAsync(operation, input = {}, options = {}) {
       }
     };
 
-    const settle = (error, result) => {
+    const settle = (error, result?) => {
       if (settled) {
         return;
       }
@@ -252,7 +253,7 @@ function runRustCoreAsync(operation, input = {}, options = {}) {
   });
 }
 
-function tryRunRustCore(operation, input = {}, options = {}) {
+function tryRunRustCore(operation, input = {}, options: any = {}) {
   const binaryPath = resolveRustCoreBinary(options);
   if (!binaryPath) {
     return undefined;

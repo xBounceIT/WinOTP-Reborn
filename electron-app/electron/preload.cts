@@ -1,9 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 let latestScreenCapture;
-const screenCaptureListeners = new Set();
-const trayUsageListeners = new Set();
-const sessionChangeListeners = new Set();
+const screenCaptureListeners = new Set<(capture: any) => void>();
+const trayUsageListeners = new Set<(usage: any) => void>();
+const sessionChangeListeners = new Set<(change: any) => void>();
 
 ipcRenderer.on("screen-capture-ready", (_event, capture) => {
   latestScreenCapture = capture;

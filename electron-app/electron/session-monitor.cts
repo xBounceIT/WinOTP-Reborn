@@ -32,7 +32,7 @@ function getSessionChangeReason(code) {
   return SESSION_CHANGE_REASONS.get(code);
 }
 
-function runSessionNotificationOperation(operation, windowHandle, options = {}) {
+function runSessionNotificationOperation(operation, windowHandle, options: any = {}) {
   const platform = options.platform ?? process.platform;
   if (platform !== "win32") {
     return Promise.resolve({
@@ -71,11 +71,11 @@ function runSessionNotificationOperation(operation, windowHandle, options = {}) 
     }));
 }
 
-function registerSessionNotification(windowHandle, options = {}) {
+function registerSessionNotification(windowHandle, options: any = {}) {
   return runSessionNotificationOperation("session-notification-register", windowHandle, options);
 }
 
-function unregisterSessionNotification(windowHandle, options = {}) {
+function unregisterSessionNotification(windowHandle, options: any = {}) {
   return runSessionNotificationOperation("session-notification-unregister", windowHandle, options);
 }
 

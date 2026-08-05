@@ -35,19 +35,7 @@ jobs:
       - name: Verify tag matches package version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFile } from 'node:fs/promises';
-
-          const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
-          const tagVersion = process.env.RELEASE_TAG.replace(/^v/, '');
-
-          if (packageJson.version !== tagVersion) {
-            throw new Error(
-              `Tag '${process.env.RELEASE_TAG}' does not match package.json version '${packageJson.version}'.`,
-            );
-          }
-          NODE
+        run: node scripts/verify-release-tag.ts
 
       - run: npm run typecheck
       - run: npm run lint

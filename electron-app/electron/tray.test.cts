@@ -76,13 +76,19 @@ test("builds open, copy, and exit items while hiding codes when locked", () => {
 });
 
 test("creates and disposes the tray as close settings change", () => {
-  const trays = [];
-  const menus = [];
-  const copied = [];
-  const callbacks = {};
+  const trays: any[] = [];
+  const menus: any[] = [];
+  const copied: any[] = [];
+  const callbacks: any = {};
   let menuOpenCount = 0;
 
   class FakeTray {
+    iconPath: any;
+    handlers: Record<string, any>;
+    destroyed: boolean;
+    tooltip: any;
+    menu: any;
+
     constructor(iconPath) {
       this.iconPath = iconPath;
       this.handlers = {};
@@ -151,9 +157,13 @@ test("creates and disposes the tray as close settings change", () => {
 });
 
 test("recreates a tray destroyed by the operating system", () => {
-  const trays = [];
+  const trays: any[] = [];
 
   class FakeTray {
+    destroyed: boolean;
+    handlers: Record<string, any>;
+    menu: any;
+
     constructor() {
       this.destroyed = false;
       this.handlers = {};

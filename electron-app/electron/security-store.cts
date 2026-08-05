@@ -65,7 +65,11 @@ function secretsEqual(left, right) {
 }
 
 class SecurityStore {
-  constructor(app, options = {}) {
+  encryption: any;
+  filePath: string;
+  state: any;
+
+  constructor(app, options: any = {}) {
     this.encryption = options.encryption ?? getDefaultEncryption();
     this.filePath = options.filePath ?? getSecurityFilePath(app);
     this.state = readState(this.filePath);

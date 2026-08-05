@@ -82,7 +82,7 @@ function isHexColor(value) {
   return typeof value === "string" && /^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(value);
 }
 
-function updateTitleBarTheme(theme = {}) {
+function updateTitleBarTheme(theme: any = {}) {
   if (!mainWindow || typeof mainWindow.setTitleBarOverlay !== "function") {
     return;
   }
@@ -269,7 +269,7 @@ function registerPowerSessionChangeMonitoring() {
   }
 }
 
-function loadRenderer(window, query = {}) {
+function loadRenderer(window, query: Record<string, string> = {}) {
   const configuredRendererUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173";
   if (
     shouldUseDevelopmentRenderer({
@@ -935,7 +935,7 @@ function boundedAccountInput(value) {
   return value;
 }
 
-function runCoreFromRenderer(event, operation, input, options = {}) {
+function runCoreFromRenderer(event, operation, input, options: any = {}) {
   const isTrustedMainRenderer = isTrustedRendererEvent(event, mainWindow);
   const isTrustedCaptureOverlay =
     options.allowScreenCaptureOverlay === true &&
@@ -1080,7 +1080,7 @@ function withBackupStatus(service, result) {
   }
 }
 
-async function attachAutomaticBackupResult(result, options = {}) {
+async function attachAutomaticBackupResult(result, options: any = {}) {
   const { shouldCreate = true, context = "an account mutation", service } = options;
   if (!result?.success || !shouldCreate) {
     return result;

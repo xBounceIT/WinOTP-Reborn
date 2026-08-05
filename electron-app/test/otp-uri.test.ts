@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseOtpUri } from "../src/lib/otp-uri.ts";
-function account() {
+import type { OtpAccount } from "../src/lib/types.ts";
+
+function account(): OtpAccount {
   return {
     id: "bridge-account",
     issuer: "GitHub",
@@ -16,15 +18,15 @@ function account() {
   };
 }
 
-function installBridge(parse) {
-  globalThis.window = {
+function installBridge(parse: any) {
+  (globalThis as any).window = {
     winotp: { core: { parseOtpUri: parse } },
   };
 }
 
 test("delegates OTP URI parsing to the Rust bridge", async () => {
   let received = "";
-  installBridge(async (uri) => {
+  installBridge(async (uri: string) => {
     received = uri;
     return account();
   });

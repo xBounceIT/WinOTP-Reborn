@@ -1,15 +1,15 @@
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const viteEntry = path.join(projectRoot, "node_modules", "vite", "bin", "vite.js");
 const electronEntry = path.join(projectRoot, "node_modules", "electron", "cli.js");
 const preferredPort = Number.parseInt(process.env.VITE_DEV_PORT ?? "5173", 10);
 
-function canListen(port) {
-  return new Promise((resolve) => {
+function canListen(port: number) {
+  return new Promise<boolean>((resolve) => {
     const server = net.createServer();
     server.once("error", () => resolve(false));
     server.listen(port, "127.0.0.1", () => {
@@ -18,7 +18,7 @@ function canListen(port) {
   });
 }
 
-async function findAvailablePort(startPort) {
+async function findAvailablePort(startPort: number) {
   for (let port = Number.isInteger(startPort) ? startPort : 5173; port <= 65_535; port += 1) {
     if (await canListen(port)) {
       return port;
@@ -28,12 +28,12 @@ async function findAvailablePort(startPort) {
   throw new Error("No available loopback port was found for the Vite development server.");
 }
 
-function waitForPort(port, timeoutMs = 30_000) {
-  return new Promise((resolve, reject) => {
+function waitForPort(port: number, timeoutMs = 30_000) {
+  return new Promise<void>((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
-    let retryTimer;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const finish = (error) => {
+    const finish = (error?: Error) => {
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = undefined;
@@ -65,7 +65,7 @@ function waitForPort(port, timeoutMs = 30_000) {
   });
 }
 
-function terminate(child) {
+function terminate(child: ChildProcess | undefined) {
   if (!child || !child.pid || child.killed) {
     return;
   }
@@ -94,10 +94,10 @@ async function run() {
     [viteEntry, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
     { cwd: projectRoot, env: environment, stdio: "inherit", windowsHide: true },
   );
-  let electron;
+  let electron: ChildProcess | undefined;
   let stopping = false;
 
-  const stop = (exitCode) => {
+  const stop = (exitCode: number) => {
     if (stopping) {
       return;
     }

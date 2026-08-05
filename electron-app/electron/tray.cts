@@ -102,7 +102,7 @@ function areTrayStatesEqual(left, right) {
 }
 
 function buildTrayMenuTemplate(state, handlers) {
-  const template = [
+  const template: any[] = [
     {
       label: "Open WinOTP",
       click: handlers.open,
@@ -141,10 +141,10 @@ function createTrayController({
   onMenuOpen,
   onError,
   tooltip = "WinOTP",
-}) {
+}: any) {
   let tray;
   let trayCreationFailed = false;
-  let state = { ...DEFAULT_TRAY_STATE, accounts: [] };
+  let state: any = { ...DEFAULT_TRAY_STATE, accounts: [] };
 
   function reportError(error) {
     try {

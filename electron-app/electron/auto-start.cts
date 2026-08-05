@@ -7,8 +7,8 @@ function createLoginItemSettings({
   appPath,
   execPath,
   platform = process.platform,
-}) {
-  const settings = { openAtLogin: enabled };
+}: any) {
+  const settings: any = { openAtLogin: enabled };
 
   if (platform === "darwin") {
     settings.openAsHidden = enabled;
@@ -31,7 +31,7 @@ function unavailableResult(message, enabled = false) {
   };
 }
 
-function getAutoStartStatus(app, options = {}) {
+function getAutoStartStatus(app, options: any = {}) {
   try {
     const platform = options.platform ?? process.platform;
     const loginItemSettings = createLoginItemSettings({
@@ -60,7 +60,7 @@ function getAutoStartStatus(app, options = {}) {
   }
 }
 
-function setAutoStart(app, enabled, options = {}) {
+function setAutoStart(app, enabled, options: any = {}) {
   if (typeof enabled !== "boolean") {
     return unavailableResult("Auto-start must be configured with a boolean value.");
   }

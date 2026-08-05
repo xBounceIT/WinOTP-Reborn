@@ -84,7 +84,7 @@ test("rejects oversized Rust core requests before launching the sidecar", async 
   );
 });
 
-test("does not hide a Rust operation failure behind the JavaScript fallback", () => {
+test("does not hide a Rust operation failure behind a bridge fallback", () => {
   assert.throws(
     () => tryRunRustCore("unsupported-operation", {}, { binaryPath: resolveCoreBinary() }),
     /Unsupported WinOTP core operation/,

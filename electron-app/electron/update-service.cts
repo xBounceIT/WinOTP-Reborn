@@ -32,17 +32,22 @@ function getRepositoryRoot() {
   );
 }
 
-function getUpdaterCommand({ app, environment = process.env, platform = process.platform } = {}) {
+function getUpdaterCommand({
+  app,
+  environment = process.env,
+  platform = process.platform,
+}: any = {}) {
   const configuredPath = environment.WINOTP_UPDATER_PATH;
   if (configuredPath && fs.existsSync(configuredPath)) {
     return { command: configuredPath, args: [] };
   }
 
   if (app?.isPackaged) {
-    if (!process.resourcesPath) {
+    const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    if (!resourcesPath) {
       return undefined;
     }
-    const packagedPath = path.join(process.resourcesPath, "updater", updaterBinaryName(platform));
+    const packagedPath = path.join(resourcesPath, "updater", updaterBinaryName(platform));
     return fs.existsSync(packagedPath) ? { command: packagedPath, args: [] } : undefined;
   }
 
@@ -101,7 +106,7 @@ function failureResult(state, message) {
   };
 }
 
-function runUpdater(request, options = {}) {
+function runUpdater(request, options: any = {}) {
   const {
     app,
     environment = process.env,
@@ -113,7 +118,7 @@ function runUpdater(request, options = {}) {
     return Promise.reject(new Error("The Rust update bridge is unavailable."));
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise<any>((resolve, reject) => {
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -209,7 +214,7 @@ function createUpdateService({
   environment = process.env,
   platform = process.platform,
   spawnProcess = spawn,
-} = {}) {
+}: any = {}) {
   const currentVersion = String(app?.getVersion?.() ?? "0.0.0");
   const updatesDirectory = path.join(
     getAppDataDirectory(app, { environment, platform }),
@@ -222,7 +227,7 @@ function createUpdateService({
     return cloneState(state);
   }
 
-  function request(command, options = {}) {
+  function request(command, options: any = {}) {
     return runUpdater(
       {
         command,

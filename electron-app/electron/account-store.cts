@@ -136,7 +136,16 @@ function withoutMigrationPlatform(status) {
 }
 
 class AccountStore {
-  constructor(app, options = {}) {
+  encryption: any;
+  legacyCredentialReader: any;
+  platform: NodeJS.Platform;
+  directoryPath: string;
+  databasePath: string;
+  database: any;
+  migrationNotificationPending: boolean;
+  migration: any;
+
+  constructor(app, options: any = {}) {
     this.encryption = options.encryption ?? safeStorage;
     this.legacyCredentialReader = options.legacyCredentialReader ?? readLegacyCredentials;
     this.platform = options.platform ?? process.platform;
@@ -483,7 +492,8 @@ class AccountStore {
 
     try {
       this.database.exec("BEGIN");
-      for (const [rawId, rawEntry] of Object.entries(entries)) {
+      for (const [rawId, rawEntryValue] of Object.entries(entries)) {
+        const rawEntry = rawEntryValue as Record<string, unknown>;
         const accountId = String(rawId).trim();
         if (!accountId || !rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
           skippedCount += 1;

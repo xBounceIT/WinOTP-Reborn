@@ -96,10 +96,10 @@ async function generateTotpPreviews(accounts, timestamp = Date.now()) {
   return previews;
 }
 
-function createTotpPreviewRunner(generator = generateTotpPreviews) {
+function createTotpPreviewRunner(generator: (...args: any[]) => any = generateTotpPreviews) {
   let inFlight;
 
-  return async (...args) => {
+  return async (...args: any[]) => {
     if (inFlight) {
       return [];
     }

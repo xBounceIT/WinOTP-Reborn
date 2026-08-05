@@ -1,17 +1,19 @@
 # WinOTP
 
-WinOTP is a secure, cross-platform TOTP authenticator built with a TypeScript frontend, a plain-JavaScript Electron shell, and Rust.
+WinOTP is a secure, cross-platform TOTP authenticator with a TypeScript-only desktop frontend and an entirely Rust backend.
 
 ## Current architecture
 
-- `electron-app/src/` — TypeScript 7 React renderer and its typed frontend adapters.
-- `electron-app/electron/` — plain CommonJS JavaScript Electron main process, preload bridge, storage, and OS adapters. The build copies these `.cjs` sources to the ignored `electron-dist/` runtime directory.
+- `electron-app/src/` — TypeScript 7 React renderer and typed frontend state.
+- `electron-app/electron/` — TypeScript Electron host, preload bridge, persistence boundary, and OS adapters. These files are part of the desktop frontend/platform layer: they must not contain portable domain or cryptographic backend logic.
+- `electron-app/scripts/` and `electron-app/vite.config.ts` — TypeScript development, build, packaging, and frontend configuration.
+- `electron-app/electron-dist/` — ignored generated CommonJS runtime output compiled from `.cts` sources; it is never a source directory.
 - `rust/winotp-core/` — portable account model, OTP generation, URI/import mapping, backup cryptography, ordering, settings, and protection policy.
 - `rust/winotp-updater/` — platform-neutral update discovery and installer verification sidecar.
 
 The Electron main process stores accounts in its per-user `WinOTP_Reborn/accounts.db` directory. TOTP secrets and security credentials are encrypted with Electron `safeStorage` before they are written to disk; Electron maps that API to DPAPI, Keychain, or the Linux secret-service backend as appropriate. On Windows, valid entries from the previous Credential Manager store are imported once. The same launch migrates the legacy settings and credentials when they are available.
 
-Rust is authoritative for data normalization, OTP and backup cryptography, imports, ordering rules, settings normalization, and protection decisions. Electron owns the cross-platform shell boundary: SQLite and OS-backed storage, window/login-item APIs, desktop capture, and renderer-only browser work such as `jsqr`.
+Rust is the complete backend and is authoritative for data normalization, OTP and backup cryptography, imports, ordering rules, settings normalization, protection decisions, plus update discovery, selection, download, digest verification, and installer launch. TypeScript is frontend-only: Electron owns the cross-platform host and adapter boundary—IPC, update UI state, SQLite and OS-backed persistence access, windows, login items, desktop capture, and renderer-only browser work such as `jsqr`—but no backend business rules.
 
 ## Run the Electron app
 

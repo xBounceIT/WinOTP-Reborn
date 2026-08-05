@@ -60,7 +60,7 @@ function serializeWindowHandle(windowHandle) {
   return value.toString(10);
 }
 
-function runWindowsHelloOperation(operation, input, options = {}) {
+function runWindowsHelloOperation(operation, input, options: any = {}): Promise<any> {
   const platform = options.platform ?? process.platform;
   if (platform !== "win32") {
     return Promise.resolve({ ok: false, error: "Windows Hello is only available on Windows." });
@@ -87,12 +87,12 @@ function runWindowsHelloOperation(operation, input, options = {}) {
     }));
 }
 
-async function getWindowsHelloAvailability(options = {}) {
+async function getWindowsHelloAvailability(options: any = {}) {
   const result = await runWindowsHelloOperation("windows-hello-availability", {}, options);
   return { status: result.ok ? mapAvailabilityStatus(result.status) : "error" };
 }
 
-async function verifyWindowsHello(options = {}) {
+async function verifyWindowsHello(options: any = {}) {
   const windowHandle = serializeWindowHandle(options.windowHandle);
   if (!windowHandle) {
     return { status: "error" };

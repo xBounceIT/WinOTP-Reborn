@@ -13,7 +13,7 @@ const binaries = process.argv.includes("--core-only")
   : ["winotp-updater", "winotp-core"];
 const requestedTargetArchitecture = process.env.WINOTP_TARGET_ARCH?.trim().toLowerCase();
 
-function binaryName(name, platform = process.platform) {
+function binaryName(name: string, platform = process.platform) {
   return platform === "win32" ? `${name}.exe` : name;
 }
 
@@ -40,14 +40,14 @@ function rustTargetForArchitecture() {
   );
 }
 
-async function makeExecutable(filePath) {
+async function makeExecutable(filePath: string) {
   if (process.platform !== "win32") {
     await chmod(filePath, 0o755);
   }
 }
 
-function runCommand(command, args) {
-  return new Promise((resolve, reject) => {
+function runCommand(command: string, args: string[]) {
+  return new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: repositoryRoot,
       stdio: "inherit",

@@ -8,7 +8,9 @@ import {
   pruneCustomOrderIdsWithCore,
   sortAccountsWithCore,
 } from "../src/lib/account-order.ts";
-function account(id, createdAt, usageCount = 0) {
+import type { OtpAccount } from "../src/lib/types.ts";
+
+function account(id: string, createdAt: string, usageCount = 0): OtpAccount {
   return {
     id,
     issuer: id,
@@ -29,10 +31,10 @@ const accounts = [
 ];
 
 function installBridge() {
-  globalThis.window = {
+  (globalThis as any).window = {
     winotp: {
       core: {
-        sortAccounts: async ({ accounts: input }) =>
+        sortAccounts: async ({ accounts: input }: any) =>
           [...input].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
         pruneCustomOrderIds: async () => ["acct-3", "acct-1"],
         orderProject: async () => ["acct-2", "acct-1", "acct-3"],
@@ -52,7 +54,7 @@ test("uses the Rust result to restore the original account objects", async () =>
 });
 
 test("rejects duplicate or incomplete Rust order results", async () => {
-  globalThis.window = {
+  (globalThis as any).window = {
     winotp: {
       core: {
         sortAccounts: async () => [accounts[0], accounts[0], accounts[2]],

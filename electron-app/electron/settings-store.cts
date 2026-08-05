@@ -89,7 +89,10 @@ function writeSettingsAtomically(filePath, settings) {
 }
 
 class SettingsStore {
-  constructor(app, options = {}) {
+  filePath: string;
+  settings: any;
+
+  constructor(app, options: any = {}) {
     this.filePath = options.filePath ?? getSettingsFilePath(app);
     this.settings = readStoredSettings(this.filePath) ?? normalizeSettings(defaultSettings);
   }
