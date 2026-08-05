@@ -2,6 +2,7 @@
 
 import type {
   AccountDeleteResult,
+  AccountBatchSaveResult,
   AccountLoadResult,
   AccountSaveResult,
   AccountUsageResult,
@@ -168,6 +169,7 @@ declare global {
         get: (id: string) => Promise<OtpAccount | undefined>;
         acknowledgeMigration: () => Promise<boolean>;
         save: (account: OtpAccount) => Promise<AccountSaveResult>;
+        saveBatch: (accounts: OtpAccount[]) => Promise<AccountBatchSaveResult>;
         delete: (id: string) => Promise<AccountDeleteResult>;
         recordUsage: (id: string) => Promise<AccountUsageResult>;
       };

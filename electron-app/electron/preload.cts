@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld("winotp", {
     get: (id) => ipcRenderer.invoke("accounts:get", id),
     acknowledgeMigration: () => ipcRenderer.invoke("accounts:ack-migration"),
     save: (account) => ipcRenderer.invoke("accounts:save", account),
+    saveBatch: (accounts) => ipcRenderer.invoke("accounts:save-batch", accounts),
     delete: (id) => ipcRenderer.invoke("accounts:delete", id),
     recordUsage: (id) => ipcRenderer.invoke("accounts:record-usage", id),
   },

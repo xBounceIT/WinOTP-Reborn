@@ -105,6 +105,11 @@ export interface AccountSaveResult {
   automaticBackup?: BackupOperationResult;
 }
 
+export interface AccountBatchSaveResult {
+  results: AccountSaveResult[];
+  automaticBackup?: BackupOperationResult;
+}
+
 export interface AccountDeleteResult {
   success: boolean;
   message?: string;

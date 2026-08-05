@@ -1005,26 +1005,32 @@ export default function App() {
   }
 
   async function importAccounts(accountsToImport: OtpAccount[]): Promise<AccountImportResult> {
-    let importedCount = 0;
-    let failedCount = 0;
-    let automaticBackupFailed = false;
-    const persistedAccounts: OtpAccount[] = [];
-
-    for (const account of accountsToImport) {
-      try {
-        const result = await window.winotp?.accounts.save(account);
-        if (!result?.success || !result.account) {
-          failedCount += 1;
-          continue;
-        }
-
-        importedCount += 1;
-        persistedAccounts.push(sanitizeAccountForRenderer(result.account));
-        automaticBackupFailed ||= result.automaticBackup?.success === false;
-      } catch {
-        failedCount += 1;
-      }
+    const accountsBridge = window.winotp?.accounts;
+    if (!accountsBridge) {
+      return {
+        importedCount: 0,
+        failedCount: accountsToImport.length,
+        automaticBackupFailed: false,
+      };
     }
+
+    let batchResult;
+    try {
+      batchResult = await accountsBridge.saveBatch(accountsToImport);
+    } catch {
+      return {
+        importedCount: 0,
+        failedCount: accountsToImport.length,
+        automaticBackupFailed: false,
+      };
+    }
+
+    const persistedAccounts = batchResult.results.flatMap((result) =>
+      result.success && result.account ? [sanitizeAccountForRenderer(result.account)] : [],
+    );
+    const importedCount = persistedAccounts.length;
+    const failedCount = accountsToImport.length - importedCount;
+    const automaticBackupFailed = batchResult.automaticBackup?.success === false;
 
     if (persistedAccounts.length > 0) {
       accountMutationVersion.current += 1;

@@ -16,6 +16,7 @@ const path = require("node:path");
 const { createDisplayCapturePlan, getThumbnailSize } = require("./screen-capture.cjs");
 const { AccountStore, sanitizeAccount } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
+const { saveAccountBatch } = require("./account-batch-save.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
 const { createUpdateService, defaultUpdateState } = require("./update-service.cjs");
@@ -1191,6 +1192,35 @@ function registerAccountIpc() {
       console.error("Failed to save an account to the local database.", error);
       return { success: false, message: "Unable to save the account." };
     }
+  });
+
+  ipcMain.handle("accounts:save-batch", async (event, accounts) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return { results: [] };
+    }
+    if (!isRendererUnlocked()) {
+      return { results: [] };
+    }
+
+    const store = accountStoreLoader.get();
+    if (!store) {
+      return { results: [] };
+    }
+
+    const boundedAccounts = Array.isArray(accounts) ? accounts.slice(0, 1_000) : [];
+    return saveAccountBatch(boundedAccounts, {
+      saveAccount: (account) => {
+        const result = store.saveAccount(boundedAccountInput(account));
+        return result?.account ? { ...result, account: sanitizeAccount(result.account) } : result;
+      },
+      createAutomaticBackup: () => getBackupStore().createAutomaticBackup(),
+      onSaveError: (error) => {
+        console.error("Failed to save an imported account to the local database.", error);
+      },
+      onBackupError: (error) => {
+        console.error("Automatic backup failed after an account import.", error);
+      },
+    });
   });
 
   ipcMain.handle("accounts:delete", async (event, id) => {

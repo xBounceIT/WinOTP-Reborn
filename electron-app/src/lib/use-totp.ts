@@ -21,6 +21,8 @@ export function useTotp(accounts: OtpAccount[], enabled = true) {
     let timer = 0;
     let cancelled = false;
 
+    setTimestamp(Date.now());
+
     function scheduleNextTick() {
       if (cancelled) {
         return;
