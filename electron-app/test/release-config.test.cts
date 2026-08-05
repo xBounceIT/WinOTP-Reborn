@@ -59,7 +59,7 @@ test("Electron release packaging covers the supported desktop targets", () => {
   );
   assert.match(packageJson.scripts.electron, /electron \./);
   assert.doesNotMatch(mainSource, /registerSessionNotification/);
-  assert.match(mainSource, /registerPowerSessionChangeMonitoring\(\)/);
+  assert.match(mainSource, /registerSessionChangeMonitoring\(\)/);
   assert.match(mainSource, /isDevelopment\(\) \|\| app\.requestSingleInstanceLock\(\)/);
   assert.match(mainSource, /setAppUserModelId\("com\.xbounceit\.winotp"\)/);
   assert.equal(packageJson.desktopName, "WinOTP");

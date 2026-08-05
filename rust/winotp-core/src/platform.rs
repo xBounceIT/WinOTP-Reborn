@@ -20,13 +20,15 @@ pub struct LegacyCredentialEntry {
 mod windows_impl {
     use std::collections::HashSet;
     use std::ffi::c_void;
+    use std::sync::mpsc;
 
-    use windows::core::{Result as WindowsResult, HSTRING};
+    use windows::core::{Result as WindowsResult, HSTRING, PCWSTR};
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
     use windows::Security::Credentials::{PasswordCredential, PasswordVault};
-    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::RemoteDesktop::{
         WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
     };
@@ -34,7 +36,13 @@ mod windows_impl {
         IUserConsentVerifierInterop, RoGetActivationFactory, RoInitialize, RoUninitialize,
         RO_INIT_MULTITHREADED,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_REMOTESESSION};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetSystemMetrics,
+        GetWindowLongPtrW, RegisterClassW, SetWindowLongPtrW, TranslateMessage, GWLP_USERDATA,
+        HWND_MESSAGE, MSG, SM_REMOTESESSION, WINDOW_EX_STYLE, WINDOW_STYLE, WM_WTSSESSION_CHANGE,
+        WNDCLASSW, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT,
+        WTS_REMOTE_DISCONNECT,
+    };
     use windows_future::IAsyncOperation;
 
     const USER_CONSENT_VERIFIER_CLASS: &str = "Windows.Security.Credentials.UI.UserConsentVerifier";
@@ -120,6 +128,106 @@ mod windows_impl {
         unsafe { WTSUnRegisterSessionNotification(hwnd) }.map_err(|error| error.to_string())
     }
 
+    fn session_change_reason(code: u32) -> Option<&'static str> {
+        match code {
+            WTS_CONSOLE_CONNECT => Some("console-connect"),
+            WTS_CONSOLE_DISCONNECT => Some("console-disconnect"),
+            WTS_REMOTE_CONNECT => Some("remote-connect"),
+            WTS_REMOTE_DISCONNECT => Some("remote-disconnect"),
+            _ => None,
+        }
+    }
+
+    struct SessionNotificationContext {
+        events: mpsc::Sender<(u32, &'static str)>,
+    }
+
+    unsafe extern "system" fn session_change_window_proc(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if message == WM_WTSSESSION_CHANGE {
+            let context = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SessionNotificationContext;
+            if !context.is_null() {
+                let code = wparam.0 as u32;
+                if let Some(reason) = session_change_reason(code) {
+                    let _ = unsafe { (*context).events.send((code, reason)) };
+                }
+            }
+            return LRESULT(0);
+        }
+        unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+    }
+
+    fn run_session_notification_watch_thread(
+        events: mpsc::Sender<(u32, &'static str)>,
+    ) -> Result<(), String> {
+        unsafe {
+            let class_name = "WinOTP.SessionChangeWatcher\0"
+                .encode_utf16()
+                .collect::<Vec<u16>>();
+            let instance = HINSTANCE(GetModuleHandleW(None).map_err(|error| error.to_string())?.0);
+            let window_class = WNDCLASSW {
+                lpfnWndProc: Some(session_change_window_proc),
+                hInstance: instance,
+                lpszClassName: PCWSTR(class_name.as_ptr()),
+                ..Default::default()
+            };
+            if RegisterClassW(&window_class) == 0 {
+                return Err(format!(
+                    "Unable to register the session watcher window class: {}",
+                    GetLastError().0
+                ));
+            }
+
+            // The context lives for the whole watcher process: the window
+            // procedure reads it on every transition and nothing destroys it.
+            let context = Box::new(SessionNotificationContext { events });
+            let context_ptr = Box::into_raw(context);
+            let window = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                PCWSTR(class_name.as_ptr()),
+                PCWSTR::null(),
+                WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                Some(instance),
+                Some(context_ptr as *const c_void),
+            )
+            .map_err(|error| format!("Unable to create the session watcher window: {error}"))?;
+            SetWindowLongPtrW(window, GWLP_USERDATA, context_ptr as isize);
+            WTSRegisterSessionNotification(window, NOTIFY_FOR_THIS_SESSION)
+                .map_err(|error| format!("Unable to register session notifications: {error}"))?;
+
+            let mut message = MSG::default();
+            loop {
+                let result = GetMessageW(&mut message, None, 0, 0);
+                if result.0 == 0 || result.0 == -1 {
+                    break;
+                }
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn run_session_notification_watch() -> Result<mpsc::Receiver<(u32, &'static str)>, String> {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            if let Err(error) = run_session_notification_watch_thread(sender) {
+                println!("{{\"ok\":false,\"error\":{error:?}}}");
+            }
+        });
+        Ok(receiver)
+    }
+
     pub fn read_legacy_credentials(
         resources: &[String],
     ) -> Result<Vec<super::LegacyCredentialEntry>, String> {
@@ -192,6 +300,11 @@ mod windows_impl {
         Err("Windows session notifications are only available on Windows.".to_string())
     }
 
+    pub fn run_session_notification_watch(
+    ) -> Result<std::sync::mpsc::Receiver<(u32, &'static str)>, String> {
+        Err("Windows session notifications are only available on Windows.".to_string())
+    }
+
     pub fn read_legacy_credentials(
         _resources: &[String],
     ) -> Result<Vec<super::LegacyCredentialEntry>, String> {
@@ -200,6 +313,6 @@ mod windows_impl {
 }
 
 pub use windows_impl::{
-    read_legacy_credentials, register_session_notification, unregister_session_notification,
-    windows_hello_availability, windows_hello_verify,
+    read_legacy_credentials, register_session_notification, run_session_notification_watch,
+    unregister_session_notification, windows_hello_availability, windows_hello_verify,
 };

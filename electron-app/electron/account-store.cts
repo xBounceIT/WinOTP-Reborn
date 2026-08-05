@@ -145,6 +145,7 @@ class AccountStore {
   database: any;
   migrationNotificationPending: boolean;
   migration: any;
+  previewAccountsCache: any;
 
   constructor(app, options: any = {}) {
     this.encryption = options.encryption ?? safeStorage;
@@ -155,6 +156,7 @@ class AccountStore {
     this.databasePath = path.join(this.directoryPath, DATABASE_FILE_NAME);
     this.database = undefined;
     this.migrationNotificationPending = false;
+    this.previewAccountsCache = undefined;
     this.migration = {
       status: "pending",
       importedCount: 0,
@@ -679,6 +681,17 @@ class AccountStore {
     return this.readAccounts().accounts.find((account) => account.id === accountId);
   }
 
+  getPreviewAccounts() {
+    this.ensureOpen();
+    if (!this.previewAccountsCache) {
+      // TOTP previews request the full vault every second; cache the
+      // normalized records and invalidate on mutations instead of decrypting
+      // and revalidating every account on each tick.
+      this.previewAccountsCache = this.readAccounts().accounts;
+    }
+    return this.previewAccountsCache;
+  }
+
   saveAccount(source) {
     this.ensureOpen();
     const normalized = normalizeAccount(source, source?.id);
@@ -720,6 +733,7 @@ class AccountStore {
         account.usageCount,
         account.lastUsedAt ?? null,
       );
+    this.previewAccountsCache = undefined;
 
     return { success: true, account };
   }
@@ -735,6 +749,7 @@ class AccountStore {
     if (Number(result.changes) === 0) {
       return { success: false, message: "Account was not found." };
     }
+    this.previewAccountsCache = undefined;
 
     return { success: true };
   }

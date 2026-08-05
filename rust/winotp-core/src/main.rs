@@ -553,9 +553,33 @@ fn main() {
         );
         return;
     }
-    let response = match serde_json::from_str::<Value>(&input) {
-        Ok(request) => dispatch(request),
-        Err(error) => error_response(format!("Invalid WinOTP core request: {error}")),
+    let request = match serde_json::from_str::<Value>(&input) {
+        Ok(request) => request,
+        Err(error) => {
+            println!(
+                "{}",
+                error_response(format!("Invalid WinOTP core request: {error}"))
+            );
+            return;
+        }
     };
-    println!("{response}");
+    if request.get("operation").and_then(Value::as_str) == Some("session-watch") {
+        // Stream Windows session-change transitions until the process exits so
+        // the Electron host can lock the app on Remote Desktop transitions.
+        match platform::run_session_notification_watch() {
+            Ok(events) => {
+                for (code, reason) in events {
+                    println!(
+                        "{}",
+                        json!({ "ok": true, "event": { "code": code, "reason": reason } })
+                    );
+                }
+            }
+            Err(error) => {
+                println!("{}", error_response(error));
+            }
+        }
+        return;
+    }
+    println!("{}", dispatch(request));
 }

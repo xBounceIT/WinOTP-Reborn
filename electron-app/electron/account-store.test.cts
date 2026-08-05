@@ -195,6 +195,44 @@ test("adds the usage timestamp column when opening an older account database", (
   }
 });
 
+test("caches preview accounts and invalidates them on mutations", () => {
+  const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
+
+  try {
+    const store = createTestStore(directoryPath, () => ({ ok: true, entries: [] }));
+    assert.deepEqual(store.getPreviewAccounts(), []);
+
+    assert.equal(
+      store.saveAccount({
+        id: "account-1",
+        issuer: "GitHub",
+        accountName: "dangelicodes",
+        secret: "JBSWY3DPEHPK3PXP",
+      }).success,
+      true,
+    );
+    const first = store.getPreviewAccounts();
+    assert.equal(first.length, 1);
+    assert.equal(first[0].secret, "JBSWY3DPEHPK3PXP");
+    assert.equal(store.getPreviewAccounts(), first);
+
+    assert.equal(
+      store.saveAccount({
+        ...first[0],
+        secret: "MFRGGZDFMZTWQ2LK",
+      }).success,
+      true,
+    );
+    assert.equal(store.getPreviewAccounts()[0].secret, "MFRGGZDFMZTWQ2LK");
+
+    assert.equal(store.deleteAccount("account-1").success, true);
+    assert.deepEqual(store.getPreviewAccounts(), []);
+    store.close();
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
 function createTestEncryption() {
   return {
     isEncryptionAvailable: () => true,

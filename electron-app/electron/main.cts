@@ -32,6 +32,7 @@ const {
 } = require("./totp.cjs");
 const { getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
 const { runRustCoreAsync } = require("./rust-core.cjs");
+const { startSessionChangeWatcher } = require("./session-monitor.cjs");
 const {
   isAllowedRendererUrl,
   isAllowedExternalUrl,
@@ -48,6 +49,7 @@ const { createTrayController, orderAccountsByIds } = require("./tray.cjs");
 
 let mainWindow;
 let trayController;
+let sessionChangeWatcher;
 let rendererUnlocked = false;
 let screenCaptureRequest;
 let screenCaptureInProgress = false;
@@ -261,12 +263,24 @@ function notifyRendererOfSessionChange(reason) {
   mainWindow.webContents.send("session-changed", { reason });
 }
 
-function registerPowerSessionChangeMonitoring() {
+function registerSessionChangeMonitoring() {
   // Electron owns the BrowserWindow message loop. The Rust sidecar cannot
   // register WTS notifications for that HWND, so use Electron's in-process
   // power/session events for lock and resume handling.
   for (const eventName of ["lock-screen", "unlock-screen", "suspend", "resume"]) {
     powerMonitor.on(eventName, () => notifyRendererOfSessionChange(eventName));
+  }
+
+  if (process.platform === "win32") {
+    // Remote Desktop connect/disconnect transitions do not raise Electron
+    // power events; stream them from a hidden watcher window owned by the
+    // Rust sidecar so the app locks on session changes.
+    sessionChangeWatcher = startSessionChangeWatcher({
+      onSessionChange: (reason) => notifyRendererOfSessionChange(reason),
+      onError: (error) => {
+        console.error("Windows session-change monitoring failed.", error);
+      },
+    });
   }
 }
 
@@ -1048,7 +1062,7 @@ function registerTotpIpc() {
     const requestedIds = Array.isArray(ids)
       ? ids.map((id) => String(id ?? "").trim()).slice(0, 1_000)
       : [];
-    const storedAccounts = accountStoreLoader.get()?.readAccounts().accounts ?? [];
+    const storedAccounts = accountStoreLoader.get()?.getPreviewAccounts() ?? [];
     const accountById = new Map(storedAccounts.map((account) => [account.id, account]));
     const accounts = requestedIds.map((id) => accountById.get(id) ?? createMissingAccount(id));
     const previews = await runTotpPreviews(accounts, timestamp);
@@ -1801,7 +1815,7 @@ if (!hasSingleInstanceLock) {
     registerAutoStartIpc();
     registerCoreIpc();
     registerTotpIpc();
-    registerPowerSessionChangeMonitoring();
+    registerSessionChangeMonitoring();
     ipcMain.handle("open-external", async (event, url) => {
       if (!isTrustedRendererEvent(event, mainWindow)) {
         return false;
@@ -1860,8 +1874,17 @@ app.on("window-all-closed", () => {
   }
 });
 
+app.on("activate", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    restoreMainWindow();
+  } else {
+    createWindow();
+  }
+});
+
 app.on("before-quit", () => {
   isQuitting = true;
+  sessionChangeWatcher?.stop();
   trayController?.dispose();
   accountStoreLoader.close();
 });

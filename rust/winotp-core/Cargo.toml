@@ -36,8 +36,10 @@ tempfile = "3"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
     "Foundation_Collections",
+    "Win32_Graphics_Gdi",
     "Security_Credentials",
     "Security_Credentials_UI",
+    "Win32_System_LibraryLoader",
     "Win32_System_RemoteDesktop",
     "Win32_System_WinRT",
     "Win32_UI_WindowsAndMessaging",
