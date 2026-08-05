@@ -240,7 +240,7 @@ fn manual_checks_still_run_when_startup_checks_are_disabled() {
             )
         },
         Arc::new(transport),
-        Arc::new(|_: &Path| true),
+        Arc::new(|_: &Path| Ok(())),
     );
 
     let checked = service.check_for_updates();
@@ -289,7 +289,7 @@ fn does_not_trust_an_existing_installer_without_a_digest() {
             AppPlatform::Windows,
         ),
         Arc::new(transport),
-        Arc::new(|_: &Path| true),
+        Arc::new(|_: &Path| Ok(())),
     );
 
     let downloaded = service.download_installer(update);
@@ -326,7 +326,7 @@ fn missing_installer_resets_the_launch_state() {
             AppPlatform::Windows,
         ),
         Arc::new(FakeTransport::new(|_| Ok(response(Vec::new(), Vec::new())))),
-        Arc::new(|_: &Path| true),
+        Arc::new(|_: &Path| Ok(())),
     );
     let installer_path = directory.path().join(&update.installer_name);
 
@@ -370,7 +370,7 @@ fn launch_rejects_installer_path_traversal() {
             AppPlatform::Windows,
         ),
         Arc::new(FakeTransport::new(|_| Ok(response(Vec::new(), Vec::new())))),
-        Arc::new(|_: &Path| false),
+        Arc::new(|_: &Path| Err("start refused".to_string())),
     );
 
     let result = service.launch_installer(update, outside_path.to_str().unwrap());
@@ -426,7 +426,7 @@ fn check_paginates_and_download_verifies_the_release_digest() {
             AppPlatform::Windows,
         ),
         Arc::new(transport),
-        Arc::new(|_: &Path| true),
+        Arc::new(|_: &Path| Ok(())),
     );
 
     let checked = service.check_for_updates();

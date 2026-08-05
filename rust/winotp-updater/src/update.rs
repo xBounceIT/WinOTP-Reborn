@@ -196,7 +196,7 @@ pub struct GitHubReleaseAssetInfo {
 pub struct UpdateService {
     config: UpdateConfig,
     transport: Arc<dyn HttpTransport>,
-    process_starter: Arc<dyn Fn(&Path) -> bool + Send + Sync>,
+    process_starter: Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>,
     state: Mutex<UpdateState>,
 }
 
@@ -204,7 +204,7 @@ impl UpdateService {
     pub fn new(
         config: UpdateConfig,
         transport: Arc<dyn HttpTransport>,
-        process_starter: Arc<dyn Fn(&Path) -> bool + Send + Sync>,
+        process_starter: Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>,
     ) -> Self {
         let enabled = config.automatic_check_enabled;
         let state = UpdateState {
@@ -522,30 +522,32 @@ impl UpdateService {
                 }
             };
 
-        if (self.process_starter)(path) {
-            self.set_state(UpdateState {
-                status: UpdateAvailabilityStatus::LaunchReady,
-                is_busy: false,
-                status_message: "Installer ready to launch.".to_string(),
-                is_downloaded_asset_digest_verified: digest_verified,
-                downloaded_installer_path: Some(path.to_string_lossy().into_owned()),
-                ..self.current_state()
-            });
-            UpdateInstallLaunchResult {
-                success: true,
-                error_message: None,
+        match (self.process_starter)(path) {
+            Ok(()) => {
+                self.set_state(UpdateState {
+                    status: UpdateAvailabilityStatus::LaunchReady,
+                    is_busy: false,
+                    status_message: "Installer ready to launch.".to_string(),
+                    is_downloaded_asset_digest_verified: digest_verified,
+                    downloaded_installer_path: Some(path.to_string_lossy().into_owned()),
+                    ..self.current_state()
+                });
+                UpdateInstallLaunchResult {
+                    success: true,
+                    error_message: None,
+                }
             }
-        } else {
-            let message = "The installer could not be started.".to_string();
-            self.set_state(UpdateState {
-                status: UpdateAvailabilityStatus::LaunchReady,
-                is_busy: false,
-                last_error: Some(message.clone()),
-                ..self.current_state()
-            });
-            UpdateInstallLaunchResult {
-                success: false,
-                error_message: Some(message),
+            Err(message) => {
+                self.set_state(UpdateState {
+                    status: UpdateAvailabilityStatus::LaunchReady,
+                    is_busy: false,
+                    last_error: Some(message.clone()),
+                    ..self.current_state()
+                });
+                UpdateInstallLaunchResult {
+                    success: false,
+                    error_message: Some(message),
+                }
             }
         }
     }
@@ -942,13 +944,23 @@ fn is_https_url(url: &str) -> bool {
 
 const WINDOWS_INSTALLER_ARGUMENTS: [&str; 3] = ["/S", "/CURRENTUSER", "/LOG"];
 
-fn launch_installer_process(path: &Path, platform: AppPlatform) -> bool {
+fn launch_installer_process(path: &Path, platform: AppPlatform) -> Result<(), String> {
     match platform {
-        AppPlatform::Windows => Command::new(path)
-            .args(WINDOWS_INSTALLER_ARGUMENTS)
-            .spawn()
-            .is_ok(),
+        AppPlatform::Windows => {
+            let mut command = Command::new(path);
+            command.args(WINDOWS_INSTALLER_ARGUMENTS);
+            launch_process(command)
+        }
         AppPlatform::Linux => {
+            if std::env::var_os("APPIMAGE").is_some() {
+                // A running AppImage is mounted from its own file, so it cannot
+                // be replaced while the app is active; spawning the downloaded
+                // copy only starts a second instance that yields to this one.
+                return Err(
+                    "On Linux, install the update by replacing the AppImage while WinOTP is closed."
+                        .to_string(),
+                );
+            }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -958,20 +970,92 @@ fn launch_installer_process(path: &Path, platform: AppPlatform) -> bool {
                     let _ = fs::set_permissions(path, permissions);
                 }
             }
-            Command::new(path).spawn().is_ok()
+            launch_process(Command::new(path))
         }
-        AppPlatform::MacOs => Command::new("open").arg(path).spawn().is_ok(),
-        AppPlatform::Unknown => false,
+        AppPlatform::MacOs => {
+            let mut command = Command::new("open");
+            command.arg(path);
+            launch_process(command)
+        }
+        AppPlatform::Unknown => Err("Updates are not supported on this platform.".to_string()),
     }
+}
+
+fn launch_process(mut command: Command) -> Result<(), String> {
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("The installer could not be started: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::WINDOWS_INSTALLER_ARGUMENTS;
+    use super::*;
 
     #[test]
     fn windows_installer_runs_silently_for_per_user_updates() {
         assert_eq!(WINDOWS_INSTALLER_ARGUMENTS, ["/S", "/CURRENTUSER", "/LOG"]);
+    }
+
+    #[test]
+    fn install_refusal_surfaces_error_and_keeps_installer() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let updates_directory = temp_dir.path().to_path_buf();
+        let installer_name = "WinOTP-2.0.0-linux-x64-setup.AppImage".to_string();
+        let installer_path = updates_directory.join(&installer_name);
+        fs::write(&installer_path, b"appimage").expect("write installer");
+
+        let service = UpdateService::new(
+            UpdateConfig {
+                current_version: "1.0.0".to_string(),
+                selected_channel: UpdateChannel::Stable,
+                platform: AppPlatform::Linux,
+                architecture: AppArchitecture::X64,
+                updates_directory,
+                automatic_check_enabled: false,
+            },
+            Arc::new(NoOpTransport),
+            Arc::new(|_| {
+                Err("On Linux, install the update by replacing the AppImage while WinOTP is closed."
+                    .to_string())
+            }),
+        );
+
+        let result = service.launch_installer(
+            AvailableUpdateInfo {
+                version: "2.0.0".to_string(),
+                display_version: "2.0.0".to_string(),
+                release_tag: "v2.0.0".to_string(),
+                release_title: "2.0.0".to_string(),
+                release_url: "https://example.com/".to_string(),
+                is_pre_release: false,
+                published_at_utc: None,
+                installer_name,
+                installer_url: "https://example.com/download".to_string(),
+                installer_sha256: None,
+                release_notes: String::new(),
+            },
+            installer_path.to_str().expect("installer path"),
+        );
+
+        assert!(!result.success);
+        assert_eq!(
+            result.error_message.as_deref(),
+            Some("On Linux, install the update by replacing the AppImage while WinOTP is closed.")
+        );
+        assert_eq!(
+            service.current_state().last_error.as_deref(),
+            Some("On Linux, install the update by replacing the AppImage while WinOTP is closed.")
+        );
+        assert!(installer_path.exists());
+    }
+
+    struct NoOpTransport;
+
+    impl HttpTransport for NoOpTransport {
+        fn send(&self, _request: HttpRequest) -> Result<HttpResponse, String> {
+            Err("No transport is configured for this test.".to_string())
+        }
     }
 }
 

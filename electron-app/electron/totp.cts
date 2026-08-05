@@ -99,26 +99,48 @@ async function generateTotpPreviews(accounts, timestamp = Date.now()) {
 function createTotpPreviewRunner(generator: (...args: any[]) => any = generateTotpPreviews) {
   let activeKey;
   let activeRequest;
-  let tail = Promise.resolve();
+  let queued; // { key, args, resolve, reject, promise } for the latest pending request
+
+  function drainQueue() {
+    if (activeRequest || !queued) {
+      return;
+    }
+    const { key, args, resolve, reject, promise } = queued;
+    queued = undefined;
+    activeKey = key;
+    activeRequest = promise;
+    Promise.resolve()
+      .then(() => generator(...args))
+      .then(resolve, reject);
+    const clearActive = () => {
+      if (activeRequest === promise) {
+        activeKey = undefined;
+        activeRequest = undefined;
+      }
+      drainQueue();
+    };
+    void promise.then(clearActive, clearActive);
+  }
 
   return (...args: any[]) => {
     const key = JSON.stringify(args);
     if (activeRequest && activeKey === key) {
       return activeRequest;
     }
-
-    const request = tail.then(() => generator(...args));
-    tail = request.catch(() => undefined);
-    activeKey = key;
-    activeRequest = request;
-    const clearActiveRequest = () => {
-      if (activeRequest === request) {
-        activeKey = undefined;
-        activeRequest = undefined;
+    if (queued) {
+      if (queued.key === key) {
+        return queued.promise;
       }
-    };
-    void request.then(clearActiveRequest, clearActiveRequest);
-    return request;
+      queued.promise.catch(() => undefined);
+      queued.reject(new Error("TOTP preview request superseded by a newer request."));
+      queued = undefined;
+    }
+    const promise = new Promise((resolve, reject) => {
+      queued = { key, args, resolve, reject };
+    });
+    queued.promise = promise;
+    drainQueue();
+    return promise;
   };
 }
 

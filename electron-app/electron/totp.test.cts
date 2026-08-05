@@ -85,3 +85,27 @@ test("coalesces overlapping TOTP preview sidecar requests", async () => {
   assert.deepEqual(await newer, ["next"]);
   assert.equal(calls, 2);
 });
+
+test("collapses queued TOTP preview requests to the latest", async () => {
+  let release;
+  let calls = 0;
+  const runner = createTotpPreviewRunner(() => {
+    calls += 1;
+    return calls === 1
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve(["latest"]);
+  });
+
+  const first = runner([], 1);
+  const superseded = runner([], 2);
+  const latest = runner([], 3);
+  await Promise.resolve();
+  assert.equal(calls, 1);
+  release(["first"]);
+  assert.deepEqual(await first, ["first"]);
+  await assert.rejects(superseded, /superseded/i);
+  assert.deepEqual(await latest, ["latest"]);
+  assert.equal(calls, 2);
+});

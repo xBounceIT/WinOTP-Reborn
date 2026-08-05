@@ -334,6 +334,7 @@ class AccountStore {
     let importedCount = 0;
     let skippedCount = 0;
     let issueCount = 0;
+    let retrievalFailedCount = 0;
     const insert = this.database.prepare(`
       INSERT OR IGNORE INTO accounts (
         id, issuer, account_name, secret_ciphertext, algorithm, digits, period, created_at, usage_count, last_used_at
@@ -346,6 +347,9 @@ class AccountStore {
         if (entry?.issue) {
           skippedCount += 1;
           issueCount += 1;
+          if (entry.issue === "retrieve-failed") {
+            retrievalFailedCount += 1;
+          }
           continue;
         }
 
@@ -373,6 +377,27 @@ class AccountStore {
         if (Number(result.changes) > 0) {
           importedCount += 1;
         }
+      }
+
+      if (retrievalFailedCount > 0) {
+        // A transient Credential Manager retrieval failure must not mark the
+        // migration complete: it would permanently hide that account. Keep the
+        // marker pending so a later startup retries, while already imported
+        // accounts remain idempotent through INSERT OR IGNORE.
+        const pendingResult = {
+          status: "pending",
+          importedCount,
+          skippedCount,
+          issueCount,
+        };
+        try {
+          this.setMetadataStatus(MIGRATION_KEY, { ...pendingResult, platform: "win32" });
+        } catch {
+          // A read-only profile can still use the account database; retry the marker later.
+        }
+        this.database.exec("COMMIT");
+        this.migration = pendingResult;
+        return;
       }
 
       const completeResult = {

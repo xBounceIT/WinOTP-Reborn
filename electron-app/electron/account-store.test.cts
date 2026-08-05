@@ -469,15 +469,12 @@ test("records invalid legacy payloads without blocking future database use", () 
   try {
     const store = createTestStore(directoryPath, () => ({
       ok: true,
-      entries: [
-        { id: "bad-account", payload: makeLegacyPayload({ Secret: "not-base32" }) },
-        { id: "unreadable-account", issue: "retrieve-failed" },
-      ],
+      entries: [{ id: "bad-account", payload: makeLegacyPayload({ Secret: "not-base32" }) }],
     }));
     const result = store.readAccounts();
     assert.equal(result.migration.status, "completed");
     assert.equal(result.migration.importedCount, 0);
-    assert.equal(result.migration.skippedCount, 2);
+    assert.equal(result.migration.skippedCount, 1);
     assert.equal(result.migration.justCompleted, true);
     assert.equal(result.accounts.length, 0);
     assert.equal(store.readAccounts().migration.justCompleted, true);
@@ -495,6 +492,62 @@ test("records invalid legacy payloads without blocking future database use", () 
     );
     assert.equal(store.readAccounts().accounts.length, 1);
     store.close();
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("keeps credential migration retryable when a secret could not be retrieved", () => {
+  const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
+
+  try {
+    const store = createTestStore(directoryPath, () => ({
+      ok: true,
+      entries: [
+        { id: "imported-account", payload: makeLegacyPayload({ Id: "imported-account" }) },
+        { id: "unreadable-account", issue: "retrieve-failed" },
+      ],
+    }));
+    const result = store.readAccounts();
+    assert.equal(result.migration.status, "pending");
+    assert.equal(result.migration.importedCount, 1);
+    assert.equal(result.migration.skippedCount, 1);
+    assert.equal(result.migration.justCompleted, undefined);
+    assert.equal(result.accounts.length, 1);
+    store.close();
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("re-imports previously failed credentials while keeping imported ids idempotent", () => {
+  const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
+
+  try {
+    const first = createTestStore(directoryPath, () => ({
+      ok: true,
+      entries: [
+        { id: "imported-account", payload: makeLegacyPayload({ Id: "imported-account" }) },
+        { id: "recovered-account", issue: "retrieve-failed" },
+      ],
+    }));
+    assert.equal(first.readAccounts().migration.status, "pending");
+    assert.equal(first.readAccounts().accounts.length, 1);
+    first.close();
+
+    const retried = createTestStore(directoryPath, () => ({
+      ok: true,
+      entries: [
+        { id: "imported-account", payload: makeLegacyPayload({ Id: "imported-account" }) },
+        { id: "recovered-account", payload: makeLegacyPayload({ Id: "recovered-account" }) },
+      ],
+    }));
+    const retriedResult = retried.readAccounts();
+    assert.equal(retriedResult.migration.status, "completed");
+    assert.equal(retriedResult.migration.importedCount, 1);
+    assert.equal(retriedResult.migration.skippedCount, 0);
+    assert.equal(retriedResult.accounts.length, 2);
+    retried.close();
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }
