@@ -11,9 +11,33 @@ const nativeDirectory = path.join(electronDirectory, "native");
 const binaries = process.argv.includes("--core-only")
   ? ["winotp-core"]
   : ["winotp-updater", "winotp-core"];
+const requestedTargetArchitecture = process.env.WINOTP_TARGET_ARCH?.trim().toLowerCase();
 
 function binaryName(name, platform = process.platform) {
   return platform === "win32" ? `${name}.exe` : name;
+}
+
+function rustTargetForArchitecture() {
+  if (process.platform !== "win32" && process.platform !== "linux") {
+    return undefined;
+  }
+
+  if (
+    requestedTargetArchitecture === undefined ||
+    requestedTargetArchitecture === "" ||
+    requestedTargetArchitecture === "x64" ||
+    requestedTargetArchitecture === "amd64"
+  ) {
+    return undefined;
+  }
+
+  if (requestedTargetArchitecture === "arm64") {
+    return process.platform === "win32" ? "aarch64-pc-windows-msvc" : "aarch64-unknown-linux-gnu";
+  }
+
+  throw new Error(
+    `Unsupported ${process.platform} target architecture: ${requestedTargetArchitecture}.`,
+  );
 }
 
 async function makeExecutable(filePath) {
@@ -44,21 +68,24 @@ async function buildUpdater() {
   await mkdir(nativeDirectory, { recursive: true });
 
   if (process.platform !== "darwin") {
+    const target = rustTargetForArchitecture();
+    if (target) {
+      await runCommand("rustup", ["target", "add", target]);
+    }
+    const targetReleaseDirectory = target
+      ? path.join(repositoryRoot, "rust", "target", target, "release")
+      : path.join(repositoryRoot, "rust", "target", "release");
+
     for (const binary of binaries) {
-      await runCommand("cargo", [
-        "build",
-        "--release",
-        "--manifest-path",
-        manifestPath,
-        "--package",
-        binary,
-      ]);
+      const cargoArguments = ["build", "--release"];
+      if (target) {
+        cargoArguments.push("--target", target);
+      }
+      cargoArguments.push("--manifest-path", manifestPath, "--package", binary);
+      await runCommand("cargo", cargoArguments);
       const name = binaryName(binary);
       const packagedBinaryPath = path.join(nativeDirectory, name);
-      await copyFile(
-        path.join(repositoryRoot, "rust", "target", "release", name),
-        packagedBinaryPath,
-      );
+      await copyFile(path.join(targetReleaseDirectory, name), packagedBinaryPath);
       await makeExecutable(packagedBinaryPath);
     }
     return;

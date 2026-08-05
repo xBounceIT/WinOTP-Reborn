@@ -56,6 +56,14 @@ jobs:
       - run: npm run test:electron
       - run: npm run build
 
+      - name: Test Rust workspace
+        working-directory: ${{ github.workspace }}
+        run: cargo test --manifest-path rust/Cargo.toml --workspace
+
+      - name: Check Rust formatting
+        working-directory: ${{ github.workspace }}
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
   package:
     name: Package ${{ matrix.platform }}
     needs: checks
@@ -66,19 +74,41 @@ jobs:
         include:
           - platform: windows
             runner: windows-latest
-            builder-platform: win
-            builder-arch: x64
-            artifact: electron-app/release/WinOTP-*-win-*-setup.exe
+            builder_platform: win
+            builder_arch: x64
+            target_arch: x64
+            artifact: electron-app/release/WinOTP-*-win-x64-setup.exe
+          - platform: windows-arm64
+            runner: windows-latest
+            builder_platform: win
+            builder_arch: arm64
+            target_arch: arm64
+            artifact: electron-app/release/WinOTP-*-win-arm64-setup.exe
           - platform: linux
             runner: ubuntu-latest
-            builder-platform: linux
-            builder-arch: x64
-            artifact: electron-app/release/WinOTP-*-linux-*-setup.AppImage
+            builder_platform: linux
+            builder_arch: x64
+            target_arch: x64
+            artifact: electron-app/release/WinOTP-*-linux-x64-setup.AppImage
+          - platform: linux-arm64
+            runner: ubuntu-latest
+            builder_platform: linux
+            builder_arch: arm64
+            target_arch: arm64
+            artifact: electron-app/release/WinOTP-*-linux-arm64-setup.AppImage
           - platform: macos
             runner: macos-latest
-            builder-platform: mac
-            builder-arch: universal
-            artifact: electron-app/release/WinOTP-*-mac-*-setup.dmg
+            builder_platform: mac
+            builder_arch: universal
+            target_arch: universal
+            artifact: electron-app/release/WinOTP-*-mac-universal-setup.dmg
+
+    env:
+      WINOTP_TARGET_ARCH: ${{ matrix.target_arch }}
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+      AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
 
     defaults:
       run:
@@ -86,6 +116,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up MSVC developer environment
+        if: matrix.builder_platform == 'win'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux ARM64 toolchain
+        if: matrix.builder_platform == 'linux' && matrix.builder_arch == 'arm64'
+        working-directory: ${{ github.workspace }}
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu
 
       - uses: actions/setup-node@v4
         with:
@@ -100,7 +139,7 @@ jobs:
         run: npm run build
 
       - name: Build ${{ matrix.platform }} installer
-        run: npm run package -- --${{ matrix.builder-platform }} --${{ matrix.builder-arch }}
+        run: npm run package -- --${{ matrix.builder_platform }} --${{ matrix.builder_arch }}
 
       - name: Upload ${{ matrix.platform }} installer
         uses: actions/upload-artifact@v4

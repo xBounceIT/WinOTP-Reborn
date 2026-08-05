@@ -7,6 +7,15 @@ const packageJson = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
 );
 const mainSource = fs.readFileSync(path.resolve(process.cwd(), "electron/main.cjs"), "utf8");
+const installerSource = fs.readFileSync(path.resolve(process.cwd(), "build/installer.nsh"), "utf8");
+
+function assertAppearsBefore(source, earlier, later) {
+  const earlierIndex = source.indexOf(earlier);
+  const laterIndex = source.indexOf(later);
+  assert.notEqual(earlierIndex, -1, `${earlier} should be present`);
+  assert.notEqual(laterIndex, -1, `${later} should be present`);
+  assert.ok(earlierIndex < laterIndex, `${earlier} should appear before ${later}`);
+}
 
 test("Electron release packaging covers the supported desktop targets", () => {
   const build = packageJson.build;
@@ -44,6 +53,51 @@ test("Electron release packaging covers the supported desktop targets", () => {
     },
   ]);
   assert.equal(build.win.target, "nsis");
+  assert.equal(build.nsis.oneClick, true);
+  assert.equal(build.nsis.perMachine, false);
+  assert.equal(build.nsis.guid, "9C96A88A-8F18-4B57-9F59-AB4E2A8760D1");
+  assert.equal(build.nsis.include, "build/installer.nsh");
+  assert.equal(build.nsis.deleteAppDataOnUninstall, false);
+  assert.equal(build.nsis.allowToChangeInstallationDirectory, undefined);
+  assert.match(installerSource, /Var \/GLOBAL isWinOtpUpdate/);
+  assert.match(installerSource, /!macro preInit/);
+  assert.match(installerSource, /StrCpy \$isWinOtpUpdate "0"/);
+  assert.match(installerSource, /\$\{GetOptions\} \$0 "\/CURRENTUSER" \$1/);
+  assert.match(installerSource, /SetSilent silent/);
+  assert.match(installerSource, /StrCpy \$isWinOtpUpdate "1"/);
+  assert.match(installerSource, /!macro customInit/);
+  assert.match(
+    installerSource,
+    /!define WINOTP_LEGACY_INSTALL_DIRECTORY "\$LOCALAPPDATA\\Programs\\WinOTP_Reborn"/,
+  );
+  assert.match(
+    installerSource,
+    /!define WINOTP_LEGACY_UNINSTALL_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\{9C96A88A-8F18-4B57-9F59-AB4E2A8760D1\}_is1"/,
+  );
+  assert.match(
+    installerSource,
+    /!define WINOTP_LEGACY_START_MENU_DIRECTORY "\$SMPROGRAMS\\WinOTP"/,
+  );
+  assertAppearsBefore(
+    installerSource,
+    'ReadRegStr $0 HKCU "Software\\${APP_GUID}" "InstallLocation"',
+    'ReadRegStr $0 HKCU "${WINOTP_LEGACY_UNINSTALL_KEY}" "InstallLocation"',
+  );
+  assert.match(installerSource, /\$\{FileExists\} "\$0\\WinOTP\.exe"/);
+  assert.match(installerSource, /!macro customInstall/);
+  assert.match(installerSource, /DeleteRegKey HKCU "\$\{WINOTP_LEGACY_UNINSTALL_KEY\}"/);
+  assert.match(installerSource, /Delete "\$INSTDIR\\unins000\.exe"/);
+  assert.match(installerSource, /Delete "\$\{WINOTP_LEGACY_START_MENU_DIRECTORY\}\\WinOTP\.lnk"/);
+  assert.match(
+    installerSource,
+    /Delete "\$\{WINOTP_LEGACY_START_MENU_DIRECTORY\}\\Uninstall WinOTP\.lnk"/,
+  );
+  assert.match(installerSource, /RMDir "\$\{WINOTP_LEGACY_START_MENU_DIRECTORY\}"/);
+  assert.match(
+    installerSource,
+    /\$\{If\} \$isWinOtpUpdate == "1"\s+\$\{StdUtils\.ExecShellAsUser\} \$0 "\$launchLink" "open" ""\s+\$\{EndIf\}/,
+  );
+  assert.doesNotMatch(installerSource, /DeleteRegKey HKCU "\$APPDATA/);
   assert.equal(build.linux.target, "AppImage");
   assert.equal(build.linux.syncDesktopName, true);
   assert.equal(build.mac.target, "dmg");

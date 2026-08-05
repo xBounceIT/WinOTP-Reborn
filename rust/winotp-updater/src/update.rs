@@ -940,10 +940,12 @@ fn is_https_url(url: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && !rest.contains(char::is_whitespace))
 }
 
+const WINDOWS_INSTALLER_ARGUMENTS: [&str; 3] = ["/S", "/CURRENTUSER", "/LOG"];
+
 fn launch_installer_process(path: &Path, platform: AppPlatform) -> bool {
     match platform {
         AppPlatform::Windows => Command::new(path)
-            .args(["/CURRENTUSER", "/SP-", "/LOG"])
+            .args(WINDOWS_INSTALLER_ARGUMENTS)
             .spawn()
             .is_ok(),
         AppPlatform::Linux => {
@@ -960,6 +962,16 @@ fn launch_installer_process(path: &Path, platform: AppPlatform) -> bool {
         }
         AppPlatform::MacOs => Command::new("open").arg(path).spawn().is_ok(),
         AppPlatform::Unknown => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WINDOWS_INSTALLER_ARGUMENTS;
+
+    #[test]
+    fn windows_installer_runs_silently_for_per_user_updates() {
+        assert_eq!(WINDOWS_INSTALLER_ARGUMENTS, ["/S", "/CURRENTUSER", "/LOG"]);
     }
 }
 

@@ -140,6 +140,63 @@ fn prerelease_channel_can_select_prerelease_and_uses_arm64_assets() {
 
     assert_eq!(update.display_version, "1.2.0-beta.1");
     assert!(update.is_pre_release);
+    assert_eq!(
+        update.installer_name,
+        "WinOTP-1.2.0-beta.1-win-arm64-setup.exe"
+    );
+}
+
+#[test]
+fn release_selection_uses_platform_specific_asset_suffixes() {
+    let releases = vec![release(
+        "v1.4.0",
+        false,
+        vec![
+            asset(
+                "WinOTP-1.4.0-win-x64-setup.exe",
+                "https://example.test/win-x64.exe",
+                None,
+            ),
+            asset(
+                "WinOTP-1.4.0-linux-arm64-setup.AppImage",
+                "https://example.test/linux-arm64.AppImage",
+                None,
+            ),
+            asset(
+                "WinOTP-1.4.0-mac-universal-setup.dmg",
+                "https://example.test/mac-universal.dmg",
+                None,
+            ),
+        ],
+    )];
+
+    let linux_update = UpdateService::select_available_release(
+        &releases,
+        "1.0.0",
+        UpdateChannel::Stable,
+        AppPlatform::Linux,
+        AppArchitecture::Arm64,
+    )
+    .expect("the current version is valid")
+    .expect("a compatible Linux ARM64 release is available");
+    let mac_update = UpdateService::select_available_release(
+        &releases,
+        "1.0.0",
+        UpdateChannel::Stable,
+        AppPlatform::MacOs,
+        AppArchitecture::X64,
+    )
+    .expect("the current version is valid")
+    .expect("a compatible macOS release is available");
+
+    assert_eq!(
+        linux_update.installer_name,
+        "WinOTP-1.4.0-linux-arm64-setup.AppImage"
+    );
+    assert_eq!(
+        mac_update.installer_name,
+        "WinOTP-1.4.0-mac-universal-setup.dmg"
+    );
 }
 
 #[test]
