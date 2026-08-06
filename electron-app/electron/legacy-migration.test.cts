@@ -623,3 +623,37 @@ test("selects the valid keyed credential from duplicate legacy entries", () => {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }
 });
+
+test("preserves legacy credentials that are outside the current policy", () => {
+  const directoryPath = createDirectory();
+  const migrationFilePath = path.join(directoryPath, "legacy-migration.json");
+  const legacyPin = "١٢٣٤";
+  const legacyPassword = "x".repeat(129);
+  let appLockCredentials;
+
+  try {
+    const result = runLegacyMigration(undefined, {
+      directoryPath,
+      migrationFilePath,
+      legacySettingsPath: path.join(directoryPath, "missing-settings.json"),
+      legacyCredentialReader: () => ({
+        ok: true,
+        entries: [
+          { resource: "WinOTP_AppLock", id: "AppPin", payload: legacyPin },
+          { resource: "WinOTP_AppLock", id: "AppPassword", payload: legacyPassword },
+        ],
+      }),
+      securityStore: {
+        importLegacyCredentials: (credentials) => {
+          appLockCredentials = credentials;
+          return { success: true, importedCount: 2 };
+        },
+      },
+    });
+
+    assert.equal(result.appLock.status, "completed");
+    assert.deepEqual(appLockCredentials, { pin: legacyPin, password: legacyPassword });
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});

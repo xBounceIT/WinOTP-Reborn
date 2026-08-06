@@ -339,6 +339,15 @@ function getUsableSecurityCredentialKinds(securityStore) {
   }
 }
 
+function isCurrentCredentialValid(kind, secret) {
+  try {
+    validateSecret(kind, secret);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function hasUsableBackupPassword(backupStore) {
   if (!backupStore || typeof backupStore.getStatus !== "function") {
     return false;
@@ -442,6 +451,7 @@ function migrateCredentials({
   if (needsAppLock) {
     const appLockEntries = findEntries(entries, LEGACY_APP_LOCK_RESOURCE);
     const credentials = {};
+    const credentialValidity = {};
     let skippedCount = 0;
     let issueCount = 0;
     const retryableKinds = new Set();
@@ -462,15 +472,18 @@ function migrateCredentials({
         continue;
       }
 
-      try {
-        validateSecret(kind, entry.payload);
-      } catch {
+      if (entry.payload.length === 0) {
         skippedCount += 1;
         issueCount += 1;
+        retryableKinds.add(kind);
         continue;
       }
 
-      credentials[kind] ??= entry.payload;
+      const isValid = isCurrentCredentialValid(kind, entry.payload);
+      if (!(kind in credentials) || (!credentialValidity[kind] && isValid)) {
+        credentials[kind] = entry.payload;
+        credentialValidity[kind] = isValid;
+      }
     }
 
     for (const kind of Object.keys(credentials)) {

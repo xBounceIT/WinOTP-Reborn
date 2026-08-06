@@ -109,6 +109,40 @@ test("imports native app-lock credentials without replacing existing Electron cr
   }
 });
 
+test("preserves legacy credentials outside the current validation policy", () => {
+  const handle = createStore(createEncryption());
+  const legacyPin = "١٢٣٤";
+  const legacyPassword = "x".repeat(129);
+
+  try {
+    assert.deepEqual(
+      handle.store.importLegacyCredentials({ pin: legacyPin, password: legacyPassword }),
+      {
+        success: true,
+        importedCount: 2,
+        skippedCount: 0,
+        issueCount: 0,
+      },
+    );
+    assert.deepEqual(handle.store.getStatus(), {
+      pinSet: true,
+      passwordSet: true,
+      remotePinSet: false,
+      remotePasswordSet: false,
+    });
+    assert.deepEqual(handle.store.verifyCredential("pin", legacyPin), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(handle.store.verifyCredential("password", legacyPassword), {
+      verified: true,
+      credentialAvailable: true,
+    });
+  } finally {
+    handle.cleanup();
+  }
+});
+
 test("does not partially mutate security state when legacy encryption fails", () => {
   let encryptCalls = 0;
   const encryption = {

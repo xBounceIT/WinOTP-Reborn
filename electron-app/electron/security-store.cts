@@ -111,7 +111,9 @@ class SecurityStore {
     for (const [kind, secret] of entries) {
       try {
         validateKind(kind);
-        validateSecret(kind, secret);
+        if (typeof secret !== "string" || secret.length === 0) {
+          throw new Error("A security credential is required.");
+        }
       } catch {
         skippedCount += 1;
         issueCount += 1;
@@ -173,12 +175,6 @@ class SecurityStore {
       return { verified: false, credentialAvailable: false };
     }
 
-    try {
-      validateSecret(kind, secret);
-    } catch {
-      return { verified: false, credentialAvailable: true };
-    }
-
     return {
       verified: secretsEqual(storedSecret, secret),
       credentialAvailable: true,
@@ -219,8 +215,7 @@ class SecurityStore {
 
     try {
       const secret = this.encryption.decryptString(Buffer.from(ciphertext, "base64"));
-      validateSecret(kind, secret);
-      return secret;
+      return typeof secret === "string" && secret.length > 0 ? secret : undefined;
     } catch {
       return undefined;
     }

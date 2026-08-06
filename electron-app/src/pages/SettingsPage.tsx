@@ -197,7 +197,7 @@ function CredentialDialog({
           autoFocus
           type="password"
           inputMode={pin ? "numeric" : undefined}
-          maxLength={pin ? 6 : 128}
+          maxLength={pin ? 6 : undefined}
           autoComplete={setup ? "new-password" : "current-password"}
           placeholder={pin ? `Enter ${label} (4-6 digits)` : `Enter ${label}`}
           value={secret}
@@ -208,7 +208,7 @@ function CredentialDialog({
           <Input
             type="password"
             inputMode={pin ? "numeric" : undefined}
-            maxLength={pin ? 6 : 128}
+            maxLength={pin ? 6 : undefined}
             autoComplete="new-password"
             placeholder={`Confirm ${label}`}
             value={confirmation}
@@ -518,11 +518,6 @@ export function SettingsPage({
 
       if (!pin && secret.length < 4) {
         setCredentialDialogError("Password must be at least 4 characters.");
-        return;
-      }
-
-      if (!pin && secret.length > 128) {
-        setCredentialDialogError("Password must be at most 128 characters.");
         return;
       }
 
