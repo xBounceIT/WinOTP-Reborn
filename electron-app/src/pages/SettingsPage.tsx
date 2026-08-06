@@ -57,6 +57,7 @@ interface SettingsPageProps {
   securityReady: boolean;
   onEnableWindowsHello: () => Promise<boolean>;
   onDisableWindowsHello: () => Promise<boolean>;
+  onPersistProtectionSettings: (settings: AppSettings) => Promise<boolean>;
   onSetCredential: (kind: SecurityCredentialKind, secret: string) => Promise<boolean>;
   onVerifyCredential: (
     kind: SecurityCredentialKind,
@@ -119,6 +120,32 @@ const passwordDialogCopy: Record<
 function formatAccountCount(count: number | undefined) {
   const safeCount = count ?? 0;
   return `${safeCount} account${safeCount === 1 ? "" : "s"}`;
+}
+
+function settingsForCredentialSetup(settings: AppSettings, kind: SecurityCredentialKind) {
+  const nextSettings = { ...settings, [settingForCredential(kind)]: true };
+  if (kind === "pin") {
+    nextSettings.passwordProtection = false;
+    nextSettings.windowsHello = false;
+  } else if (kind === "password") {
+    nextSettings.pinProtection = false;
+    nextSettings.windowsHello = false;
+  } else if (kind === "remotePin") {
+    nextSettings.remotePassword = false;
+  } else {
+    nextSettings.remotePin = false;
+  }
+  return nextSettings;
+}
+
+function settingsForWindowsHello(settings: AppSettings, enabled: boolean) {
+  return {
+    ...settings,
+    windowsHello: enabled,
+    ...(enabled
+      ? { pinProtection: false, passwordProtection: false }
+      : { remotePin: false, remotePassword: false }),
+  };
 }
 
 function updateStatusLabel(status: UpdateState["status"]) {
@@ -249,6 +276,7 @@ export function SettingsPage({
   securityReady,
   onEnableWindowsHello,
   onDisableWindowsHello,
+  onPersistProtectionSettings,
   onSetCredential,
   onVerifyCredential,
   onRemoveCredential,
@@ -537,17 +565,12 @@ export function SettingsPage({
           return;
         }
 
-        onChange(settingForCredential(kind), true);
-        if (kind === "pin") {
-          onChange("passwordProtection", false);
-          onChange("windowsHello", false);
-        } else if (kind === "password") {
-          onChange("pinProtection", false);
-          onChange("windowsHello", false);
-        } else if (kind === "remotePin") {
-          onChange("remotePassword", false);
-        } else {
-          onChange("remotePin", false);
+        if (!(await onPersistProtectionSettings(settingsForCredentialSetup(settings, kind)))) {
+          await onRemoveCredential(kind);
+          setCredentialDialogError(
+            "Protection settings could not be saved; setup was rolled back.",
+          );
+          return;
         }
       } else {
         const verification = await onVerifyCredential(kind, secret);
@@ -606,9 +629,7 @@ export function SettingsPage({
           return;
         }
 
-        onChange("windowsHello", true);
-        onChange("pinProtection", false);
-        onChange("passwordProtection", false);
+        await onPersistProtectionSettings(settingsForWindowsHello(settings, true));
         return;
       }
 
@@ -616,9 +637,7 @@ export function SettingsPage({
         return;
       }
 
-      onChange("windowsHello", false);
-      onChange("remotePin", false);
-      onChange("remotePassword", false);
+      await onPersistProtectionSettings(settingsForWindowsHello(settings, false));
     } finally {
       windowsHelloBusyRef.current = false;
       setWindowsHelloBusy(false);

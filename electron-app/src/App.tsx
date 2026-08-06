@@ -245,6 +245,7 @@ export default function App() {
   const lockBusyRef = useRef(false);
   const lockOverlayRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
+  const settingsSaveQueueRef = useRef(Promise.resolve(true));
   const autoLockTimer = useRef<number | undefined>(undefined);
   const autoLockMonitoring = useRef(false);
   const lastActivityAt = useRef(Date.now());
@@ -696,7 +697,7 @@ export default function App() {
 
     const settingsBridge = window.winotp?.settings;
     if (settingsBridge) {
-      void settingsBridge.save(settings).catch(() => undefined);
+      void persistSettingsValue(settings);
     }
   }, [settings, settingsLoaded, settingsPersistenceReady, settingsSourceAvailable]);
 
@@ -1213,6 +1214,35 @@ export default function App() {
   function markSettingsChanged() {
     settingsHydrationTouchedRef.current = true;
     setSettingsPersistenceReady(true);
+  }
+
+  function persistSettingsValue(settingsValue: AppSettings): Promise<boolean> {
+    const settingsBridge = window.winotp?.settings;
+    if (!settingsBridge) {
+      return Promise.resolve(false);
+    }
+
+    const saveOperation = settingsSaveQueueRef.current.then(async () => {
+      try {
+        const result = await settingsBridge.save(settingsValue);
+        return result?.success === true;
+      } catch {
+        return false;
+      }
+    });
+    settingsSaveQueueRef.current = saveOperation.catch(() => false);
+    return saveOperation;
+  }
+
+  async function persistProtectionSettings(nextSettings: AppSettings) {
+    if (!(await persistSettingsValue(nextSettings))) {
+      showToast("Protection settings could not be saved; no protection was enabled.");
+      return false;
+    }
+
+    markSettingsChanged();
+    setSettings(nextSettings);
+    return true;
   }
 
   function unavailableBackupResult(): BackupConfigurationResult {
@@ -1967,6 +1997,7 @@ export default function App() {
         securityReady={securityReady}
         onEnableWindowsHello={enableWindowsHelloProtection}
         onDisableWindowsHello={disableWindowsHelloProtection}
+        onPersistProtectionSettings={persistProtectionSettings}
         onSetCredential={setSecurityCredential}
         onVerifyCredential={verifySecurityCredential}
         onRemoveCredential={removeSecurityCredential}
