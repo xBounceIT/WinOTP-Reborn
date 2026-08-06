@@ -61,10 +61,6 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
       setError("Enter an issuer or account name.");
       return;
     }
-    if (!Number.isInteger(period) || period < 10 || period > 120) {
-      setError("Period must be a whole number between 10 and 120 seconds.");
-      return;
-    }
 
     onSave({
       id: account?.id ?? crypto.randomUUID(),
@@ -179,8 +175,6 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
             <Input
               id="period"
               type="number"
-              min={10}
-              max={120}
               value={form.period}
               onChange={(event) => updateForm("period", event.target.value)}
             />
