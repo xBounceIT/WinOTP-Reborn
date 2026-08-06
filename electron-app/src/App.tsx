@@ -1042,12 +1042,12 @@ export default function App() {
     return { importedCount, failedCount, automaticBackupFailed };
   }
 
-  async function copyCode(account: OtpAccount, code: string) {
+  async function copyCode(account: OtpAccount, code: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(code);
     } catch {
       showToast("Clipboard access is unavailable");
-      return;
+      return false;
     }
 
     let usageSaved = true;
@@ -1064,6 +1064,7 @@ export default function App() {
 
     const label = account.issuer || account.accountName;
     showToast(usageSaved ? `${label} code copied` : `${label} code copied; usage not saved`);
+    return true;
   }
 
   async function deleteAccount(account: OtpAccount) {

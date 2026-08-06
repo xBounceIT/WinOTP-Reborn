@@ -106,6 +106,10 @@ function failureResult(state, message) {
   };
 }
 
+function shouldQuitAfterUpdateInstall(platform, result) {
+  return platform === "win32" && result?.success === true;
+}
+
 function runUpdater(request, options: any = {}) {
   const {
     app,
@@ -391,5 +395,6 @@ module.exports = {
   getRepositoryRoot,
   getUpdaterCommand,
   runUpdater,
+  shouldQuitAfterUpdateInstall,
   updaterBinaryName,
 };

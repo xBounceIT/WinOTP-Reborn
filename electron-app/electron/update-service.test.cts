@@ -10,6 +10,7 @@ const {
   getUpdaterCommand,
   getRepositoryRoot,
   runUpdater,
+  shouldQuitAfterUpdateInstall,
   UPDATE_STATUS,
 } = require("./update-service.cjs");
 
@@ -52,6 +53,14 @@ function createSpawnMock(responseOrFactory) {
     return child;
   };
 }
+
+test("quits only after a successful Windows installer launch", () => {
+  assert.equal(shouldQuitAfterUpdateInstall("win32", { success: true }), true);
+  assert.equal(shouldQuitAfterUpdateInstall("win32", { success: false }), false);
+  assert.equal(shouldQuitAfterUpdateInstall("win32", undefined), false);
+  assert.equal(shouldQuitAfterUpdateInstall("darwin", { success: true }), false);
+  assert.equal(shouldQuitAfterUpdateInstall("linux", { success: true }), false);
+});
 
 test("resolves the repository root from the compiled Electron layout", () => {
   const repositoryRoot = getRepositoryRoot();

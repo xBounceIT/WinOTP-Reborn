@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { isTotpPreviewAvailable } from "@/lib/totp-preview";
 import type { OtpAccount } from "@/lib/types";
 
 interface AccountCardProps {
@@ -25,7 +26,7 @@ interface AccountCardProps {
   onDragOver: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
   onDrop: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
   onDragEnd: () => void;
-  onCopy: (account: OtpAccount, code: string) => void;
+  onCopy: (account: OtpAccount, code: string) => Promise<boolean>;
   onEdit: (account: OtpAccount) => void;
   onDelete: (account: OtpAccount) => void;
 }
@@ -172,6 +173,7 @@ export function AccountCard({
 }: AccountCardProps) {
   const [copied, setCopied] = useState(false);
   const accountLabel = account.issuer || account.accountName;
+  const isCodeAvailable = isTotpPreviewAvailable(code, account.digits);
   const cardClassName = [
     "account-card",
     reorderable && "account-card--reorderable",
@@ -181,8 +183,14 @@ export function AccountCard({
     .filter(Boolean)
     .join(" ");
 
-  function copyCode() {
-    onCopy(account, code);
+  async function copyCode() {
+    if (!isCodeAvailable) {
+      return;
+    }
+    const succeeded = await onCopy(account, code);
+    if (!succeeded) {
+      return;
+    }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
   }
@@ -262,12 +270,15 @@ export function AccountCard({
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Copy ${accountLabel} code`}
-                onClick={copyCode}
+                disabled={!isCodeAvailable}
+                onClick={() => void copyCode()}
               >
                 {copied ? <Check size={14} /> : <Copy size={14} />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{copied ? "Copied" : "Copy TOTP code"}</TooltipContent>
+            <TooltipContent>
+              {copied ? "Copied" : isCodeAvailable ? "Copy TOTP code" : "Code unavailable"}
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

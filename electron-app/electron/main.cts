@@ -19,7 +19,11 @@ const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { saveAccountBatch } = require("./account-batch-save.cjs");
 const { BackupStore } = require("./backup-store.cjs");
 const { SecurityStore } = require("./security-store.cjs");
-const { createUpdateService, defaultUpdateState } = require("./update-service.cjs");
+const {
+  createUpdateService,
+  defaultUpdateState,
+  shouldQuitAfterUpdateInstall,
+} = require("./update-service.cjs");
 const { SettingsStore, normalizeSettings } = require("./settings-store.cjs");
 const { migrateLegacySettingsForApp, runLegacyMigration } = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
@@ -121,7 +125,7 @@ function restoreMainWindow() {
   mainWindow.focus();
 }
 
-function exitFromTray() {
+function quitApp() {
   isQuitting = true;
   app.quit();
 }
@@ -750,7 +754,11 @@ function registerUpdateIpc() {
     }
 
     try {
-      return await getUpdateService().install();
+      const result = await getUpdateService().install();
+      if (shouldQuitAfterUpdateInstall(process.platform, result)) {
+        quitApp();
+      }
+      return result;
     } catch (error) {
       console.error("Failed to launch the app update installer.", error);
       return updateUnavailableResult();
@@ -1858,7 +1866,7 @@ if (!hasSingleInstanceLock) {
       iconPath: getIconPath(app, __dirname),
       onOpen: restoreMainWindow,
       onCopy: copyTrayCode,
-      onExit: exitFromTray,
+      onExit: quitApp,
       onMenuOpen: refreshTrayCodes,
       onError: (error) => {
         console.error("Tray icon operation failed.", error);
