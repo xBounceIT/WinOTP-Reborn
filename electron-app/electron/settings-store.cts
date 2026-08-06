@@ -32,21 +32,56 @@ function getSettingsFilePath(app) {
   return path.join(getAppDataDirectory(app), SETTINGS_FILE_NAME);
 }
 
-function readStoredSettings(filePath) {
+function readStoredSettings(filePath, options: any = {}) {
+  const strict = options.strict === true;
+  let contents;
+
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (
-      !parsed ||
-      parsed.version !== SETTINGS_FILE_VERSION ||
-      !parsed.settings ||
-      typeof parsed.settings !== "object" ||
-      Array.isArray(parsed.settings)
-    ) {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
       return undefined;
     }
 
-    return normalizeSettings(parsed.settings);
+    if (strict) {
+      throw new Error("The stored Electron settings could not be read.");
+    }
+
+    return undefined;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
   } catch {
+    if (strict) {
+      throw new Error("The stored Electron settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (
+    !parsed ||
+    parsed.version !== SETTINGS_FILE_VERSION ||
+    !parsed.settings ||
+    typeof parsed.settings !== "object" ||
+    Array.isArray(parsed.settings)
+  ) {
+    if (strict) {
+      throw new Error("The stored Electron settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  try {
+    return normalizeSettings(parsed.settings);
+  } catch (error) {
+    if (strict) {
+      throw error;
+    }
+
     return undefined;
   }
 }
@@ -94,7 +129,8 @@ class SettingsStore {
 
   constructor(app, options: any = {}) {
     this.filePath = options.filePath ?? getSettingsFilePath(app);
-    this.settings = readStoredSettings(this.filePath) ?? normalizeSettings(defaultSettings);
+    this.settings =
+      readStoredSettings(this.filePath, { strict: true }) ?? normalizeSettings(defaultSettings);
   }
 
   getSettings() {

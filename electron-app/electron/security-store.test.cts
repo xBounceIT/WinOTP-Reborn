@@ -223,6 +223,21 @@ test("does not report a credential when its ciphertext cannot be decrypted", () 
   }
 });
 
+test("treats malformed stored security state as unavailable", () => {
+  const handle = createStore(createEncryption());
+
+  try {
+    fs.writeFileSync(handle.filePath, "not-json", "utf8");
+    assert.throws(
+      () =>
+        new SecurityStore(undefined, { encryption: createEncryption(), filePath: handle.filePath }),
+      /Stored security credentials are unavailable/,
+    );
+  } finally {
+    handle.cleanup();
+  }
+});
+
 test("keeps the previous state when replacing the security file fails", () => {
   const handle = createStore(createEncryption());
   const originalRename = fs.renameSync;

@@ -54,3 +54,15 @@ test("uses the shared WinOTP app-data directory for Electron settings", () => {
     path.join(appDataRoot, "WinOTP_Reborn", "app-settings.json"),
   );
 });
+
+test("does not replace malformed stored settings with defaults", () => {
+  const directoryPath = createDirectory();
+  const filePath = path.join(directoryPath, "app-settings.json");
+
+  try {
+    fs.writeFileSync(filePath, "not-json", "utf8");
+    assert.throws(() => new SettingsStore(undefined, { filePath }), /stored Electron settings/);
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});

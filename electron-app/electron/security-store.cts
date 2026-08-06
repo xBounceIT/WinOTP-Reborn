@@ -24,27 +24,49 @@ function emptyState() {
 }
 
 function readState(filePath) {
-  if (!fs.existsSync(filePath)) {
-    return emptyState();
-  }
+  let contents;
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!parsed || parsed.version !== SECURITY_FILE_VERSION || !parsed.credentials) {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
       return emptyState();
     }
 
-    const credentials = {};
-    for (const kind of credentialKinds) {
-      if (typeof parsed.credentials[kind] === "string" && parsed.credentials[kind].length > 0) {
-        credentials[kind] = parsed.credentials[kind];
-      }
+    throw new Error("Stored security credentials are unavailable.");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw new Error("Stored security credentials are unavailable.");
+  }
+
+  if (
+    !parsed ||
+    parsed.version !== SECURITY_FILE_VERSION ||
+    !parsed.credentials ||
+    typeof parsed.credentials !== "object" ||
+    Array.isArray(parsed.credentials)
+  ) {
+    throw new Error("Stored security credentials are unavailable.");
+  }
+
+  const credentials = {};
+  for (const kind of credentialKinds) {
+    if (parsed.credentials[kind] === undefined) {
+      continue;
     }
 
-    return { version: SECURITY_FILE_VERSION, credentials };
-  } catch {
-    return emptyState();
+    if (typeof parsed.credentials[kind] !== "string" || parsed.credentials[kind].length === 0) {
+      throw new Error("Stored security credentials are unavailable.");
+    }
+
+    credentials[kind] = parsed.credentials[kind];
   }
+
+  return { version: SECURITY_FILE_VERSION, credentials };
 }
 
 function validateKind(kind) {
