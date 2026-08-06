@@ -41,6 +41,7 @@ const {
   isAllowedRendererUrl,
   isAllowedExternalUrl,
   hasConfiguredProtection,
+  isSecurityMigrationPending: isSecurityMigrationPendingState,
   isUnprotectedProfile,
   isLoopbackRendererUrl,
   isRendererUnlockedState,
@@ -241,9 +242,16 @@ function isRendererUnlocked() {
   );
 }
 
+function isSecurityMigrationPending() {
+  return isSecurityMigrationPendingState(
+    legacySettingsMigrationFailed,
+    legacyAppLockMigrationPending,
+  );
+}
+
 function isCurrentProfileUnprotected() {
   try {
-    return isUnprotectedProfile(getSettingsStore().getSettings(), legacyAppLockMigrationPending);
+    return isUnprotectedProfile(getSettingsStore().getSettings(), isSecurityMigrationPending());
   } catch {
     return false;
   }
@@ -867,7 +875,7 @@ function registerSettingsIpc() {
         success: true,
         settings: getSettingsStore().getSettings(),
         persistable: !legacySettingsMigrationFailed,
-        securityMigrationPending: legacyAppLockMigrationPending,
+        securityMigrationPending: isSecurityMigrationPending(),
       };
     } catch (error) {
       console.error("Failed to read Electron settings.", error);
@@ -885,7 +893,7 @@ function registerSettingsIpc() {
       const nextSettings = normalizeSettings(settings);
       const currentSettings = store.getSettings();
       if (!isRendererUnlocked()) {
-        if (legacyAppLockMigrationPending && hasConfiguredProtection(currentSettings)) {
+        if (isSecurityMigrationPending() && hasConfiguredProtection(currentSettings)) {
           return lockedSettingsResult();
         }
 
@@ -1425,6 +1433,9 @@ function registerBackupIpc() {
       if (pickerResult.canceled || pickerResult.filePaths.length === 0) {
         return { success: false, cancelled: true };
       }
+      if (!isRendererUnlocked()) {
+        return lockedBackupResult();
+      }
 
       const service = getBackupStore();
       const result = service.importBackup(pickerResult.filePaths[0], password);
@@ -1472,6 +1483,9 @@ function registerBackupIpc() {
       });
       if (pickerResult.canceled || !pickerResult.filePath) {
         return { success: false, cancelled: true };
+      }
+      if (!isRendererUnlocked()) {
+        return lockedBackupResult();
       }
 
       return service.exportBackup(pickerResult.filePath, passwordOverride ?? storedPassword);
@@ -1533,8 +1547,7 @@ function canAuthorizeWindowsHelloUnlock() {
   try {
     const settings = getSettingsStore().getSettings();
     return (
-      settings.windowsHello === true ||
-      isUnprotectedProfile(settings, legacyAppLockMigrationPending)
+      settings.windowsHello === true || isUnprotectedProfile(settings, isSecurityMigrationPending())
     );
   } catch {
     return false;

@@ -3,6 +3,7 @@ const { test } = require("node:test");
 
 const {
   hasConfiguredProtection,
+  isSecurityMigrationPending,
   isUnprotectedProfile,
   isAllowedExternalUrl,
   isAllowedRendererUrl,
@@ -51,6 +52,12 @@ test("does not treat a profile with incomplete app-lock migration as unprotected
   assert.equal(isUnprotectedProfile({}, false), true);
   assert.equal(isUnprotectedProfile({ pinProtection: true }, false), false);
   assert.equal(isUnprotectedProfile({}, true), false);
+});
+
+test("treats settings migration failure as security-pending", () => {
+  assert.equal(isSecurityMigrationPending(false, false), false);
+  assert.equal(isSecurityMigrationPending(true, false), true);
+  assert.equal(isSecurityMigrationPending(false, true), true);
 });
 
 test("only the active screen-capture overlay main frame can submit capture IPC", () => {

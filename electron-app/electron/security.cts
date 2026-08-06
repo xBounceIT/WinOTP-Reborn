@@ -25,6 +25,10 @@ function isUnprotectedProfile(settings, migrationPending = false) {
   return migrationPending !== true && !hasConfiguredProtection(settings);
 }
 
+function isSecurityMigrationPending(settingsMigrationFailed, appLockMigrationPending) {
+  return settingsMigrationFailed === true || appLockMigrationPending === true;
+}
+
 function isTrustedScreenCaptureEvent(event, captureWebContents) {
   return Boolean(
     captureWebContents?.has(event?.sender) && event?.senderFrame === event.sender.mainFrame,
@@ -108,6 +112,7 @@ module.exports = {
   isAllowedExternalUrl,
   hasConfiguredProtection,
   isUnprotectedProfile,
+  isSecurityMigrationPending,
   isLoopbackRendererUrl,
   isRendererUnlockedState,
   shouldUseDevelopmentRenderer,
