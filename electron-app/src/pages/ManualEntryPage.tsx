@@ -1,5 +1,5 @@
 import { ArrowLeft, Save } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import type { OtpAccount, OtpAlgorithm, Route } from "@/lib/types";
 interface ManualEntryPageProps {
   account?: OtpAccount;
   onNavigate: (route: Route) => void;
-  onSave: (account: OtpAccount) => void;
+  onSave: (account: OtpAccount) => Promise<void>;
 }
 
 interface FormState {
@@ -42,6 +42,8 @@ function getFormState(account?: OtpAccount): FormState {
 export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPageProps) {
   const [form, setForm] = useState<FormState>(() => getFormState(account));
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     setForm(getFormState(account));
@@ -52,8 +54,12 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function submitForm(event: React.FormEvent<HTMLFormElement>) {
+  async function submitForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (savingRef.current) {
+      return;
+    }
+
     const secret = form.secret.replace(/\s/g, "").toUpperCase();
     const period = Number(form.period);
 
@@ -62,18 +68,25 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
       return;
     }
 
-    onSave({
-      id: account?.id ?? crypto.randomUUID(),
-      issuer: form.issuer.trim(),
-      accountName: form.accountName.trim(),
-      secret,
-      algorithm: form.algorithm,
-      digits: form.digits === "8" ? 8 : 6,
-      period,
-      createdAt: account?.createdAt ?? new Date().toISOString(),
-      usageCount: account?.usageCount ?? 0,
-      lastUsedAt: account?.lastUsedAt,
-    });
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await onSave({
+        id: account?.id ?? crypto.randomUUID(),
+        issuer: form.issuer.trim(),
+        accountName: form.accountName.trim(),
+        secret,
+        algorithm: form.algorithm,
+        digits: form.digits === "8" ? 8 : 6,
+        period,
+        createdAt: account?.createdAt ?? new Date().toISOString(),
+        usageCount: account?.usageCount ?? 0,
+        lastUsedAt: account?.lastUsedAt,
+      });
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   return (
@@ -183,9 +196,9 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
           {error && <div className="inline-error">{error}</div>}
 
           <div className="form-actions">
-            <Button type="submit">
+            <Button type="submit" disabled={saving}>
               <Save size={15} />
-              {account ? "Save Changes" : "Add Account"}
+              {saving ? "Saving…" : account ? "Save Changes" : "Add Account"}
             </Button>
           </div>
         </form>

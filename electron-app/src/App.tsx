@@ -507,6 +507,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!settingsLoaded || !settingsSourceAvailable) {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadUpdateStatus() {
@@ -586,7 +590,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [settingsLoaded, settingsSourceAvailable]);
 
   useEffect(() => {
     let cancelled = false;
