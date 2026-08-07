@@ -904,6 +904,16 @@ function hasSameProtectionSettings(left, right) {
 }
 
 const settingsRecoveryCredentialKinds = new Set(["pin", "password", "remotePin", "remotePassword"]);
+const remoteSettingsRecoveryCredentialKinds = new Set(["remotePin", "remotePassword"]);
+
+async function isRemoteWindowsHelloSession() {
+  try {
+    const availability = await getWindowsHelloAvailability();
+    return availability.status === "remote-session";
+  } catch {
+    return false;
+  }
+}
 
 async function authorizeSettingsRecovery(authorization: any = {}) {
   if (isRendererUnlocked()) {
@@ -935,6 +945,13 @@ async function authorizeSettingsRecovery(authorization: any = {}) {
   if (
     !settingsRecoveryCredentialKinds.has(authorization?.kind) ||
     typeof authorization?.secret !== "string"
+  ) {
+    return false;
+  }
+
+  if (
+    remoteSettingsRecoveryCredentialKinds.has(authorization.kind) &&
+    !(await isRemoteWindowsHelloSession())
   ) {
     return false;
   }
@@ -1738,8 +1755,7 @@ async function canAuthorizeRendererUnlock(kind) {
       return false;
     }
 
-    const availability = await getWindowsHelloAvailability();
-    return availability.status === "remote-session";
+    return isRemoteWindowsHelloSession();
   } catch {
     return false;
   }
