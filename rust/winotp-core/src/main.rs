@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, Read};
 
 use serde_json::{json, Value};
@@ -284,6 +285,30 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
         }
         "normalize-settings" => serde_json::to_value(settings::normalize_settings(input))
             .map_err(|error| error.to_string()),
+        "record-usage" => {
+            let account_id = input
+                .get("accountId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "Account id is required.".to_string())?;
+            let usage_count = input
+                .get("usageCount")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "Usage count is invalid.".to_string())?;
+            let mut entries = HashMap::from([(
+                account_id.to_string(),
+                settings::UsageEntry {
+                    count: usage_count,
+                    last_used_at: None,
+                },
+            )]);
+            settings::record_usage(&mut entries, account_id, chrono::Utc::now());
+            let entry = entries
+                .get(account_id)
+                .ok_or_else(|| "Usage entry could not be recorded.".to_string())?;
+            serde_json::to_value(entry).map_err(|error| error.to_string())
+        }
         "sort-accounts" => {
             let accounts = serde_json::from_value::<Vec<models::OtpAccount>>(
                 input.get("accounts").cloned().unwrap_or_else(|| json!([])),

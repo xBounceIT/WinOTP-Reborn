@@ -787,6 +787,33 @@ function updateUnavailableResult(message = "The Rust update bridge is unavailabl
   };
 }
 
+function exposeLinuxAppImageUpdate(result) {
+  if (
+    process.platform !== "linux" ||
+    !process.env.APPIMAGE ||
+    result?.success === true ||
+    typeof result?.state?.downloadedInstallerPath !== "string"
+  ) {
+    return result;
+  }
+
+  const installerPath = result.state.downloadedInstallerPath;
+  try {
+    shell.showItemInFolder(installerPath);
+    return {
+      ...result,
+      message:
+        "The update was downloaded and its folder was opened. Close WinOTP, then replace the current AppImage with the downloaded file.",
+    };
+  } catch (error) {
+    console.error("Failed to open the downloaded AppImage folder.", error);
+    return {
+      ...result,
+      message: `${result.message ?? "The update could not be launched."} Downloaded file: ${installerPath}`,
+    };
+  }
+}
+
 function registerUpdateIpc() {
   ipcMain.handle("updates:status", (event) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
@@ -834,7 +861,7 @@ function registerUpdateIpc() {
     }
 
     try {
-      const result = await getUpdateService().install();
+      const result = exposeLinuxAppImageUpdate(await getUpdateService().install());
       if (shouldQuitAfterUpdateInstall(process.platform, result)) {
         quitApp();
       }

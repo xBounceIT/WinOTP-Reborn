@@ -768,21 +768,50 @@ class AccountStore {
       return { success: false, message: "Account id is required." };
     }
 
-    const lastUsedAt = new Date().toISOString();
+    const row = this.database
+      .prepare("SELECT usage_count FROM accounts WHERE id = ?")
+      .get(accountId);
+    if (!row) {
+      return { success: false, message: "Account was not found." };
+    }
+
+    const usageCount = Number(row.usage_count);
+    if (!Number.isSafeInteger(usageCount) || usageCount < 0) {
+      throw new AccountStoreError("Stored account usage is invalid.");
+    }
+
+    const usage = runRustCore("record-usage", {
+      accountId,
+      usageCount,
+    });
+    if (
+      !usage ||
+      typeof usage !== "object" ||
+      Array.isArray(usage) ||
+      !Number.isSafeInteger(usage.count) ||
+      usage.count < 0
+    ) {
+      throw new AccountStoreError("The WinOTP Rust core returned invalid usage data.");
+    }
+    const lastUsedAt = normalizeLastUsedAt(usage.lastUsedAt);
+    if (!lastUsedAt) {
+      throw new AccountStoreError("The WinOTP Rust core returned an invalid usage timestamp.");
+    }
+
     const result = this.database
-      .prepare("UPDATE accounts SET usage_count = usage_count + 1, last_used_at = ? WHERE id = ?")
-      .run(lastUsedAt, accountId);
+      .prepare("UPDATE accounts SET usage_count = ?, last_used_at = ? WHERE id = ?")
+      .run(usage.count, lastUsedAt, accountId);
     if (Number(result.changes) === 0) {
       return { success: false, message: "Account was not found." };
     }
 
-    const row = this.database
+    const updatedRow = this.database
       .prepare("SELECT usage_count, last_used_at FROM accounts WHERE id = ?")
       .get(accountId);
     return {
       success: true,
-      usageCount: Number(row.usage_count),
-      lastUsedAt: normalizeLastUsedAt(row.last_used_at),
+      usageCount: Number(updatedRow.usage_count),
+      lastUsedAt: normalizeLastUsedAt(updatedRow.last_used_at),
     };
   }
 
