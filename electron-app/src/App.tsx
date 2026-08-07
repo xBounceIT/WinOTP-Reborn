@@ -250,6 +250,7 @@ export default function App() {
   const autoLockMonitoring = useRef(false);
   const lastActivityAt = useRef(Date.now());
   const startupLockHandled = useRef(false);
+  const customOrderPruneVersion = useRef(0);
   const pendingSessionLock = useRef(false);
   const sessionChangeVersion = useRef(0);
   const protectionReconciliationVersion = useRef(0);
@@ -664,9 +665,7 @@ export default function App() {
             setSettings(result.settings);
           }
           setSettingsPersistenceReady(
-            settingsChanged ||
-              (result.success && result.persistable !== false) ||
-              hasStoredSettings,
+            settingsChanged || (result.success && result.persistable !== false),
           );
         }
       } catch {
@@ -942,6 +941,7 @@ export default function App() {
     nextAccounts: OtpAccount[],
     issues: readonly { code: string }[] = [],
   ) {
+    const pruneVersion = ++customOrderPruneVersion.current;
     const savedOrderIds = normalizeCustomOrderIds(settingsRef.current.accountCustomOrderIds);
     if (issues.length > 0) {
       if (savedOrderIds.length !== settingsRef.current.accountCustomOrderIds.length) {
@@ -951,7 +951,18 @@ export default function App() {
     }
 
     void pruneCustomOrderIdsWithCore(savedOrderIds, nextAccounts).then((nextOrderIds) => {
+      if (pruneVersion !== customOrderPruneVersion.current) {
+        return;
+      }
+
       setSettings((current) => {
+        if (
+          current.accountCustomOrderIds.length !== savedOrderIds.length ||
+          current.accountCustomOrderIds.some((id, index) => id !== savedOrderIds[index])
+        ) {
+          return current;
+        }
+
         if (
           nextOrderIds.length === current.accountCustomOrderIds.length &&
           nextOrderIds.every((id, index) => id === current.accountCustomOrderIds[index])
@@ -1102,6 +1113,10 @@ export default function App() {
 
   function changeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     markSettingsChanged();
+    if (key === "accountCustomOrderIds") {
+      customOrderPruneVersion.current += 1;
+    }
+
     setSettings((current) => {
       const next = { ...current, [key]: value };
       if (key === "minimizeOnClose" && value === true) {

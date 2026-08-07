@@ -65,26 +65,64 @@ function defaultBackupSettings() {
   };
 }
 
-function readStoredBackupSettings(filePath) {
+function readStoredBackupSettings(filePath, options: any = {}) {
+  const strict = options.strict === true;
+  let contents;
+
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
       return undefined;
     }
 
-    if (typeof parsed.automaticEnabled !== "boolean") {
-      return undefined;
+    if (strict) {
+      throw new Error("The stored backup settings could not be read.");
     }
 
-    const customFolderPath = normalizeCustomFolderPath(parsed.customFolderPath);
-    return {
-      automaticEnabled: parsed.automaticEnabled,
-      customFolderPath:
-        customFolderPath && path.isAbsolute(customFolderPath) ? customFolderPath : "",
-    };
-  } catch {
     return undefined;
   }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (typeof parsed.automaticEnabled !== "boolean") {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (parsed.customFolderPath !== undefined && typeof parsed.customFolderPath !== "string") {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  const customFolderPath = normalizeCustomFolderPath(parsed.customFolderPath);
+  return {
+    automaticEnabled: parsed.automaticEnabled,
+    customFolderPath: customFolderPath && path.isAbsolute(customFolderPath) ? customFolderPath : "",
+  };
 }
 
 function getUniquePath(basePath) {
@@ -242,7 +280,7 @@ class BackupStore {
   }
 
   readSettings() {
-    return readStoredBackupSettings(this.settingsPath) ?? defaultBackupSettings();
+    return readStoredBackupSettings(this.settingsPath, { strict: true }) ?? defaultBackupSettings();
   }
 
   persistSettings() {

@@ -373,6 +373,21 @@ test("repairs persisted automatic settings when the password is missing", () => 
   }
 });
 
+test("does not replace malformed stored backup settings with defaults", () => {
+  const directoryPath = createTemporaryDirectory();
+
+  try {
+    fs.writeFileSync(path.join(directoryPath, "backup-settings.json"), "{not-json");
+
+    assert.throws(
+      () => createBackupStore(directoryPath, createAccountStore()),
+      /stored backup settings are invalid/i,
+    );
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
 test("can defer automatic-backup repair while a legacy password migration is retryable", () => {
   const directoryPath = createTemporaryDirectory();
   fs.writeFileSync(
