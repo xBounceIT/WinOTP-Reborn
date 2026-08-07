@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { credentialLabel, isPinCredential, settingForCredential } from "@/lib/security-settings";
+import { credentialLabel, isPinCredential } from "@/lib/security-settings";
 import type {
   AppSettings,
   AutoStartResult,
@@ -30,6 +30,7 @@ import type {
   BackupImportResult,
   BackupOperationResult,
   SecurityCredentialKind,
+  ProtectionTransitionKind,
   SecurityVerification,
   UpdateOperationResult,
   UpdateState,
@@ -57,6 +58,12 @@ interface SettingsPageProps {
   securityReady: boolean;
   onEnableWindowsHello: () => Promise<boolean>;
   onDisableWindowsHello: () => Promise<boolean>;
+  onClearWindowsHelloFallbacks: () => Promise<boolean>;
+  onTransitionProtection: (
+    settings: AppSettings,
+    kind: ProtectionTransitionKind,
+    enabled: boolean,
+  ) => Promise<AppSettings | undefined>;
   onPersistProtectionSettings: (settings: AppSettings) => Promise<boolean>;
   onSetCredential: (kind: SecurityCredentialKind, secret: string) => Promise<boolean>;
   onVerifyCredential: (
@@ -120,36 +127,6 @@ const passwordDialogCopy: Record<
 function formatAccountCount(count: number | undefined) {
   const safeCount = count ?? 0;
   return `${safeCount} account${safeCount === 1 ? "" : "s"}`;
-}
-
-function settingsForCredentialSetup(settings: AppSettings, kind: SecurityCredentialKind) {
-  const nextSettings = { ...settings, [settingForCredential(kind)]: true };
-  if (kind === "pin") {
-    nextSettings.passwordProtection = false;
-    nextSettings.windowsHello = false;
-  } else if (kind === "password") {
-    nextSettings.pinProtection = false;
-    nextSettings.windowsHello = false;
-  } else if (kind === "remotePin") {
-    nextSettings.remotePassword = false;
-  } else {
-    nextSettings.remotePin = false;
-  }
-  return nextSettings;
-}
-
-function settingsForCredentialDisable(settings: AppSettings, kind: SecurityCredentialKind) {
-  return { ...settings, [settingForCredential(kind)]: false };
-}
-
-function settingsForWindowsHello(settings: AppSettings, enabled: boolean) {
-  return {
-    ...settings,
-    windowsHello: enabled,
-    ...(enabled
-      ? { pinProtection: false, passwordProtection: false }
-      : { remotePin: false, remotePassword: false }),
-  };
 }
 
 function updateStatusLabel(status: UpdateState["status"]) {
@@ -280,6 +257,8 @@ export function SettingsPage({
   securityReady,
   onEnableWindowsHello,
   onDisableWindowsHello,
+  onClearWindowsHelloFallbacks,
+  onTransitionProtection,
   onPersistProtectionSettings,
   onSetCredential,
   onVerifyCredential,
@@ -569,7 +548,8 @@ export function SettingsPage({
           return;
         }
 
-        if (!(await onPersistProtectionSettings(settingsForCredentialSetup(settings, kind)))) {
+        const nextSettings = await onTransitionProtection(settings, kind, true);
+        if (!nextSettings || !(await onPersistProtectionSettings(nextSettings))) {
           await onRemoveCredential(kind);
           setCredentialDialogError(
             "Protection settings could not be saved; setup was rolled back.",
@@ -584,7 +564,8 @@ export function SettingsPage({
         }
 
         if (!verification.available) {
-          if (!(await onPersistProtectionSettings(settingsForCredentialDisable(settings, kind)))) {
+          const nextSettings = await onTransitionProtection(settings, kind, false);
+          if (!nextSettings || !(await onPersistProtectionSettings(nextSettings))) {
             setCredentialDialogError(
               "Protection settings could not be saved; protection remains enabled.",
             );
@@ -604,8 +585,8 @@ export function SettingsPage({
           return;
         }
 
-        const disabledSettings = settingsForCredentialDisable(settings, kind);
-        if (!(await onPersistProtectionSettings(disabledSettings))) {
+        const nextSettings = await onTransitionProtection(settings, kind, false);
+        if (!nextSettings || !(await onPersistProtectionSettings(nextSettings))) {
           setCredentialDialogError(
             "Protection settings could not be saved; protection remains enabled.",
           );
@@ -650,7 +631,10 @@ export function SettingsPage({
           return;
         }
 
-        await onPersistProtectionSettings(settingsForWindowsHello(settings, true));
+        const nextSettings = await onTransitionProtection(settings, "windowsHello", true);
+        if (nextSettings) {
+          await onPersistProtectionSettings(nextSettings);
+        }
         return;
       }
 
@@ -658,7 +642,12 @@ export function SettingsPage({
         return;
       }
 
-      await onPersistProtectionSettings(settingsForWindowsHello(settings, false));
+      const nextSettings = await onTransitionProtection(settings, "windowsHello", false);
+      if (!nextSettings || !(await onPersistProtectionSettings(nextSettings))) {
+        return;
+      }
+
+      await onClearWindowsHelloFallbacks();
     } finally {
       windowsHelloBusyRef.current = false;
       setWindowsHelloBusy(false);

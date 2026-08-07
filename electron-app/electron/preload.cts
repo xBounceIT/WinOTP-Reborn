@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld("winotp", {
     orderDropIndex: (input) => ipcRenderer.invoke("core:order-drop-index", input),
     orderProject: (input) => ipcRenderer.invoke("core:order-project", input),
     reconcileProtection: (input) => ipcRenderer.invoke("core:reconcile-protection", input),
+    transitionProtection: (input) => ipcRenderer.invoke("core:transition-protection", input),
     screenCaptureMap: (input) => ipcRenderer.invoke("core:screen-capture-map", input),
     screenCaptureExpand: (input) => ipcRenderer.invoke("core:screen-capture-expand", input),
     screenCapturePadding: (input) => ipcRenderer.invoke("core:screen-capture-padding", input),

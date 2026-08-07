@@ -15,6 +15,8 @@ import type {
   OtpAccount,
   ParsedAccountImport,
   ProtectionCoreInput,
+  ProtectionTransitionInput,
+  ProtectionTransitionState,
   ProtectionViewState,
   SortOption,
   SecurityCredentialKind,
@@ -141,6 +143,9 @@ declare global {
         orderDropIndex: (input: CoreOrderDropInput) => Promise<number>;
         orderProject: (input: CoreOrderProjectInput) => Promise<string[]>;
         reconcileProtection: (input: ProtectionCoreInput) => Promise<ProtectionViewState>;
+        transitionProtection: (
+          input: ProtectionTransitionInput,
+        ) => Promise<ProtectionTransitionState>;
         screenCaptureMap: (input: CoreScreenCaptureMapInput) => Promise<{
           x: number;
           y: number;

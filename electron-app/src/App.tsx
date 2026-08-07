@@ -48,6 +48,8 @@ import type {
   BackupOperationResult,
   OtpAccount,
   ProtectionCoreInput,
+  ProtectionTransitionInput,
+  ProtectionTransitionKind,
   ProtectionViewState,
   Route,
   SecurityCredentialKind,
@@ -199,7 +201,17 @@ function protectionInputForCore(
   };
 }
 
-function applyProtectionViewState(settings: AppSettings, state: ProtectionViewState): AppSettings {
+function applyProtectionState(
+  settings: AppSettings,
+  state: Pick<
+    ProtectionViewState,
+    | "pinEnabled"
+    | "passwordEnabled"
+    | "windowsHelloEnabled"
+    | "remotePinEnabled"
+    | "remotePasswordEnabled"
+  >,
+): AppSettings {
   return {
     ...settings,
     pinProtection: state.pinEnabled,
@@ -331,7 +343,7 @@ export default function App() {
       return false;
     }
 
-    const nextSettings = applyProtectionViewState(settingsValue, state);
+    const nextSettings = applyProtectionState(settingsValue, state);
     setSettings((current) => (current === settingsValue ? nextSettings : current));
     markSettingsChanged();
     return !hasConfiguredProtection(nextSettings);
@@ -735,7 +747,7 @@ export default function App() {
           securityStatusRef.current,
         )
       ) {
-        setSettings((current) => applyProtectionViewState(current, state));
+        setSettings((current) => applyProtectionState(current, state));
       }
     }
 
@@ -1264,6 +1276,35 @@ export default function App() {
     return true;
   }
 
+  async function transitionProtectionSettings(
+    settingsValue: AppSettings,
+    kind: ProtectionTransitionKind,
+    enabled: boolean,
+  ): Promise<AppSettings | undefined> {
+    const core = window.winotp?.core;
+    if (!core) {
+      showToast("The protection policy bridge is unavailable.");
+      return undefined;
+    }
+
+    const input: ProtectionTransitionInput = {
+      pinEnabled: settingsValue.pinProtection,
+      passwordEnabled: settingsValue.passwordProtection,
+      windowsHelloEnabled: settingsValue.windowsHello,
+      remotePinEnabled: settingsValue.remotePin,
+      remotePasswordEnabled: settingsValue.remotePassword,
+      kind,
+      enabled,
+    };
+
+    try {
+      return applyProtectionState(settingsValue, await core.transitionProtection(input));
+    } catch {
+      showToast("The protection policy could not be applied.");
+      return undefined;
+    }
+  }
+
   function unavailableBackupResult(): BackupConfigurationResult {
     return {
       success: false,
@@ -1563,15 +1604,17 @@ export default function App() {
           ? "Windows Hello is unavailable over Remote Desktop; the protection will be disabled."
           : "Windows Hello is no longer available; the protection will be disabled.",
       );
-      await clearWindowsHelloFallbackCredentials(true);
       return true;
     } else if (verification.status !== "verified") {
       showToast(windowsHelloVerificationMessage(verification.status));
       return false;
     }
 
-    const removed = await clearWindowsHelloFallbackCredentials(true);
+    return true;
+  }
 
+  async function clearWindowsHelloFallbacks() {
+    const removed = await clearWindowsHelloFallbackCredentials();
     if (!removed) {
       showToast("A Remote Desktop fallback credential could not be cleared.");
     }
@@ -1584,19 +1627,22 @@ export default function App() {
       return;
     }
 
+    const nextSettings = {
+      ...settingsRef.current,
+      windowsHello: false,
+      remotePin: false,
+      remotePassword: false,
+    };
+    if (!(await persistProtectionSettings(nextSettings))) {
+      setUnlockError("Protection settings could not be saved; the app remains locked.");
+      return;
+    }
+
     setAppLocked(false);
     setRemoteFallbackActive(false);
     setUnlockValue("");
     setUnlockError("");
-    markSettingsChanged();
-    setSettings((current) => ({
-      ...current,
-      windowsHello: false,
-      remotePin: false,
-      remotePassword: false,
-    }));
-
-    await clearWindowsHelloFallbackCredentials();
+    await clearWindowsHelloFallbacks();
 
     showToast("Windows Hello was unavailable and has been disabled.");
   }
@@ -2016,6 +2062,8 @@ export default function App() {
         securityReady={securityReady}
         onEnableWindowsHello={enableWindowsHelloProtection}
         onDisableWindowsHello={disableWindowsHelloProtection}
+        onClearWindowsHelloFallbacks={clearWindowsHelloFallbacks}
+        onTransitionProtection={transitionProtectionSettings}
         onPersistProtectionSettings={persistProtectionSettings}
         onSetCredential={setSecurityCredential}
         onVerifyCredential={verifySecurityCredential}

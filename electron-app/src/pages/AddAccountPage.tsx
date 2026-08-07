@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/button";
 import { parseOtpUri } from "@/lib/otp-uri";
 import type { OtpAccount, Route } from "@/lib/types";
 
+const MAX_QR_IMAGE_FILE_SIZE_BYTES = 16 * 1024 * 1024;
+const MAX_QR_IMAGE_DIMENSION = 8_192;
+const MAX_QR_IMAGE_PIXELS = 16 * 1024 * 1024;
+
 interface AddAccountPageProps {
   onNavigate: (route: Route) => void;
   onToast: (message: string) => void;
@@ -25,12 +29,24 @@ function loadImage(file: File): Promise<{ image: HTMLImageElement; objectUrl: st
 }
 
 async function decodeQrFile(file: File): Promise<string | undefined> {
+  if (file.size > MAX_QR_IMAGE_FILE_SIZE_BYTES) {
+    throw new Error("The selected image is too large to scan.");
+  }
+
   const { default: decoder } = await import("jsqr");
   const { image, objectUrl } = await loadImage(file);
 
   try {
     if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
       return undefined;
+    }
+
+    if (
+      image.naturalWidth > MAX_QR_IMAGE_DIMENSION ||
+      image.naturalHeight > MAX_QR_IMAGE_DIMENSION ||
+      image.naturalWidth * image.naturalHeight > MAX_QR_IMAGE_PIXELS
+    ) {
+      throw new Error("The selected image dimensions are too large to scan.");
     }
 
     const canvas = document.createElement("canvas");

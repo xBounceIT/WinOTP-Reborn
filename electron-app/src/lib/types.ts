@@ -76,6 +76,26 @@ export interface ProtectionCoreInput {
   remotePasswordStatus: "NotSet" | "Set" | "Error";
 }
 
+export type ProtectionTransitionKind = SecurityCredentialKind | "windowsHello";
+
+export interface ProtectionTransitionInput {
+  pinEnabled: boolean;
+  passwordEnabled: boolean;
+  windowsHelloEnabled: boolean;
+  remotePinEnabled: boolean;
+  remotePasswordEnabled: boolean;
+  kind: ProtectionTransitionKind;
+  enabled: boolean;
+}
+
+export interface ProtectionTransitionState {
+  pinEnabled: boolean;
+  passwordEnabled: boolean;
+  windowsHelloEnabled: boolean;
+  remotePinEnabled: boolean;
+  remotePasswordEnabled: boolean;
+}
+
 export interface AccountStorageIssue {
   code: string;
   accountId: string;

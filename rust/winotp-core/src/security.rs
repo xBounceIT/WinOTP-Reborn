@@ -26,6 +26,15 @@ pub enum WindowsHelloVerificationStatus {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtectionTransitionKind {
+    Pin,
+    Password,
+    WindowsHello,
+    RemotePin,
+    RemotePassword,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AppLockMode {
     None,
@@ -299,6 +308,88 @@ pub struct ProtectionViewState {
     pub remote_password_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectionTransitionState {
+    pub pin_enabled: bool,
+    pub password_enabled: bool,
+    pub windows_hello_enabled: bool,
+    pub remote_pin_enabled: bool,
+    pub remote_password_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProtectionTransitionInputs {
+    pub pin_enabled: bool,
+    pub password_enabled: bool,
+    pub windows_hello_enabled: bool,
+    pub remote_pin_enabled: bool,
+    pub remote_password_enabled: bool,
+    pub kind: ProtectionTransitionKind,
+    pub enabled: bool,
+}
+
+pub fn apply_protection_transition(
+    inputs: ProtectionTransitionInputs,
+) -> ProtectionTransitionState {
+    let ProtectionTransitionInputs {
+        mut pin_enabled,
+        mut password_enabled,
+        mut windows_hello_enabled,
+        mut remote_pin_enabled,
+        mut remote_password_enabled,
+        kind,
+        enabled,
+    } = inputs;
+
+    match kind {
+        ProtectionTransitionKind::Pin => {
+            pin_enabled = enabled;
+            if enabled {
+                password_enabled = false;
+                windows_hello_enabled = false;
+            }
+        }
+        ProtectionTransitionKind::Password => {
+            password_enabled = enabled;
+            if enabled {
+                pin_enabled = false;
+                windows_hello_enabled = false;
+            }
+        }
+        ProtectionTransitionKind::WindowsHello => {
+            windows_hello_enabled = enabled;
+            if enabled {
+                pin_enabled = false;
+                password_enabled = false;
+            } else {
+                remote_pin_enabled = false;
+                remote_password_enabled = false;
+            }
+        }
+        ProtectionTransitionKind::RemotePin => {
+            remote_pin_enabled = enabled;
+            if enabled {
+                remote_password_enabled = false;
+            }
+        }
+        ProtectionTransitionKind::RemotePassword => {
+            remote_password_enabled = enabled;
+            if enabled {
+                remote_pin_enabled = false;
+            }
+        }
+    }
+
+    ProtectionTransitionState {
+        pin_enabled,
+        password_enabled,
+        windows_hello_enabled,
+        remote_pin_enabled,
+        remote_password_enabled,
+    }
+}
+
 pub fn validate_credential(kind: &str, secret: &str) -> Result<(), String> {
     if secret.trim().is_empty() {
         return Err("A security credential is required.".to_string());
@@ -451,5 +542,40 @@ mod tests {
         assert!(!state.pin_enabled);
         assert!(state.windows_hello_enabled);
         assert!(state.resolution.has_windows_hello_error);
+    }
+
+    #[test]
+    fn protection_transitions_apply_mode_exclusivity_in_core() {
+        let state = apply_protection_transition(ProtectionTransitionInputs {
+            pin_enabled: false,
+            password_enabled: true,
+            windows_hello_enabled: true,
+            remote_pin_enabled: true,
+            remote_password_enabled: false,
+            kind: ProtectionTransitionKind::Pin,
+            enabled: true,
+        });
+
+        assert!(state.pin_enabled);
+        assert!(!state.password_enabled);
+        assert!(!state.windows_hello_enabled);
+        assert!(state.remote_pin_enabled);
+    }
+
+    #[test]
+    fn disabling_windows_hello_clears_remote_fallback_modes() {
+        let state = apply_protection_transition(ProtectionTransitionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: true,
+            remote_pin_enabled: true,
+            remote_password_enabled: true,
+            kind: ProtectionTransitionKind::WindowsHello,
+            enabled: false,
+        });
+
+        assert!(!state.windows_hello_enabled);
+        assert!(!state.remote_pin_enabled);
+        assert!(!state.remote_password_enabled);
     }
 }

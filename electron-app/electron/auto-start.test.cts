@@ -1,7 +1,15 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { test } = require("node:test");
 
-const { createLoginItemSettings, getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
+const {
+  createLinuxAutostartEntry,
+  createLoginItemSettings,
+  getAutoStartStatus,
+  setAutoStart,
+} = require("./auto-start.cjs");
 
 test("creates a hidden packaged Windows login item", () => {
   assert.deepEqual(
@@ -142,4 +150,48 @@ test("reports OS auto-start failures without changing renderer state", () => {
     enabled: false,
     message: "Auto-start must be configured with a boolean value.",
   });
+});
+
+test("stores packaged Linux auto-start in the XDG autostart directory", () => {
+  const appDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-autostart-"));
+  const app = {
+    isPackaged: true,
+    getPath(name) {
+      assert.equal(name, "appData");
+      return appDataPath;
+    },
+    setLoginItemSettings() {
+      throw new Error("Electron login-item settings are not used on Linux.");
+    },
+  };
+
+  try {
+    assert.deepEqual(
+      getAutoStartStatus(app, { platform: "linux", execPath: "/opt/WinOTP.AppImage" }),
+      {
+        success: true,
+        enabled: false,
+      },
+    );
+    assert.deepEqual(
+      setAutoStart(app, true, { platform: "linux", execPath: "/opt/WinOTP AppImage" }),
+      { success: true, enabled: true },
+    );
+    const filePath = path.join(appDataPath, "autostart", "WinOTP_Reborn.desktop");
+    assert.equal(
+      fs.readFileSync(filePath, "utf8"),
+      createLinuxAutostartEntry({
+        enabled: true,
+        isPackaged: true,
+        execPath: "/opt/WinOTP AppImage",
+      }),
+    );
+    assert.deepEqual(
+      setAutoStart(app, false, { platform: "linux", execPath: "/opt/WinOTP AppImage" }),
+      { success: true, enabled: false },
+    );
+    assert.equal(fs.existsSync(filePath), false);
+  } finally {
+    fs.rmSync(appDataPath, { recursive: true, force: true });
+  }
 });

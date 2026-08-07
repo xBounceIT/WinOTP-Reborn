@@ -80,10 +80,14 @@ function isStartedHidden() {
 }
 
 function getAutoStartOptions() {
+  const execPath =
+    process.platform === "linux" && app.isPackaged
+      ? process.env.APPIMAGE || app.getPath("exe") || process.execPath
+      : process.execPath;
   return {
     appPath: app.isPackaged ? undefined : app.getAppPath(),
     isPackaged: app.isPackaged,
-    execPath: process.execPath,
+    execPath,
   };
 }
 
@@ -1070,6 +1074,9 @@ function registerCoreIpc() {
   );
   ipcMain.handle("core:reconcile-protection", (event, input) =>
     runCoreFromRenderer(event, "reconcile-protection", input),
+  );
+  ipcMain.handle("core:transition-protection", (event, input) =>
+    runCoreFromRenderer(event, "transition-protection", input),
   );
   ipcMain.handle("core:screen-capture-map", (event, input) =>
     runCoreFromRenderer(event, "screen-capture-map", input, {

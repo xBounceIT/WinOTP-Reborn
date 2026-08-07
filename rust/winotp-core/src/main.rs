@@ -388,6 +388,37 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
             });
             serde_json::to_value(state).map_err(|error| error.to_string())
         }
+        "transition-protection" => {
+            let state =
+                security::apply_protection_transition(security::ProtectionTransitionInputs {
+                    pin_enabled: input
+                        .get("pinEnabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    password_enabled: input
+                        .get("passwordEnabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    windows_hello_enabled: input
+                        .get("windowsHelloEnabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    remote_pin_enabled: input
+                        .get("remotePinEnabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    remote_password_enabled: input
+                        .get("remotePasswordEnabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    kind: parse_protection_transition_kind(input.get("kind"))?,
+                    enabled: input
+                        .get("enabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                });
+            serde_json::to_value(state).map_err(|error| error.to_string())
+        }
         "format-import-summary" => Ok(json!({
             "message": import::import_summary(
                 input.get("successCount").and_then(Value::as_u64).unwrap_or(0),
@@ -541,6 +572,21 @@ fn parse_hello_availability(value: Option<&Value>) -> security::WindowsHelloAvai
         "RemoteSession" | "remote-session" => security::WindowsHelloAvailability::RemoteSession,
         "Error" | "error" => security::WindowsHelloAvailability::Error,
         _ => security::WindowsHelloAvailability::Unavailable,
+    }
+}
+
+fn parse_protection_transition_kind(
+    value: Option<&Value>,
+) -> Result<security::ProtectionTransitionKind, String> {
+    match value.and_then(Value::as_str).unwrap_or_default() {
+        "pin" | "Pin" => Ok(security::ProtectionTransitionKind::Pin),
+        "password" | "Password" => Ok(security::ProtectionTransitionKind::Password),
+        "windowsHello" | "WindowsHello" => Ok(security::ProtectionTransitionKind::WindowsHello),
+        "remotePin" | "RemotePin" => Ok(security::ProtectionTransitionKind::RemotePin),
+        "remotePassword" | "RemotePassword" => {
+            Ok(security::ProtectionTransitionKind::RemotePassword)
+        }
+        _ => Err("Unsupported protection transition kind.".to_string()),
     }
 }
 
