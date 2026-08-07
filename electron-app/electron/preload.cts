@@ -88,7 +88,7 @@ contextBridge.exposeInMainWorld("winotp", {
   },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
-    recover: () => ipcRenderer.invoke("settings:recover"),
+    recover: (authorization) => ipcRenderer.invoke("settings:recover", authorization),
     save: (settings) => ipcRenderer.invoke("settings:save", settings),
   },
   accounts: {

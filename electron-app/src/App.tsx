@@ -167,6 +167,24 @@ function credentialStatusForCore(isSet: boolean): "NotSet" | "Set" {
   return isSet ? "Set" : "NotSet";
 }
 
+function recoveryCredentialKind(
+  status: SecurityCredentialStatus,
+): SecurityCredentialKind | undefined {
+  if (status.pinSet) {
+    return "pin";
+  }
+  if (status.passwordSet) {
+    return "password";
+  }
+  if (status.remotePinSet) {
+    return "remotePin";
+  }
+  if (status.remotePasswordSet) {
+    return "remotePassword";
+  }
+  return undefined;
+}
+
 function helloAvailabilityForCore(
   status: WindowsHelloAvailabilityStatus,
 ): ProtectionCoreInput["windowsHelloAvailability"] {
@@ -1184,7 +1202,7 @@ export default function App() {
     }
   }
 
-  async function recoverSettings() {
+  async function recoverSettings(kind?: SecurityCredentialKind | "windowsHello") {
     const settingsBridge = window.winotp?.settings;
     if (!settingsBridge) {
       setUnlockError("The settings recovery bridge is unavailable.");
@@ -1198,7 +1216,12 @@ export default function App() {
     unlockBusyRef.current = true;
     setUnlockBusy(true);
     try {
-      const result = await settingsBridge.recover();
+      const recoveryKind = kind ?? recoveryCredentialKind(securityStatus) ?? "windowsHello";
+      const authorization =
+        recoveryKind === "windowsHello"
+          ? { kind: recoveryKind }
+          : { kind: recoveryKind, secret: unlockValue };
+      const result = await settingsBridge.recover(authorization);
       if (!result?.success) {
         setUnlockError(result?.message ?? "Unable to recover the settings file.");
         return;
@@ -2126,6 +2149,7 @@ export default function App() {
   const activeCredential = remoteFallbackActive
     ? remoteCredentialKind(settings)
     : directCredentialKind(settings);
+  const recoveryKind = recoveryCredentialKind(securityStatus);
   const protectionReady = settingsLoaded && settingsSourceAvailable && securityReady;
 
   return (
@@ -2163,13 +2187,36 @@ export default function App() {
               {settingsRecoveryRequired ? (
                 <>
                   <p className="lock-overlay__detail">
-                    The settings file could not be read. Restore safe defaults to continue.
+                    The settings file could not be read. Verify your saved protection to restore
+                    safe defaults.
                   </p>
+                  {recoveryKind ? (
+                    <Input
+                      autoFocus
+                      type="password"
+                      inputMode={isPinCredential(recoveryKind) ? "numeric" : undefined}
+                      placeholder={`Enter ${credentialLabel(recoveryKind)}`}
+                      value={unlockValue}
+                      onChange={(event) => setUnlockValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          void recoverSettings();
+                        }
+                      }}
+                      disabled={unlockBusy || lockRequestBusy}
+                    />
+                  ) : (
+                    <p className="lock-overlay__detail">Use Windows Hello to authorize recovery.</p>
+                  )}
                   <Button
                     onClick={() => void recoverSettings()}
                     disabled={unlockBusy || lockRequestBusy}
                   >
-                    {unlockBusy ? "Restoring settings…" : "Restore safe defaults"}
+                    {unlockBusy
+                      ? "Restoring settings…"
+                      : recoveryKind
+                        ? "Verify and restore settings"
+                        : "Use Windows Hello and restore settings"}
                   </Button>
                 </>
               ) : !protectionReady ? (
@@ -2197,7 +2244,7 @@ export default function App() {
               ) : (
                 <p className="lock-overlay__detail">Use Windows Hello to unlock</p>
               )}
-              {protectionReady && unlockError && <div className="inline-error">{unlockError}</div>}
+              {unlockError && <div className="inline-error">{unlockError}</div>}
               {protectionReady && activeCredential && (
                 <Button onClick={() => void unlock()} disabled={unlockBusy || lockRequestBusy}>
                   {lockRequestBusy ? "Locking…" : unlockBusy ? "Checking…" : "Unlock"}

@@ -7,26 +7,6 @@ const { runRustCore } = require("./rust-core.cjs");
 
 const SETTINGS_FILE_NAME = "app-settings.json";
 const SETTINGS_FILE_VERSION = 1;
-const defaultSettings = Object.freeze({
-  showNextCode: false,
-  accountSortOption: "DateAddedDesc",
-  accountCustomOrderIds: [],
-  pinProtection: false,
-  passwordProtection: false,
-  windowsHello: false,
-  remotePin: false,
-  remotePassword: false,
-  autoLock: "5",
-  autoStart: false,
-  minimizeOnClose: false,
-  minimizeToTray: false,
-  showTotpInTray: false,
-  automaticBackup: false,
-  customBackupFolderPath: "",
-  updateOnStartup: true,
-  updateChannel: "Stable",
-  theme: "dark",
-});
 
 function getSettingsFilePath(app) {
   return path.join(getAppDataDirectory(app), SETTINGS_FILE_NAME);
@@ -98,6 +78,10 @@ function normalizeSettings(source) {
   return rustSettings;
 }
 
+function getDefaultSettings() {
+  return normalizeSettings({});
+}
+
 function writeSettingsAtomically(filePath, settings) {
   const directory = path.dirname(filePath);
   const temporaryPath = path.join(
@@ -132,13 +116,12 @@ class SettingsStore {
     this.filePath = options.filePath ?? getSettingsFilePath(app);
     this.recoveryRequired = false;
     try {
-      this.settings =
-        readStoredSettings(this.filePath, { strict: true }) ?? normalizeSettings(defaultSettings);
+      this.settings = readStoredSettings(this.filePath, { strict: true }) ?? getDefaultSettings();
     } catch (error) {
       if (options.recoverMalformed !== true) {
         throw error;
       }
-      this.settings = normalizeSettings(defaultSettings);
+      this.settings = getDefaultSettings();
       this.recoveryRequired = true;
     }
   }
@@ -156,7 +139,7 @@ class SettingsStore {
   }
 
   recoverSettings() {
-    const nextSettings = normalizeSettings(defaultSettings);
+    const nextSettings = getDefaultSettings();
     writeSettingsAtomically(this.filePath, nextSettings);
     this.settings = nextSettings;
     this.recoveryRequired = false;
@@ -168,7 +151,7 @@ module.exports = {
   SETTINGS_FILE_NAME,
   SETTINGS_FILE_VERSION,
   SettingsStore,
-  defaultSettings,
+  getDefaultSettings,
   getSettingsFilePath,
   normalizeSortOption,
   normalizeSettings,

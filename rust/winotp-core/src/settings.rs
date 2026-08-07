@@ -310,6 +310,11 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_empty_input_to_backend_defaults() {
+        assert_eq!(normalize_settings(&Value::Null), AppSettings::default());
+    }
+
+    #[test]
     fn normalizes_versions_like_the_native_helper() {
         assert_eq!(
             normalize_version_string("v1.2.3-beta.1+build"),

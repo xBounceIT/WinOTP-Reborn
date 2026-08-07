@@ -22,6 +22,7 @@ import type {
   SecurityCredentialKind,
   SecurityOperationResult,
   SecurityStatusResult,
+  SettingsRecoveryAuthorization,
   UpdateOperationResult,
   UpdateStatusResult,
   WindowsHelloAvailabilityResult,
@@ -167,7 +168,7 @@ declare global {
       };
       settings: {
         get: () => Promise<AppSettingsResult>;
-        recover: () => Promise<AppSettingsResult>;
+        recover: (authorization?: SettingsRecoveryAuthorization) => Promise<AppSettingsResult>;
         save: (settings: AppSettings) => Promise<AppSettingsResult>;
       };
       accounts: {

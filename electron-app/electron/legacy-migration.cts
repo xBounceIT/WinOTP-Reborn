@@ -9,7 +9,7 @@ const {
 } = require("./legacy-credential-reader.cjs");
 const { isValidPassword, readStoredBackupSettings } = require("./backup-store.cjs");
 const {
-  defaultSettings,
+  getDefaultSettings,
   normalizeSettings,
   normalizeSortOption,
   readStoredSettings,
@@ -31,7 +31,7 @@ const APP_LOCK_CREDENTIAL_KEYS = Object.freeze({
   WindowsHelloRemotePassword: "remotePassword",
 });
 
-const defaultElectronSettings = defaultSettings;
+const defaultElectronSettings = getDefaultSettings();
 
 const migrationPartDefaults = Object.freeze({
   status: "pending",

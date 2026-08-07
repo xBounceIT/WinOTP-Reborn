@@ -283,6 +283,10 @@ export type AppSettingsResult =
     }
   | { success: false; message?: string };
 
+export type SettingsRecoveryAuthorization =
+  | { kind: SecurityCredentialKind; secret: string }
+  | { kind: "windowsHello" };
+
 export interface SecurityCredentialStatus {
   pinSet: boolean;
   passwordSet: boolean;

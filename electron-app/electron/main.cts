@@ -900,6 +900,49 @@ function hasSameProtectionSettings(left, right) {
   return protectionSettingKeys.every((key) => left?.[key] === right?.[key]);
 }
 
+const settingsRecoveryCredentialKinds = new Set(["pin", "password", "remotePin", "remotePassword"]);
+
+async function authorizeSettingsRecovery(authorization: any = {}) {
+  if (isRendererUnlocked()) {
+    return true;
+  }
+
+  if (authorization?.kind === "windowsHello") {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return false;
+    }
+
+    try {
+      const status = getSecurityStore().getStatus();
+      if (Object.values(status).some((value) => value === true)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    const result = await runWindowsHelloOperation(async () =>
+      verifyWindowsHello({
+        windowHandle: mainWindow.getNativeWindowHandle(),
+      }),
+    );
+    return result.success === true && result.status === "verified";
+  }
+
+  if (
+    !settingsRecoveryCredentialKinds.has(authorization?.kind) ||
+    typeof authorization?.secret !== "string"
+  ) {
+    return false;
+  }
+
+  try {
+    return getSecurityStore().verifyCredential(authorization.kind, authorization.secret).verified;
+  } catch {
+    return false;
+  }
+}
+
 async function reconcileLockedProtectionSettings(settings) {
   try {
     const securityStatus = getSecurityStore().getStatus();
@@ -944,7 +987,7 @@ function registerSettingsIpc() {
     }
   });
 
-  ipcMain.handle("settings:recover", (event) => {
+  ipcMain.handle("settings:recover", async (event, authorization) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return settingsUnavailableResult();
     }
@@ -955,8 +998,13 @@ function registerSettingsIpc() {
         return settingsUnavailableResult();
       }
 
+      if (!(await authorizeSettingsRecovery(authorization))) {
+        return lockedSettingsResult();
+      }
+
       const result = store.recoverSettings();
       settingsRecoveryRequired = false;
+      rendererUnlocked = true;
       return {
         ...result,
         persistable: !legacySettingsMigrationFailed,
