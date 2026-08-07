@@ -5,7 +5,8 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::models::{
-    get_string, is_valid_base32, normalize_timestamp_value, OtpAccount, OtpAlgorithm,
+    canonicalize_legacy_base32, get_string, is_valid_base32, normalize_timestamp_value, OtpAccount,
+    OtpAlgorithm,
 };
 
 pub const MAX_IMPORTED_ACCOUNT_COUNT: usize = 1_000;
@@ -227,9 +228,12 @@ pub fn parse_legacy_account(entry_id: &str, source: &Value) -> Result<OtpAccount
     if secret.is_empty() {
         return Err(format!("Entry {entry_id} has an empty secret."));
     }
-    if !is_valid_base32(&secret) {
-        return Err(format!("Entry {entry_id} has an invalid Base32 secret."));
-    }
+    let secret = if is_valid_base32(&secret) {
+        secret
+    } else {
+        canonicalize_legacy_base32(&secret)
+            .ok_or_else(|| format!("Entry {entry_id} has an invalid Base32 secret."))?
+    };
 
     let created = get_string(source, "created");
     let created_at = normalize_timestamp_value(&created)
@@ -313,6 +317,15 @@ mod tests {
         assert_eq!(result.accounts.len(), 1);
         assert_eq!(result.skipped_count, 2);
         assert_eq!(result.accounts[0].secret, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn parses_legacy_json_with_unpadded_base32_secret() {
+        let result = parse_legacy_json(r#"{"legacy":{"Secret":"ABCDEF"}}"#).unwrap();
+
+        assert_eq!(result.accounts.len(), 1);
+        assert_eq!(result.skipped_count, 0);
+        assert_eq!(result.accounts[0].secret, "ABCDEF==");
     }
 
     #[test]

@@ -4,7 +4,11 @@ const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { mapLegacySettings, runLegacyMigration } = require("./legacy-migration.cjs");
+const {
+  completeLegacySettingsMigration,
+  mapLegacySettings,
+  runLegacyMigration,
+} = require("./legacy-migration.cjs");
 
 function createDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "winotp-legacy-migration-"));
@@ -544,6 +548,32 @@ test("keeps malformed native settings retryable", () => {
       legacyCredentialReader: () => ({ ok: true, entries: [] }),
     });
     assert.equal(retried.settings.status, "completed");
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("acknowledges a failed native settings migration after recovery", () => {
+  const directoryPath = createDirectory();
+  const migrationFilePath = path.join(directoryPath, "legacy-migration.json");
+  fs.writeFileSync(
+    migrationFilePath,
+    JSON.stringify({
+      version: 1,
+      settings: { status: "failed", importedCount: 0, skippedCount: 1, issueCount: 1 },
+      appLock: { status: "completed", importedCount: 1, skippedCount: 0, issueCount: 0 },
+      backupPassword: { status: "pending", importedCount: 0, skippedCount: 0, issueCount: 0 },
+    }),
+  );
+
+  try {
+    const result = completeLegacySettingsMigration(undefined, { migrationFilePath });
+
+    assert.equal(result.settings.status, "completed");
+    assert.equal(result.settings.importedCount, 0);
+    assert.equal(result.appLock.status, "completed");
+    assert.equal(result.backupPassword.status, "pending");
+    assert.deepEqual(JSON.parse(fs.readFileSync(migrationFilePath, "utf8")), result);
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

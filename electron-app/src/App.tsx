@@ -173,7 +173,15 @@ function credentialStatusForCore(isSet: boolean): "NotSet" | "Set" {
 function recoveryCredentialKind(
   settings: AppSettings,
   status: SecurityCredentialStatus,
+  allowAnyConfiguredCredential = false,
 ): SecurityCredentialKind | undefined {
+  const availableKinds = (["pin", "password", "remotePin", "remotePassword"] as const).filter(
+    (kind) => status[securityStatusKey(kind)],
+  );
+  if (allowAnyConfiguredCredential && availableKinds.length > 0) {
+    return availableKinds[0];
+  }
+
   const configuredKind = settings.windowsHello
     ? remoteCredentialKind(settings)
     : directCredentialKind(settings);
@@ -185,9 +193,6 @@ function recoveryCredentialKind(
     return undefined;
   }
 
-  const availableKinds = (["pin", "password", "remotePin", "remotePassword"] as const).filter(
-    (kind) => status[securityStatusKey(kind)],
-  );
   if (availableKinds.length === 1) {
     return availableKinds[0];
   }
@@ -1306,7 +1311,9 @@ export default function App() {
     setUnlockBusy(true);
     try {
       const recoveryKind =
-        kind ?? recoveryCredentialKind(settings, securityStatus) ?? "windowsHello";
+        kind ??
+        recoveryCredentialKind(settings, securityStatus, settingsRecoveryRequired) ??
+        "windowsHello";
       const authorization =
         recoveryKind === "windowsHello"
           ? { kind: recoveryKind }
@@ -1322,6 +1329,9 @@ export default function App() {
       setSettingsRecoveryRequired(false);
       setSecurityMigrationPending(result.securityMigrationPending === true);
       setSettingsPersistenceReady(true);
+      if (result.securityMigrationPending !== true) {
+        setAppLocked(false);
+      }
       setUnlockValue("");
       setUnlockError("");
     } catch {
@@ -2316,7 +2326,7 @@ export default function App() {
   const activeCredential = remoteFallbackActive
     ? remoteCredentialKind(settings)
     : directCredentialKind(settings);
-  const recoveryKind = recoveryCredentialKind(settings, securityStatus);
+  const recoveryKind = recoveryCredentialKind(settings, securityStatus, settingsRecoveryRequired);
   const recoveryCanUseWindowsHello =
     recoveryKind === "remotePin" || recoveryKind === "remotePassword";
   const protectionReady = settingsLoaded && settingsSourceAvailable && securityReady;

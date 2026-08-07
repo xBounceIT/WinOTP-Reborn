@@ -693,11 +693,20 @@ function migrateLegacySettingsForApp(app, options: any = {}) {
   return state;
 }
 
+function completeLegacySettingsMigration(app, options: any = {}) {
+  const migrationFilePath = options.migrationFilePath ?? getMigrationFilePath(app);
+  const state = readMigrationState(migrationFilePath);
+  state.settings = { ...migrationPartDefaults, status: "completed" };
+  writeJsonAtomically(migrationFilePath, state);
+  return state;
+}
+
 module.exports = {
   APP_LOCK_CREDENTIAL_KEYS,
   LEGACY_APP_LOCK_RESOURCE,
   LEGACY_BACKUP_RESOURCE,
   defaultElectronSettings,
+  completeLegacySettingsMigration,
   getLegacySettingsFilePath,
   getMigrationFilePath,
   mapLegacyBackupSettings,

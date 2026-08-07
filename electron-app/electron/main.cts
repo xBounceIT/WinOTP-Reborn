@@ -25,7 +25,11 @@ const {
   shouldQuitAfterUpdateInstall,
 } = require("./update-service.cjs");
 const { SettingsStore, normalizeSettings } = require("./settings-store.cjs");
-const { migrateLegacySettingsForApp, runLegacyMigration } = require("./legacy-migration.cjs");
+const {
+  completeLegacySettingsMigration,
+  migrateLegacySettingsForApp,
+  runLegacyMigration,
+} = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
 const {
@@ -876,7 +880,8 @@ function registerUpdateIpc() {
 function getSettingsStore() {
   if (!settingsStore) {
     settingsStore = new SettingsStore(app, { recoverMalformed: true });
-    settingsRecoveryRequired = settingsStore.recoveryRequired === true;
+    settingsRecoveryRequired =
+      settingsStore.recoveryRequired === true || legacySettingsMigrationFailed;
   }
 
   return settingsStore;
@@ -1042,7 +1047,11 @@ async function authorizeSettingsRecovery(authorization: any = {}) {
     const status = getSecurityStore().getStatus();
     const directKinds = directCredentialKinds(status);
     if (authorization.kind === "pin" || authorization.kind === "password") {
-      if (directKinds.length !== 1 || directKinds[0] !== authorization.kind) {
+      if (
+        settingsRecoveryRequired
+          ? !directKinds.includes(authorization.kind)
+          : directKinds.length !== 1 || directKinds[0] !== authorization.kind
+      ) {
         return false;
       }
     } else if (directKinds.length > 0) {
@@ -1106,7 +1115,8 @@ function registerSettingsIpc() {
 
     try {
       const store = getSettingsStore();
-      if (!store.recoveryRequired) {
+      const legacySettingsRecoveryRequired = legacySettingsMigrationFailed;
+      if (!store.recoveryRequired && !legacySettingsRecoveryRequired) {
         return settingsUnavailableResult();
       }
 
@@ -1115,6 +1125,10 @@ function registerSettingsIpc() {
       }
 
       const result = store.recoverSettings();
+      if (legacySettingsRecoveryRequired) {
+        completeLegacySettingsMigration(app);
+        legacySettingsMigrationFailed = false;
+      }
       settingsRecoveryRequired = false;
       rendererUnlocked = true;
       try {
@@ -1125,7 +1139,7 @@ function registerSettingsIpc() {
       return {
         ...result,
         persistable: !legacySettingsMigrationFailed,
-        settingsRecoveryRequired: false,
+        settingsRecoveryRequired,
         securityMigrationPending: isSecurityMigrationPending(),
       };
     } catch (error) {

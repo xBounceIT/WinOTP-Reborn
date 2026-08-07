@@ -303,7 +303,7 @@ fn is_well_formed_base32(input: &str) -> bool {
             .all(|character| character == '=')
 }
 
-fn canonicalize_legacy_base32(input: &str) -> Option<String> {
+pub fn canonicalize_legacy_base32(input: &str) -> Option<String> {
     if !is_well_formed_base32(input) {
         return None;
     }
