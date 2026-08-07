@@ -66,3 +66,22 @@ test("does not replace malformed stored settings with defaults", () => {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }
 });
+
+test("recovers malformed stored settings with an explicit safe-default action", () => {
+  const directoryPath = createDirectory();
+  const filePath = path.join(directoryPath, "app-settings.json");
+
+  try {
+    fs.writeFileSync(filePath, "not-json", "utf8");
+    const store = new SettingsStore(undefined, { filePath, recoverMalformed: true });
+    assert.equal(store.recoveryRequired, true);
+    assert.equal(store.getSettings().pinProtection, false);
+
+    const result = store.recoverSettings();
+    assert.equal(result.success, true);
+    assert.equal(store.recoveryRequired, false);
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).version, 1);
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});

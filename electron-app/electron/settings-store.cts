@@ -126,11 +126,21 @@ function writeSettingsAtomically(filePath, settings) {
 class SettingsStore {
   filePath: string;
   settings: any;
+  recoveryRequired: boolean;
 
   constructor(app, options: any = {}) {
     this.filePath = options.filePath ?? getSettingsFilePath(app);
-    this.settings =
-      readStoredSettings(this.filePath, { strict: true }) ?? normalizeSettings(defaultSettings);
+    this.recoveryRequired = false;
+    try {
+      this.settings =
+        readStoredSettings(this.filePath, { strict: true }) ?? normalizeSettings(defaultSettings);
+    } catch (error) {
+      if (options.recoverMalformed !== true) {
+        throw error;
+      }
+      this.settings = normalizeSettings(defaultSettings);
+      this.recoveryRequired = true;
+    }
   }
 
   getSettings() {
@@ -141,6 +151,15 @@ class SettingsStore {
     const nextSettings = normalizeSettings(source);
     writeSettingsAtomically(this.filePath, nextSettings);
     this.settings = nextSettings;
+    this.recoveryRequired = false;
+    return { success: true, settings: this.getSettings() };
+  }
+
+  recoverSettings() {
+    const nextSettings = normalizeSettings(defaultSettings);
+    writeSettingsAtomically(this.filePath, nextSettings);
+    this.settings = nextSettings;
+    this.recoveryRequired = false;
     return { success: true, settings: this.getSettings() };
   }
 }

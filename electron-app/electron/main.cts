@@ -64,6 +64,7 @@ let updateService;
 let settingsStore;
 let legacySettingsMigrationFailed = false;
 let legacyAppLockMigrationPending = false;
+let settingsRecoveryRequired = false;
 let windowsHelloOperationInProgress = false;
 let isQuitting = false;
 const runTotpPreviews = createTotpPreviewRunner(generateTotpPreviews);
@@ -259,9 +260,9 @@ function isRendererUnlocked() {
 }
 
 function isSecurityMigrationPending() {
-  return isSecurityMigrationPendingState(
-    legacySettingsMigrationFailed,
-    legacyAppLockMigrationPending,
+  return (
+    isSecurityMigrationPendingState(legacySettingsMigrationFailed, legacyAppLockMigrationPending) ||
+    settingsRecoveryRequired
   );
 }
 
@@ -704,17 +705,35 @@ function initializeLegacyMigration() {
   legacyAppLockMigrationPending = false;
   try {
     migrateLegacySettingsForApp(app);
+  } catch (error) {
+    legacySettingsMigrationFailed = true;
+    console.error("Failed to migrate the native WinOTP settings.", error);
+  }
+
+  try {
     securityStore = new SecurityStore(app);
+  } catch (error) {
+    securityStore = undefined;
+    legacyAppLockMigrationPending = true;
+    console.error("Failed to initialize Electron secure storage for migration.", error);
+  }
+
+  try {
     backupStore = new BackupStore(app, () => accountStoreLoader.get(), {
       encryption: safeStorage,
       skipAutomaticReconciliation: true,
     });
+  } catch (error) {
+    backupStore = undefined;
+    console.error("Failed to initialize the backup store for migration.", error);
+  }
 
+  try {
     const migration = runLegacyMigration(app, { securityStore, backupStore });
-    legacySettingsMigrationFailed = migration.settings.status === "failed";
-    legacyAppLockMigrationPending = migration.appLock.status === "failed";
+    legacySettingsMigrationFailed ||= migration.settings.status === "failed";
+    legacyAppLockMigrationPending ||= migration.appLock.status === "failed";
     if (migration.backupPassword.status !== "failed") {
-      backupStore.reconcileAutomaticSettings();
+      backupStore?.reconcileAutomaticSettings();
     }
     if (
       migration.appLock.status === "failed" ||
@@ -726,7 +745,7 @@ function initializeLegacyMigration() {
   } catch (error) {
     legacySettingsMigrationFailed = true;
     legacyAppLockMigrationPending = true;
-    console.error("Failed to initialize the native WinOTP migration.", error);
+    console.error("Failed to persist the native WinOTP migration state.", error);
   }
 }
 
@@ -816,7 +835,8 @@ function registerUpdateIpc() {
 
 function getSettingsStore() {
   if (!settingsStore) {
-    settingsStore = new SettingsStore(app);
+    settingsStore = new SettingsStore(app, { recoverMalformed: true });
+    settingsRecoveryRequired = settingsStore.recoveryRequired === true;
   }
 
   return settingsStore;
@@ -915,10 +935,36 @@ function registerSettingsIpc() {
         success: true,
         settings: getSettingsStore().getSettings(),
         persistable: !legacySettingsMigrationFailed,
+        settingsRecoveryRequired: settingsRecoveryRequired,
         securityMigrationPending: isSecurityMigrationPending(),
       };
     } catch (error) {
       console.error("Failed to read Electron settings.", error);
+      return settingsUnavailableResult();
+    }
+  });
+
+  ipcMain.handle("settings:recover", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) {
+      return settingsUnavailableResult();
+    }
+
+    try {
+      const store = getSettingsStore();
+      if (!store.recoveryRequired) {
+        return settingsUnavailableResult();
+      }
+
+      const result = store.recoverSettings();
+      settingsRecoveryRequired = false;
+      return {
+        ...result,
+        persistable: !legacySettingsMigrationFailed,
+        settingsRecoveryRequired: false,
+        securityMigrationPending: isSecurityMigrationPending(),
+      };
+    } catch (error) {
+      console.error("Failed to recover Electron settings.", error);
       return settingsUnavailableResult();
     }
   });

@@ -279,6 +279,7 @@ export type AppSettingsResult =
       settings: AppSettings;
       persistable?: boolean;
       securityMigrationPending?: boolean;
+      settingsRecoveryRequired?: boolean;
     }
   | { success: false; message?: string };
 

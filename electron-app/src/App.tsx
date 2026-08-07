@@ -243,6 +243,7 @@ export default function App() {
   const [settingsSourceAvailable, setSettingsSourceAvailable] = useState(false);
   const [settingsPersistenceReady, setSettingsPersistenceReady] = useState(false);
   const [securityMigrationPending, setSecurityMigrationPending] = useState(false);
+  const [settingsRecoveryRequired, setSettingsRecoveryRequired] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
@@ -469,6 +470,7 @@ export default function App() {
       !securityReady ||
       !settingsLoaded ||
       !settingsSourceAvailable ||
+      settingsRecoveryRequired ||
       startupLockHandled.current
     ) {
       return;
@@ -476,7 +478,7 @@ export default function App() {
 
     startupLockHandled.current = true;
     void requestLock("startup");
-  }, [securityReady, settingsLoaded, settingsSourceAvailable]);
+  }, [securityReady, settingsLoaded, settingsSourceAvailable, settingsRecoveryRequired]);
 
   useEffect(() => {
     if (!securityReady) {
@@ -665,6 +667,7 @@ export default function App() {
       if (!settingsBridge) {
         if (!cancelled) {
           setSettingsSourceAvailable(false);
+          setSettingsRecoveryRequired(false);
           setSettingsLoaded(true);
           setSettingsPersistenceReady(true);
           setSecurityMigrationPending(false);
@@ -677,6 +680,7 @@ export default function App() {
         if (!cancelled) {
           const settingsChanged = settingsHydrationTouchedRef.current;
           setSettingsSourceAvailable(result.success);
+          setSettingsRecoveryRequired(result.success && result.settingsRecoveryRequired === true);
           setSecurityMigrationPending(
             result.success ? result.securityMigrationPending === true : true,
           );
@@ -684,12 +688,16 @@ export default function App() {
             setSettings(result.settings);
           }
           setSettingsPersistenceReady(
-            settingsChanged || (result.success && result.persistable !== false),
+            settingsChanged ||
+              (result.success &&
+                result.persistable !== false &&
+                result.settingsRecoveryRequired !== true),
           );
         }
       } catch {
         if (!cancelled) {
           setSettingsSourceAvailable(false);
+          setSettingsRecoveryRequired(false);
           setSecurityMigrationPending(true);
           setSettingsPersistenceReady(settingsHydrationTouchedRef.current || hasStoredSettings);
         }
@@ -1072,8 +1080,10 @@ export default function App() {
     if (persistedAccounts.length > 0) {
       accountMutationVersion.current += 1;
       setAccounts((current) => mergePersistedAccounts(current, persistedAccounts));
-      setEditingAccount(undefined);
-      setRoute("home");
+      if (routeRef.current === "import") {
+        setEditingAccount(undefined);
+        setRoute("home");
+      }
     }
 
     return { importedCount, failedCount, automaticBackupFailed };
@@ -1171,6 +1181,41 @@ export default function App() {
             ? "Automatic checks are off."
             : current.statusMessage,
       }));
+    }
+  }
+
+  async function recoverSettings() {
+    const settingsBridge = window.winotp?.settings;
+    if (!settingsBridge) {
+      setUnlockError("The settings recovery bridge is unavailable.");
+      return;
+    }
+
+    if (unlockBusyRef.current) {
+      return;
+    }
+
+    unlockBusyRef.current = true;
+    setUnlockBusy(true);
+    try {
+      const result = await settingsBridge.recover();
+      if (!result?.success) {
+        setUnlockError(result?.message ?? "Unable to recover the settings file.");
+        return;
+      }
+
+      setSettings(result.settings);
+      setSettingsSourceAvailable(true);
+      setSettingsRecoveryRequired(false);
+      setSecurityMigrationPending(result.securityMigrationPending === true);
+      setSettingsPersistenceReady(true);
+      setUnlockValue("");
+      setUnlockError("");
+    } catch {
+      setUnlockError("Unable to recover the settings file.");
+    } finally {
+      unlockBusyRef.current = false;
+      setUnlockBusy(false);
     }
   }
 
@@ -2109,9 +2154,25 @@ export default function App() {
             <div className="lock-overlay__panel">
               <LockKeyhole className="lock-overlay__icon" size={54} strokeWidth={1.35} />
               <h1 id="lock-title" className="lock-overlay__title">
-                {protectionReady ? "WinOTP is locked" : "Preparing secure storage…"}
+                {settingsRecoveryRequired
+                  ? "Settings recovery required"
+                  : protectionReady
+                    ? "WinOTP is locked"
+                    : "Preparing secure storage…"}
               </h1>
-              {!protectionReady ? (
+              {settingsRecoveryRequired ? (
+                <>
+                  <p className="lock-overlay__detail">
+                    The settings file could not be read. Restore safe defaults to continue.
+                  </p>
+                  <Button
+                    onClick={() => void recoverSettings()}
+                    disabled={unlockBusy || lockRequestBusy}
+                  >
+                    {unlockBusy ? "Restoring settings…" : "Restore safe defaults"}
+                  </Button>
+                </>
+              ) : !protectionReady ? (
                 <p className="lock-overlay__detail">Checking protection settings…</p>
               ) : activeCredential ? (
                 <>

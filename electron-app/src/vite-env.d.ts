@@ -167,6 +167,7 @@ declare global {
       };
       settings: {
         get: () => Promise<AppSettingsResult>;
+        recover: () => Promise<AppSettingsResult>;
         save: (settings: AppSettings) => Promise<AppSettingsResult>;
       };
       accounts: {
