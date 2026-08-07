@@ -36,7 +36,7 @@ interface HomePageProps {
   onNavigate: (route: Route) => void;
   onSortChange: (sort: SortOption) => void;
   onCustomOrderChange: (orderIds: string[]) => void;
-  onCopy: (account: OtpAccount, code: string) => Promise<boolean>;
+  onCopy: (account: OtpAccount) => Promise<boolean>;
   onEdit: (account: OtpAccount) => void;
   onDelete: (account: OtpAccount) => void;
 }

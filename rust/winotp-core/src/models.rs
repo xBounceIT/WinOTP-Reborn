@@ -170,6 +170,21 @@ pub fn normalize_timestamp_value(value: &str) -> Option<String> {
 }
 
 pub fn normalize_account(source: &Value, fallback_id: Option<&str>) -> Result<OtpAccount, String> {
+    normalize_account_with_options(source, fallback_id, false)
+}
+
+pub fn normalize_account_for_legacy_migration(
+    source: &Value,
+    fallback_id: Option<&str>,
+) -> Result<OtpAccount, String> {
+    normalize_account_with_options(source, fallback_id, true)
+}
+
+fn normalize_account_with_options(
+    source: &Value,
+    fallback_id: Option<&str>,
+    allow_legacy_base32: bool,
+) -> Result<OtpAccount, String> {
     let empty_object = Value::Object(Default::default());
     let source = if source.is_object() {
         source
@@ -197,9 +212,14 @@ pub fn normalize_account(source: &Value, fallback_id: Option<&str>) -> Result<Ot
         .collect::<String>()
         .to_ascii_uppercase();
 
-    if !is_valid_base32(&secret) {
+    let secret = if is_valid_base32(&secret) {
+        secret
+    } else if allow_legacy_base32 {
+        canonicalize_legacy_base32(&secret)
+            .ok_or_else(|| "Secret is missing or not valid Base32.".to_string())?
+    } else {
         return Err("Secret is missing or not valid Base32.".to_string());
-    }
+    };
 
     let digits = if parse_u64(source, "digits") == Some(8) {
         8
@@ -257,11 +277,22 @@ pub fn parse_stored_json(json: &str, credential_id: &str) -> Result<OtpAccount, 
 }
 
 pub fn is_valid_base32(input: &str) -> bool {
+    let unpadded = input.trim().trim_end_matches('=');
+    if !is_well_formed_base32(input) {
+        return false;
+    }
+
+    match unpadded.len() % 8 {
+        1 | 3 | 6 => input.trim().len() - unpadded.len() == 8 - unpadded.len() % 8,
+        _ => true,
+    }
+}
+
+fn is_well_formed_base32(input: &str) -> bool {
     let trimmed = input.trim();
     let unpadded = trimmed.trim_end_matches('=');
     !unpadded.is_empty()
         && unpadded.len() <= MAX_BASE32_SECRET_LENGTH
-        && !matches!(unpadded.len() % 8, 1 | 3 | 6)
         && trimmed.starts_with(unpadded)
         && unpadded.chars().all(|character| {
             character.is_ascii_uppercase() && !"0189".contains(character)
@@ -270,6 +301,16 @@ pub fn is_valid_base32(input: &str) -> bool {
         && trimmed[unpadded.len()..]
             .chars()
             .all(|character| character == '=')
+}
+
+fn canonicalize_legacy_base32(input: &str) -> Option<String> {
+    if !is_well_formed_base32(input) {
+        return None;
+    }
+
+    let unpadded = input.trim().trim_end_matches('=');
+    let padding = (8 - unpadded.len() % 8) % 8;
+    Some(format!("{unpadded}{}", "=".repeat(padding)))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -338,6 +379,21 @@ mod tests {
         assert!(!is_valid_base32("ABC"));
         assert!(!is_valid_base32("ABCDEF"));
         assert!(!is_valid_base32(&"A".repeat(MAX_BASE32_SECRET_LENGTH + 1)));
+    }
+
+    #[test]
+    fn preserves_legacy_base32_bytes_during_migration() {
+        let account = normalize_account_for_legacy_migration(
+            &serde_json::json!({ "secret": "ABCDEF" }),
+            Some("legacy-account"),
+        )
+        .unwrap();
+
+        assert_eq!(account.secret, "ABCDEF==");
+        assert_eq!(
+            crate::otp::decode_base32(&account.secret).unwrap(),
+            [0, 68, 50]
+        );
     }
 
     #[test]

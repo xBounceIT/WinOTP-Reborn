@@ -36,6 +36,8 @@ export interface TotpPreview {
   remainingSeconds: number;
 }
 
+export type TotpCodeResult = { success: true; code: string } | { success: false; message?: string };
+
 export interface ProtectionViewState {
   resolution: {
     mode: string;

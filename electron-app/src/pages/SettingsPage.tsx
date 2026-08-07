@@ -30,6 +30,7 @@ import type {
   BackupImportResult,
   BackupOperationResult,
   SecurityCredentialKind,
+  SecurityOperationResult,
   ProtectionTransitionKind,
   SecurityVerification,
   UpdateOperationResult,
@@ -65,7 +66,10 @@ interface SettingsPageProps {
     enabled: boolean,
   ) => Promise<AppSettings | undefined>;
   onPersistProtectionSettings: (settings: AppSettings) => Promise<boolean>;
-  onSetCredential: (kind: SecurityCredentialKind, secret: string) => Promise<boolean>;
+  onSetCredential: (
+    kind: SecurityCredentialKind,
+    secret: string,
+  ) => Promise<SecurityOperationResult>;
   onVerifyCredential: (
     kind: SecurityCredentialKind,
     secret: string,
@@ -197,17 +201,16 @@ function CredentialDialog({
         <p className="credential-dialog__detail">
           {setup
             ? pin
-              ? `Choose a 4-6 digit ${label} to protect the app.`
-              : "Choose a password of at least 4 characters to protect the app."
+              ? `Choose a ${label} to protect the app.`
+              : "Choose a password to protect the app."
             : `Enter your ${label} to turn off this protection.`}
         </p>
         <Input
           autoFocus
           type="password"
           inputMode={pin ? "numeric" : undefined}
-          maxLength={pin ? 6 : undefined}
           autoComplete={setup ? "new-password" : "current-password"}
-          placeholder={pin ? `Enter ${label} (4-6 digits)` : `Enter ${label}`}
+          placeholder={`Enter ${label}`}
           value={secret}
           onChange={(event) => setSecret(event.target.value)}
           disabled={busy}
@@ -216,7 +219,6 @@ function CredentialDialog({
           <Input
             type="password"
             inputMode={pin ? "numeric" : undefined}
-            maxLength={pin ? 6 : undefined}
             autoComplete="new-password"
             placeholder={`Confirm ${label}`}
             value={confirmation}
@@ -515,23 +517,7 @@ export function SettingsPage({
     }
 
     const { kind, mode } = credentialDialog;
-    const pin = isPinCredential(kind);
-    if (!secret.trim()) {
-      setCredentialDialogError(`${credentialLabel(kind)} is required.`);
-      return;
-    }
-
     if (mode === "setup") {
-      if (pin && !/^\d{4,6}$/.test(secret)) {
-        setCredentialDialogError("PIN must contain 4-6 digits.");
-        return;
-      }
-
-      if (!pin && secret.length < 4) {
-        setCredentialDialogError("Password must be at least 4 characters.");
-        return;
-      }
-
       if (secret !== confirmation) {
         setCredentialDialogError(`${credentialLabel(kind)} entries do not match.`);
         return;
@@ -543,8 +529,8 @@ export function SettingsPage({
     try {
       if (mode === "setup") {
         const saved = await onSetCredential(kind, secret);
-        if (!saved) {
-          setCredentialDialogError("The security credential could not be saved.");
+        if (!saved.success) {
+          setCredentialDialogError(saved.message ?? "The security credential could not be saved.");
           return;
         }
 

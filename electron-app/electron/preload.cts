@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld("winotp", {
     screenCapturePadding: (input) => ipcRenderer.invoke("core:screen-capture-padding", input),
   },
   totp: {
+    code: (id) => ipcRenderer.invoke("totp:code", id),
     previews: (ids, timestamp) => ipcRenderer.invoke("totp:previews", ids, timestamp),
   },
   settings: {

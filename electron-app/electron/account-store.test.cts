@@ -535,6 +535,24 @@ test("records invalid legacy payloads without blocking future database use", () 
   }
 });
 
+test("preserves legacy non-canonical Base32 secrets during migration", () => {
+  const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
+
+  try {
+    const store = createTestStore(directoryPath, () => ({
+      ok: true,
+      entries: [{ id: "legacy-account", payload: makeLegacyPayload({ Secret: "ABCDEF" }) }],
+    }));
+    const result = store.readAccounts();
+    assert.equal(result.migration.status, "completed");
+    assert.equal(result.migration.importedCount, 1);
+    assert.equal(result.accounts[0].secret, "ABCDEF==");
+    store.close();
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
 test("keeps credential migration retryable when a secret could not be retrieved", () => {
   const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
 

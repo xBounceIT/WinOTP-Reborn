@@ -29,6 +29,7 @@ import type {
   WindowsHelloVerificationResult,
   TrayState,
   TotpPreview,
+  TotpCodeResult,
 } from "@/lib/types";
 
 declare global {
@@ -164,6 +165,7 @@ declare global {
         }) => Promise<number>;
       };
       totp: {
+        code: (id: string) => Promise<TotpCodeResult>;
         previews: (ids: string[], timestamp?: number) => Promise<TotpPreview[]>;
       };
       settings: {

@@ -26,7 +26,7 @@ interface AccountCardProps {
   onDragOver: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
   onDrop: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
   onDragEnd: () => void;
-  onCopy: (account: OtpAccount, code: string) => Promise<boolean>;
+  onCopy: (account: OtpAccount) => Promise<boolean>;
   onEdit: (account: OtpAccount) => void;
   onDelete: (account: OtpAccount) => void;
 }
@@ -187,7 +187,7 @@ export function AccountCard({
     if (!isCodeAvailable) {
       return;
     }
-    const succeeded = await onCopy(account, code);
+    const succeeded = await onCopy(account);
     if (!succeeded) {
       return;
     }

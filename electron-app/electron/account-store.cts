@@ -60,11 +60,12 @@ function latestLastUsedAt(current, next) {
   return currentValue >= nextValue ? currentValue : nextValue;
 }
 
-function normalizeAccount(source, fallbackId) {
+function normalizeAccount(source, fallbackId, options: any = {}) {
   try {
     const rustAccount = runRustCore("normalize-account", {
       source,
       fallbackId,
+      legacyMigration: options.legacyMigration === true,
     });
     if (!rustAccount || typeof rustAccount !== "object" || Array.isArray(rustAccount)) {
       throw new Error("The WinOTP Rust core returned invalid account data.");
@@ -356,7 +357,9 @@ class AccountStore {
         }
 
         const normalizedPayload = safeJsonParse(String(entry?.payload ?? ""));
-        const normalized = normalizeAccount(normalizedPayload, entry?.id);
+        const normalized = normalizeAccount(normalizedPayload, entry?.id, {
+          legacyMigration: true,
+        });
         if (!normalized.ok) {
           skippedCount += 1;
           issueCount += 1;

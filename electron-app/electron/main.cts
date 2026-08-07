@@ -1204,6 +1204,28 @@ function createMissingAccount(id) {
 }
 
 function registerTotpIpc() {
+  ipcMain.handle("totp:code", (event, id) => {
+    if (!isTrustedRendererEvent(event, mainWindow) || !isRendererUnlocked()) {
+      return { success: false, message: "The TOTP code is unavailable." };
+    }
+
+    const accountId = String(id ?? "").trim();
+    const account = accountStoreLoader
+      .get()
+      ?.getPreviewAccounts()
+      ?.find((item) => item.id === accountId);
+    if (!account) {
+      return { success: false, message: "The TOTP account is unavailable." };
+    }
+
+    const code = generateTotpCode(account, Date.now());
+    if (!isValidTrayTotpCode(code, account.digits)) {
+      return { success: false, message: "The TOTP code is unavailable." };
+    }
+
+    return { success: true, code };
+  });
+
   ipcMain.handle("totp:previews", async (event, ids, timestamp) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return [];

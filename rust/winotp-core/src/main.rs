@@ -28,7 +28,16 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
     let result = match operation {
         "normalize-account" => {
             let fallback_id = input.get("fallbackId").and_then(Value::as_str);
-            models::normalize_account(input.get("source").unwrap_or(&Value::Null), fallback_id)
+            let legacy_migration = input
+                .get("legacyMigration")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let normalize = if legacy_migration {
+                models::normalize_account_for_legacy_migration
+            } else {
+                models::normalize_account
+            };
+            normalize(input.get("source").unwrap_or(&Value::Null), fallback_id)
                 .map(|account| serde_json::to_value(account).unwrap())
         }
         "normalize-accounts" => {

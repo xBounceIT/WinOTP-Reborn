@@ -17,6 +17,7 @@ import {
   sortAccountsWithCore,
 } from "@/lib/account-order";
 import { mergeLastUsedAt, mergeUsageCount } from "@/lib/account-usage";
+import { isTotpPreviewAvailable } from "@/lib/totp-preview";
 import { loadAccountsUntilCurrent, mergePersistedAccounts } from "@/lib/account-state";
 import {
   autoLockTimeoutMs,
@@ -54,6 +55,7 @@ import type {
   Route,
   SecurityCredentialKind,
   SecurityCredentialStatus,
+  SecurityOperationResult,
   SecurityVerification,
   UpdateOperationResult,
   UpdateState,
@@ -1107,7 +1109,24 @@ export default function App() {
     return { importedCount, failedCount, automaticBackupFailed };
   }
 
-  async function copyCode(account: OtpAccount, code: string): Promise<boolean> {
+  async function copyCode(account: OtpAccount): Promise<boolean> {
+    let code: string;
+    try {
+      const result = await window.winotp?.totp.code(account.id);
+      if (!result?.success) {
+        showToast(result?.message ?? "The TOTP code is unavailable");
+        return false;
+      }
+      if (!isTotpPreviewAvailable(result.code, account.digits)) {
+        showToast("The TOTP code is unavailable");
+        return false;
+      }
+      code = result.code;
+    } catch {
+      showToast("The TOTP code is unavailable");
+      return false;
+    }
+
     try {
       await navigator.clipboard.writeText(code);
     } catch {
@@ -1524,20 +1543,27 @@ export default function App() {
     }
   }
 
-  async function setSecurityCredential(kind: SecurityCredentialKind, secret: string) {
+  async function setSecurityCredential(
+    kind: SecurityCredentialKind,
+    secret: string,
+  ): Promise<SecurityOperationResult> {
     try {
       const result = await window.winotp?.security.setCredential(kind, secret);
       if (!result?.success) {
-        showToast(result?.message ?? "The security credential could not be saved.");
-        return false;
+        return {
+          success: false,
+          message: result?.message ?? "The security credential could not be saved.",
+        };
       }
 
       setSecurityStorageAvailable(true);
       setSecurityStatus((current) => ({ ...current, [securityStatusKey(kind)]: true }));
-      return true;
+      return result;
     } catch {
-      showToast("The security credential could not be saved.");
-      return false;
+      return {
+        success: false,
+        message: "The security credential could not be saved.",
+      };
     }
   }
 
