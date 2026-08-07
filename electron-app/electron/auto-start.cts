@@ -67,11 +67,12 @@ function getLinuxAutostartPath(app, options: any = {}) {
 }
 
 function getLinuxAutostartEntry(app, options: any = {}, enabled = true) {
+  const isPackaged = options.isPackaged ?? app.isPackaged;
   return createLinuxAutostartEntry({
     enabled,
-    isPackaged: options.isPackaged ?? app.isPackaged,
+    isPackaged,
     appPath: options.appPath,
-    execPath: options.execPath ?? process.execPath,
+    execPath: options.execPath ?? (isPackaged ? process.env.APPIMAGE : process.execPath),
   });
 }
 

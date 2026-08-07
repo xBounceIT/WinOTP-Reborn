@@ -82,9 +82,7 @@ function isStartedHidden() {
 
 function getAutoStartOptions() {
   const execPath =
-    process.platform === "linux" && app.isPackaged
-      ? process.env.APPIMAGE || app.getPath("exe") || process.execPath
-      : process.execPath;
+    process.platform === "linux" && app.isPackaged ? process.env.APPIMAGE : process.execPath;
   return {
     appPath: app.isPackaged ? undefined : app.getAppPath(),
     isPackaged: app.isPackaged,

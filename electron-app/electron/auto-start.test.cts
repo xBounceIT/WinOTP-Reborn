@@ -208,3 +208,32 @@ test("stores packaged Linux auto-start in the XDG autostart directory", () => {
     fs.rmSync(appDataPath, { recursive: true, force: true });
   }
 });
+
+test("uses the current AppImage path for packaged Linux auto-start", () => {
+  const appDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-appimage-autostart-"));
+  const previousAppImage = process.env.APPIMAGE;
+  process.env.APPIMAGE = "/opt/WinOTP.AppImage";
+  const app = {
+    isPackaged: true,
+    getPath(name) {
+      assert.equal(name, "appData");
+      return appDataPath;
+    },
+  };
+
+  try {
+    assert.deepEqual(setAutoStart(app, true, { platform: "linux" }), {
+      success: true,
+      enabled: true,
+    });
+    const filePath = path.join(appDataPath, "autostart", "WinOTP_Reborn.desktop");
+    assert.match(fs.readFileSync(filePath, "utf8"), /^Exec="\/opt\/WinOTP\.AppImage" "--hidden"$/m);
+  } finally {
+    if (previousAppImage === undefined) {
+      delete process.env.APPIMAGE;
+    } else {
+      process.env.APPIMAGE = previousAppImage;
+    }
+    fs.rmSync(appDataPath, { recursive: true, force: true });
+  }
+});

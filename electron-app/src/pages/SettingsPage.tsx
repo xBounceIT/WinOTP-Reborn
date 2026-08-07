@@ -416,11 +416,6 @@ export function SettingsPage({
       return;
     }
 
-    if (password.length < 8 || !password.trim()) {
-      setPasswordError("Backup password must be at least 8 characters.");
-      return;
-    }
-
     if (passwordDialog !== "import" && password !== passwordConfirmation) {
       setPasswordError("The passwords do not match.");
       return;
@@ -1005,7 +1000,6 @@ export function SettingsPage({
               <Input
                 autoFocus
                 type="password"
-                minLength={8}
                 placeholder="Backup password"
                 value={password}
                 disabled={Boolean(busyAction)}
@@ -1014,7 +1008,6 @@ export function SettingsPage({
               {passwordDialog !== "import" && (
                 <Input
                   type="password"
-                  minLength={8}
                   placeholder="Confirm password"
                   value={passwordConfirmation}
                   disabled={Boolean(busyAction)}
