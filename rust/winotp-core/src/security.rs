@@ -594,6 +594,27 @@ mod tests {
     }
 
     #[test]
+    fn preserves_windows_hello_during_remote_session_without_fallback() {
+        let state = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: true,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::RemoteSession,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+
+        assert!(state.windows_hello_enabled);
+        assert_eq!(state.resolution.mode, AppLockMode::None);
+        assert!(state.resolution.has_windows_hello_remote_session);
+        assert!(!state.resolution.disable_unavailable_windows_hello);
+    }
+
+    #[test]
     fn protection_transitions_apply_mode_exclusivity_in_core() {
         let state = apply_protection_transition(ProtectionTransitionInputs {
             pin_enabled: false,

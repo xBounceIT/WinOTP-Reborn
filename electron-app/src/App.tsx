@@ -1847,6 +1847,40 @@ export default function App() {
     showToast("Windows Hello was unavailable and has been disabled.");
   }
 
+  async function bypassRemoteWindowsHelloTemporarily(
+    settingsAtStart: AppSettings,
+    securityStatusAtStart: SecurityCredentialStatus,
+    sessionVersionAtStart: number,
+  ) {
+    const state = await resolveProtectionViewState(settingsAtStart, securityStatusAtStart);
+    if (
+      sessionChangeVersion.current !== sessionVersionAtStart ||
+      settingsRef.current !== settingsAtStart ||
+      securityStatusRef.current !== securityStatusAtStart
+    ) {
+      setUnlockValue("");
+      setUnlockError("The app was locked because your session changed.");
+      return false;
+    }
+
+    if (
+      !state ||
+      !state.windowsHelloEnabled ||
+      state.resolution.mode !== "None" ||
+      !state.resolution.hasWindowsHelloRemoteSession
+    ) {
+      setUnlockError(windowsHelloVerificationMessage("remote-session"));
+      return false;
+    }
+
+    setAppLocked(false);
+    setRemoteFallbackActive(false);
+    setUnlockValue("");
+    setUnlockError("");
+    showToast("Windows Hello protection will resume when you return to a local session.");
+    return true;
+  }
+
   function stopAutoLockTimer() {
     autoLockMonitoring.current = false;
     if (autoLockTimer.current !== undefined) {
@@ -2140,11 +2174,17 @@ export default function App() {
     setUnlockBusy(true);
     setUnlockError("");
     const sessionChangeVersionAtStart = sessionChangeVersion.current;
+    const settingsAtStart = settingsRef.current;
+    const securityStatusAtStart = securityStatusRef.current;
     try {
       const verification = await requestWindowsHelloVerification();
-      if (sessionChangeVersion.current !== sessionChangeVersionAtStart) {
+      if (
+        sessionChangeVersion.current !== sessionChangeVersionAtStart ||
+        settingsRef.current !== settingsAtStart ||
+        securityStatusRef.current !== securityStatusAtStart
+      ) {
         setUnlockValue("");
-        setUnlockError("The app was locked because your session changed.");
+        setUnlockError("Security settings or session changed; try unlocking again.");
         return;
       }
 
@@ -2163,13 +2203,13 @@ export default function App() {
       }
 
       if (verification.status === "remote-session") {
-        const remoteKind = remoteCredentialKind(settings);
-        if (remoteKind && !securityStorageAvailable) {
+        const remoteKind = remoteCredentialKind(settingsAtStart);
+        if (remoteKind && !securityStorageAvailableRef.current) {
           setUnlockError("Secure storage is unavailable; the fallback cannot be verified.");
           return;
         }
 
-        if (remoteKind && securityStatus[securityStatusKey(remoteKind)]) {
+        if (remoteKind && securityStatusAtStart[securityStatusKey(remoteKind)]) {
           setRemoteFallbackActive(true);
           setUnlockValue("");
           setUnlockError(
@@ -2180,7 +2220,11 @@ export default function App() {
           return;
         }
 
-        await disableUnavailableWindowsHello();
+        await bypassRemoteWindowsHelloTemporarily(
+          settingsAtStart,
+          securityStatusAtStart,
+          sessionChangeVersionAtStart,
+        );
         return;
       }
 
