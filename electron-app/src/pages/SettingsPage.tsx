@@ -138,6 +138,10 @@ function settingsForCredentialSetup(settings: AppSettings, kind: SecurityCredent
   return nextSettings;
 }
 
+function settingsForCredentialDisable(settings: AppSettings, kind: SecurityCredentialKind) {
+  return { ...settings, [settingForCredential(kind)]: false };
+}
+
 function settingsForWindowsHello(settings: AppSettings, enabled: boolean) {
   return {
     ...settings,
@@ -580,7 +584,13 @@ export function SettingsPage({
         }
 
         if (!verification.available) {
-          onChange(settingForCredential(kind), false);
+          if (!(await onPersistProtectionSettings(settingsForCredentialDisable(settings, kind)))) {
+            setCredentialDialogError(
+              "Protection settings could not be saved; protection remains enabled.",
+            );
+            return;
+          }
+
           setCredentialDialog(undefined);
           setCredentialDialogError("");
           onToast(
@@ -594,13 +604,24 @@ export function SettingsPage({
           return;
         }
 
-        const removed = await onRemoveCredential(kind);
-        if (!removed) {
-          setCredentialDialogError("The security credential could not be removed.");
+        const disabledSettings = settingsForCredentialDisable(settings, kind);
+        if (!(await onPersistProtectionSettings(disabledSettings))) {
+          setCredentialDialogError(
+            "Protection settings could not be saved; protection remains enabled.",
+          );
           return;
         }
 
-        onChange(settingForCredential(kind), false);
+        const removed = await onRemoveCredential(kind);
+        if (!removed) {
+          const restored = await onPersistProtectionSettings(settings);
+          setCredentialDialogError(
+            restored
+              ? "The security credential could not be removed; protection remains enabled."
+              : "The security credential could not be removed or restore protection settings.",
+          );
+          return;
+        }
       }
 
       setCredentialDialog(undefined);

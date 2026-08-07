@@ -58,6 +58,7 @@ let sessionChangeWatcher;
 let rendererUnlocked = false;
 let screenCaptureRequest;
 let screenCaptureInProgress = false;
+let screenCaptureCancellationVersion = 0;
 let securityStore;
 let updateService;
 let settingsStore;
@@ -267,6 +268,7 @@ function clearRendererUnlockState() {
 
 function notifyRendererOfSessionChange(reason) {
   clearRendererUnlockState();
+  cancelActiveScreenCapture();
 
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return;
@@ -518,6 +520,25 @@ function settleScreenCapture(result) {
   screenCaptureRequest.resolve(normalizeScreenCaptureResult(result));
 }
 
+function closeScreenCaptureWindows(windows) {
+  windows.forEach((captureWindow) => {
+    if (!captureWindow.isDestroyed()) {
+      captureWindow.close();
+    }
+  });
+}
+
+function cancelActiveScreenCapture() {
+  screenCaptureCancellationVersion += 1;
+  const request = screenCaptureRequest;
+  if (!request || request.settled) {
+    return;
+  }
+
+  settleScreenCapture({ status: "cancelled" });
+  closeScreenCaptureWindows(request.windows);
+}
+
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -533,6 +554,7 @@ async function captureScreen(event) {
   }
 
   const ownerWindow = mainWindow;
+  const cancellationVersion = screenCaptureCancellationVersion;
   let captureWindows = [];
   let resultPromise;
   let captureRequest;
@@ -542,9 +564,16 @@ async function captureScreen(event) {
   try {
     ownerWindow.hide();
     await wait(180);
+    if (cancellationVersion !== screenCaptureCancellationVersion || !isRendererUnlocked()) {
+      return { status: "failed" };
+    }
 
     const capture = await captureDisplays();
-    if (!capture) {
+    if (
+      !capture ||
+      cancellationVersion !== screenCaptureCancellationVersion ||
+      !isRendererUnlocked()
+    ) {
       return { status: "failed" };
     }
 
@@ -616,11 +645,7 @@ async function captureScreen(event) {
         screenCaptureRequest = undefined;
       }
 
-      captureWindows.forEach((captureWindow) => {
-        if (!captureWindow.isDestroyed()) {
-          captureWindow.close();
-        }
-      });
+      closeScreenCaptureWindows(captureWindows);
 
       if (!ownerWindow.isDestroyed()) {
         ownerWindow.show();
@@ -1387,6 +1412,9 @@ function registerBackupIpc() {
       });
       if (pickerResult.canceled || pickerResult.filePaths.length === 0) {
         return withBackupStatus(service, { success: false, cancelled: true });
+      }
+      if (!isRendererUnlocked()) {
+        return lockedBackupResult();
       }
 
       return withBackupStatus(
