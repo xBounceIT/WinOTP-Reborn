@@ -1,6 +1,10 @@
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 const MAX_PASSWORD_LENGTH: usize = 128;
+const CREDENTIAL_COMPARISON_KEY: &[u8] = b"WinOTP-Reborn credential comparison";
+type CredentialHmac = Hmac<Sha256>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CredentialStatus {
@@ -419,6 +423,18 @@ pub fn validate_credential(kind: &str, secret: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn verify_credential(stored: &str, candidate: &str) -> bool {
+    let mut stored_mac = CredentialHmac::new_from_slice(CREDENTIAL_COMPARISON_KEY)
+        .expect("the credential comparison key is valid");
+    stored_mac.update(stored.as_bytes());
+    let expected = stored_mac.finalize().into_bytes();
+
+    let mut candidate_mac = CredentialHmac::new_from_slice(CREDENTIAL_COMPARISON_KEY)
+        .expect("the credential comparison key is valid");
+    candidate_mac.update(candidate.as_bytes());
+    candidate_mac.verify_slice(&expected).is_ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProtectionInputs {
     pub pin_enabled: bool,
@@ -577,5 +593,13 @@ mod tests {
         assert!(!state.windows_hello_enabled);
         assert!(!state.remote_pin_enabled);
         assert!(!state.remote_password_enabled);
+    }
+
+    #[test]
+    fn verifies_credentials_in_the_core() {
+        assert!(verify_credential("1234", "1234"));
+        assert!(!verify_credential("1234", "4321"));
+        assert!(!verify_credential("1234", "12345"));
+        assert!(verify_credential("pässword", "pässword"));
     }
 }

@@ -79,14 +79,6 @@ function validateSecret(kind, secret) {
   runRustCore("validate-security-credential", { kind, secret });
 }
 
-function secretsEqual(left, right) {
-  const leftBuffer = Buffer.from(left, "utf8");
-  const rightBuffer = Buffer.from(right, "utf8");
-  return (
-    leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer)
-  );
-}
-
 class SecurityStore {
   encryption: any;
   filePath: string;
@@ -197,8 +189,21 @@ class SecurityStore {
       return { verified: false, credentialAvailable: false };
     }
 
+    const verification = runRustCore("verify-security-credential", {
+      storedSecret,
+      candidateSecret: secret,
+    });
+    if (
+      !verification ||
+      typeof verification !== "object" ||
+      Array.isArray(verification) ||
+      typeof verification.verified !== "boolean"
+    ) {
+      throw new Error("The WinOTP Rust core returned invalid credential verification data.");
+    }
+
     return {
-      verified: secretsEqual(storedSecret, secret),
+      verified: verification.verified,
       credentialAvailable: true,
     };
   }

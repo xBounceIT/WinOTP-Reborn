@@ -125,8 +125,16 @@ pub fn encrypt_payload(
     })
 }
 
-fn decode_exact(value: &str, expected_length: usize) -> Result<Vec<u8>, BackupError> {
+fn decode_base64(value: &str) -> Result<Vec<u8>, BackupError> {
     let decoded = BASE64.decode(value).map_err(|_| BackupError::Corrupt)?;
+    if BASE64.encode(&decoded) != value {
+        return Err(BackupError::Corrupt);
+    }
+    Ok(decoded)
+}
+
+fn decode_exact(value: &str, expected_length: usize) -> Result<Vec<u8>, BackupError> {
+    let decoded = decode_base64(value)?;
     if decoded.len() != expected_length {
         return Err(BackupError::Corrupt);
     }
@@ -142,6 +150,7 @@ pub fn decrypt_payload(
     }
     if envelope.format != BACKUP_FORMAT
         || envelope.version != BACKUP_VERSION
+        || envelope.created_at_utc.trim().is_empty()
         || envelope.encryption.scheme != BACKUP_SCHEME
         || envelope.encryption.iterations != PBKDF2_ITERATIONS
         || envelope.ciphertext.is_empty()
@@ -152,9 +161,7 @@ pub fn decrypt_payload(
     let salt = decode_exact(&envelope.encryption.salt, SALT_SIZE_BYTES)?;
     let nonce = decode_exact(&envelope.encryption.nonce, NONCE_SIZE_BYTES)?;
     let tag = decode_exact(&envelope.encryption.tag, TAG_SIZE_BYTES)?;
-    let ciphertext = BASE64
-        .decode(&envelope.ciphertext)
-        .map_err(|_| BackupError::Corrupt)?;
+    let ciphertext = decode_base64(&envelope.ciphertext)?;
     if ciphertext.is_empty() {
         return Err(BackupError::Corrupt);
     }
@@ -213,6 +220,23 @@ mod tests {
         assert!(matches!(
             decrypt_payload(&envelope, "backup-pass-1"),
             Err(BackupError::UnsupportedFormat)
+        ));
+    }
+
+    #[test]
+    fn validates_envelope_metadata_and_canonical_base64_in_the_core() {
+        let mut envelope = encrypt_payload(Vec::new(), "backup-pass-1", None).unwrap();
+        envelope.created_at_utc = "  ".to_string();
+        assert!(matches!(
+            decrypt_payload(&envelope, "backup-pass-1"),
+            Err(BackupError::UnsupportedFormat)
+        ));
+
+        let mut envelope = encrypt_payload(Vec::new(), "backup-pass-1", None).unwrap();
+        envelope.encryption.salt = "A".repeat(24);
+        assert!(matches!(
+            decrypt_payload(&envelope, "backup-pass-1"),
+            Err(BackupError::Corrupt)
         ));
     }
 }

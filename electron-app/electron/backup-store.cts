@@ -13,16 +13,14 @@ const MAX_BACKUP_FILE_SIZE_BYTES = 32 * 1024 * 1024;
 const RUST_CORE_MAX_BUFFER_BYTES = MAX_BACKUP_FILE_SIZE_BYTES * 2;
 const MAX_BACKUP_ACCOUNT_COUNT = 1_000;
 const MINIMUM_PASSWORD_LENGTH = 8;
-const SALT_SIZE_BYTES = 16;
-const NONCE_SIZE_BYTES = 12;
-const TAG_SIZE_BYTES = 16;
-const PBKDF2_ITERATIONS = 150000;
-const BACKUP_SCHEME = "PBKDF2-SHA256-AES-256-GCM";
 const PASSWORD_FILE_NAME = ".backup-password";
 const SETTINGS_FILE_NAME = "backup-settings.json";
 const DEFAULT_BACKUP_FOLDER_NAME = "Backups";
-
-class BackupFormatError extends Error {}
+const BACKUP_FORMAT_ERROR_MESSAGES = new Set([
+  "The backup file format is not supported.",
+  "The backup file is corrupted.",
+  "The backup file payload is invalid.",
+]);
 
 class BackupPasswordUnavailableError extends Error {
   constructor() {
@@ -175,26 +173,6 @@ function encodeDateForFileName(date) {
     .replace(/\.\d{3}Z$/, "Z");
 }
 
-function decodeBase64(value, expectedLength, label) {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length % 4 !== 0 ||
-    !/^[A-Za-z0-9+/]+={0,2}$/.test(value)
-  ) {
-    throw new BackupFormatError(`${label} is not valid Base64.`);
-  }
-
-  const decoded = Buffer.from(value, "base64");
-  if (
-    decoded.toString("base64") !== value ||
-    (expectedLength !== undefined && decoded.length !== expectedLength)
-  ) {
-    throw new BackupFormatError(`${label} has an invalid length.`);
-  }
-  return decoded;
-}
-
 function encryptPayload(payload, password) {
   const rustEnvelope = runRustCore(
     "backup-encrypt",
@@ -211,36 +189,7 @@ function encryptPayload(payload, password) {
   return rustEnvelope;
 }
 
-function decodeEnvelope(envelope) {
-  if (!envelope || typeof envelope !== "object") {
-    throw new BackupFormatError("The backup file format is not supported.");
-  }
-
-  if (
-    envelope.format !== "winotp-backup" ||
-    envelope.version !== 1 ||
-    typeof envelope.createdAtUtc !== "string" ||
-    !Number.isSafeInteger(envelope.accountCount) ||
-    envelope.accountCount < 0 ||
-    !envelope.encryption ||
-    envelope.encryption.scheme !== BACKUP_SCHEME ||
-    envelope.encryption.iterations !== PBKDF2_ITERATIONS ||
-    typeof envelope.ciphertext !== "string" ||
-    envelope.ciphertext.length === 0
-  ) {
-    throw new BackupFormatError("The backup file format is not supported.");
-  }
-
-  return {
-    salt: decodeBase64(envelope.encryption.salt, SALT_SIZE_BYTES, "Backup salt"),
-    nonce: decodeBase64(envelope.encryption.nonce, NONCE_SIZE_BYTES, "Backup nonce"),
-    tag: decodeBase64(envelope.encryption.tag, TAG_SIZE_BYTES, "Backup authentication tag"),
-    ciphertext: decodeBase64(envelope.ciphertext, undefined, "Backup ciphertext"),
-  };
-}
-
 function decryptPayload(envelope, password) {
-  decodeEnvelope(envelope);
   const rustPayload = runRustCore(
     "backup-decrypt",
     { envelope, password },
@@ -250,6 +199,10 @@ function decryptPayload(envelope, password) {
     throw new Error("The WinOTP Rust core returned invalid backup payload data.");
   }
   return rustPayload;
+}
+
+function isBackupFormatError(error) {
+  return error instanceof Error && BACKUP_FORMAT_ERROR_MESSAGES.has(error.message);
 }
 
 class BackupStore {
@@ -894,7 +847,7 @@ class BackupStore {
     try {
       payload = decryptPayload(envelope, password);
     } catch (error) {
-      if (error instanceof BackupFormatError) {
+      if (isBackupFormatError(error)) {
         return failure("InvalidFormat", "The backup file is corrupted or not supported.");
       }
       return failure("DecryptionFailed", "Backup password is incorrect or the file is corrupted.");
@@ -959,14 +912,11 @@ module.exports = {
   BACKUP_EXTENSION,
   BACKUP_HISTORY_LIMIT,
   BackupStore,
-  BackupFormatError,
   BackupPasswordUnavailableError,
   MAX_BACKUP_FILE_SIZE_BYTES,
   MAX_BACKUP_ACCOUNT_COUNT,
   MINIMUM_PASSWORD_LENGTH,
-  PBKDF2_ITERATIONS,
   RUST_CORE_MAX_BUFFER_BYTES,
-  decodeEnvelope,
   decryptPayload,
   encryptPayload,
   getUniquePath,

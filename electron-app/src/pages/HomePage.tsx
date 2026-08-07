@@ -8,7 +8,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import { AccountCard } from "@/components/AccountCard";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,8 @@ export function HomePage({
   const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [visibleAccounts, setVisibleAccounts] = useState<OtpAccount[]>(accounts);
+  const [orderProjectionPending, setOrderProjectionPending] = useState(false);
+  const orderProjectionPendingRef = useRef(false);
   const isCustomOrder = sort === "CustomOrder";
   const canReorder = isCustomOrder && search.trim().length === 0;
 
@@ -94,8 +96,49 @@ export function HomePage({
     };
   }, [customOrderIds, filteredAccounts, sort]);
 
+  function reorderVisibleAccounts(current: OtpAccount[], orderIds: readonly string[]) {
+    const accountById = new Map(current.map((account) => [account.id, account]));
+    const seen = new Set<string>();
+    const ordered = [];
+    for (const id of orderIds) {
+      const account = accountById.get(id);
+      if (account && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(account);
+      }
+    }
+    for (const account of current) {
+      if (!seen.has(account.id)) {
+        seen.add(account.id);
+        ordered.push(account);
+      }
+    }
+    return ordered;
+  }
+
+  async function projectCustomOrder(
+    orderIds: readonly string[],
+    draggedId: string,
+    insertionIndex: number,
+  ) {
+    if (!canReorder || orderProjectionPendingRef.current) {
+      return;
+    }
+
+    orderProjectionPendingRef.current = true;
+    setOrderProjectionPending(true);
+    try {
+      const nextOrderIds = await projectOrderWithCore(orderIds, draggedId, insertionIndex);
+      setVisibleAccounts((current) => reorderVisibleAccounts(current, nextOrderIds));
+      onCustomOrderChange(nextOrderIds);
+    } finally {
+      orderProjectionPendingRef.current = false;
+      setOrderProjectionPending(false);
+    }
+  }
+
   async function moveAccount(accountId: string, direction: -1 | 1) {
-    if (!canReorder) {
+    if (!canReorder || orderProjectionPendingRef.current) {
       return;
     }
 
@@ -107,16 +150,15 @@ export function HomePage({
 
     const targetIndex = visibleAccounts.findIndex((account) => account.id === target.id);
     const insertionIndex = targetIndex + (direction > 0 ? 1 : 0);
-    const nextOrderIds = await projectOrderWithCore(
+    await projectCustomOrder(
       visibleAccounts.map((account) => account.id),
       accountId,
       insertionIndex,
     );
-    onCustomOrderChange(nextOrderIds);
   }
 
   function handleDragStart(accountId: string) {
-    if (!canReorder) {
+    if (!canReorder || orderProjectionPendingRef.current) {
       return;
     }
 
@@ -124,7 +166,12 @@ export function HomePage({
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>, accountId: string) {
-    if (!canReorder || !draggedAccountId || draggedAccountId === accountId) {
+    if (
+      !canReorder ||
+      orderProjectionPendingRef.current ||
+      !draggedAccountId ||
+      draggedAccountId === accountId
+    ) {
       return;
     }
 
@@ -134,7 +181,7 @@ export function HomePage({
   }
 
   async function handleDrop(event: DragEvent<HTMLDivElement>, accountId: string) {
-    if (!canReorder) {
+    if (!canReorder || orderProjectionPendingRef.current) {
       return;
     }
 
@@ -149,12 +196,11 @@ export function HomePage({
     const bounds = event.currentTarget.getBoundingClientRect();
     const placeAfter = event.clientY >= bounds.top + bounds.height / 2;
     const targetIndex = visibleAccounts.findIndex((account) => account.id === accountId);
-    const nextOrderIds = await projectOrderWithCore(
+    await projectCustomOrder(
       visibleAccounts.map((account) => account.id),
       draggedId,
       targetIndex + (placeAfter ? 1 : 0),
     );
-    onCustomOrderChange(nextOrderIds);
     setDraggedAccountId(null);
     setDropTargetId(null);
   }
@@ -271,9 +317,11 @@ export function HomePage({
                     remaining={timing.remaining}
                     progress={timing.progress}
                     showNextCode={showNextCode}
-                    reorderable={canReorder}
-                    canMoveUp={canReorder && index > 0}
-                    canMoveDown={canReorder && index < visibleAccounts.length - 1}
+                    reorderable={canReorder && !orderProjectionPending}
+                    canMoveUp={canReorder && !orderProjectionPending && index > 0}
+                    canMoveDown={
+                      canReorder && !orderProjectionPending && index < visibleAccounts.length - 1
+                    }
                     isDragging={draggedAccountId === account.id}
                     isDropTarget={dropTargetId === account.id}
                     onMoveUp={() => moveAccount(account.id, -1)}

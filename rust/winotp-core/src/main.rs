@@ -251,7 +251,7 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
             let envelope = serde_json::from_value::<backup::BackupEnvelope>(
                 input.get("envelope").cloned().unwrap_or(Value::Null),
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|_| backup::BackupError::UnsupportedFormat.to_string())?;
             let password = input
                 .get("password")
                 .and_then(Value::as_str)
@@ -298,6 +298,19 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             security::validate_credential(kind, secret).map(|()| json!({}))
+        }
+        "verify-security-credential" => {
+            let stored = input
+                .get("storedSecret")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let candidate = input
+                .get("candidateSecret")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Ok(json!({
+                "verified": security::verify_credential(stored, candidate),
+            }))
         }
         "order-drop-index" => {
             let bounds = serde_json::from_value::<Vec<ordering::ItemBounds>>(
