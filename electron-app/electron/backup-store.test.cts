@@ -51,17 +51,21 @@ function createAccountStore(initialAccounts = []) {
   };
 }
 
-function createBackupStore(directoryPath, accountStore) {
+function createBackupStore(directoryPath, accountStore, encryption = createTestEncryption()) {
   return new BackupStore({ getPath: () => directoryPath }, () => accountStore, {
     directoryPath,
-    encryption: createTestEncryption(),
+    encryption,
   });
 }
 
-function createDeferredBackupStore(directoryPath, accountStore) {
+function createDeferredBackupStore(
+  directoryPath,
+  accountStore,
+  encryption = createTestEncryption(),
+) {
   return new BackupStore({ getPath: () => directoryPath }, () => accountStore, {
     directoryPath,
-    encryption: createTestEncryption(),
+    encryption,
     skipAutomaticReconciliation: true,
   });
 }
@@ -368,6 +372,32 @@ test("repairs persisted automatic settings when the password is missing", () => 
         .automaticEnabled,
       false,
     );
+  } finally {
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("does not treat an undecryptable stored password as missing", () => {
+  const directoryPath = createTemporaryDirectory();
+  const settingsPath = path.join(directoryPath, "backup-settings.json");
+  const passwordPath = path.join(directoryPath, ".backup-password");
+  const encryption = {
+    ...createTestEncryption(),
+    decryptString: () => {
+      throw new Error("corrupted password");
+    },
+  };
+
+  try {
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({ automaticEnabled: true, customFolderPath: "" }),
+    );
+    fs.writeFileSync(passwordPath, "corrupted");
+    const store = createDeferredBackupStore(directoryPath, createAccountStore(), encryption);
+
+    assert.throws(() => store.getStatus(), /stored backup password is unavailable/i);
+    assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).automaticEnabled, true);
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

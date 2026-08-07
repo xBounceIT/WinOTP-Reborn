@@ -24,6 +24,13 @@ const DEFAULT_BACKUP_FOLDER_NAME = "Backups";
 
 class BackupFormatError extends Error {}
 
+class BackupPasswordUnavailableError extends Error {
+  constructor() {
+    super("Stored backup password is unavailable.");
+    this.name = "BackupPasswordUnavailableError";
+  }
+}
+
 function failure(errorCode, message, extra: Record<string, unknown> = {}) {
   return {
     success: false,
@@ -376,19 +383,33 @@ class BackupStore {
   }
 
   getStoredPassword() {
-    if (!this.encryption || typeof this.encryption.isEncryptionAvailable !== "function") {
+    let passwordFileExists;
+    try {
+      passwordFileExists = fs.existsSync(this.passwordPath);
+    } catch {
+      throw new BackupPasswordUnavailableError();
+    }
+
+    if (!passwordFileExists) {
       return undefined;
     }
 
+    if (!this.encryption || typeof this.encryption.isEncryptionAvailable !== "function") {
+      throw new BackupPasswordUnavailableError();
+    }
+
     try {
-      if (!isSecureStorageAvailable(this.encryption) || !fs.existsSync(this.passwordPath)) {
-        return undefined;
+      if (!isSecureStorageAvailable(this.encryption)) {
+        throw new BackupPasswordUnavailableError();
       }
 
       const password = this.encryption.decryptString(fs.readFileSync(this.passwordPath));
       return isValidPassword(password) ? password : undefined;
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (error instanceof BackupPasswordUnavailableError) {
+        throw error;
+      }
+      throw new BackupPasswordUnavailableError();
     }
   }
 
@@ -939,6 +960,7 @@ module.exports = {
   BACKUP_HISTORY_LIMIT,
   BackupStore,
   BackupFormatError,
+  BackupPasswordUnavailableError,
   MAX_BACKUP_FILE_SIZE_BYTES,
   MAX_BACKUP_ACCOUNT_COUNT,
   MINIMUM_PASSWORD_LENGTH,

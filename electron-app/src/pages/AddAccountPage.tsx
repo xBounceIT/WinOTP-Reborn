@@ -8,7 +8,7 @@ import type { OtpAccount, Route } from "@/lib/types";
 interface AddAccountPageProps {
   onNavigate: (route: Route) => void;
   onToast: (message: string) => void;
-  onAccountDetected: (account: OtpAccount) => void;
+  onAccountDetected: (account: OtpAccount) => Promise<void>;
 }
 
 function loadImage(file: File): Promise<{ image: HTMLImageElement; objectUrl: string }> {
@@ -89,7 +89,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
         return;
       }
 
-      onAccountDetected(account);
+      await onAccountDetected(account);
     } catch {
       if (isMounted.current) {
         onToast("Failed to scan the selected image.");
@@ -132,7 +132,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
         return;
       }
 
-      onAccountDetected(account);
+      await onAccountDetected(account);
     } catch {
       if (isMounted.current) {
         onToast("Failed to capture the screen.");
