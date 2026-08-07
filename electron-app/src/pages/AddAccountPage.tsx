@@ -215,6 +215,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
             type="button"
             variant="outline"
             className="choice-card"
+            disabled={isImporting || isCapturing}
             onClick={() => onNavigate("manual")}
           >
             <span className="choice-card__icon">
@@ -230,6 +231,7 @@ export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAc
             type="button"
             variant="outline"
             className="choice-card"
+            disabled={isImporting || isCapturing}
             onClick={() => onNavigate("import")}
           >
             <span className="choice-card__icon">

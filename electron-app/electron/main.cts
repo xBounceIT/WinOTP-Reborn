@@ -14,7 +14,7 @@ const {
 } = require("electron");
 const path = require("node:path");
 const { createDisplayCapturePlan, getThumbnailSize } = require("./screen-capture.cjs");
-const { AccountStore, sanitizeAccount } = require("./account-store.cjs");
+const { AccountStore, normalizeAccounts, sanitizeAccount } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 const { saveAccountBatch } = require("./account-batch-save.cjs");
 const { BackupStore } = require("./backup-store.cjs");
@@ -1281,9 +1281,46 @@ function registerAccountIpc() {
     }
 
     const boundedAccounts = Array.isArray(accounts) ? accounts.slice(0, 1_000) : [];
-    return saveAccountBatch(boundedAccounts, {
-      saveAccount: (account) => {
-        const result = store.saveAccount(boundedAccountInput(account));
+    const normalizationResults = Array.from({ length: boundedAccounts.length });
+    const normalizationEntries = [];
+    const normalizationIndexes = [];
+
+    for (const [index, account] of boundedAccounts.entries()) {
+      try {
+        const bounded = boundedAccountInput(account);
+        normalizationEntries.push({ source: bounded, fallbackId: bounded.id });
+        normalizationIndexes.push(index);
+      } catch (error) {
+        normalizationResults[index] = {
+          ok: false,
+          error: error instanceof Error ? error.message : "Account data is invalid.",
+        };
+      }
+    }
+
+    if (normalizationEntries.length > 0) {
+      try {
+        const normalized = normalizeAccounts(normalizationEntries);
+        for (const [offset, result] of normalized.entries()) {
+          normalizationResults[normalizationIndexes[offset]] = result;
+        }
+      } catch (error) {
+        console.error("Failed to normalize imported accounts through the Rust core.", error);
+        for (const index of normalizationIndexes) {
+          normalizationResults[index] = {
+            ok: false,
+            error: "Unable to normalize the account.",
+          };
+        }
+      }
+    }
+
+    return saveAccountBatch(normalizationResults, {
+      saveAccount: (normalized) => {
+        if (!normalized?.ok) {
+          return { success: false, message: normalized?.error ?? "Account data is invalid." };
+        }
+        const result = store.saveNormalizedAccount(normalized.account);
         return result?.account ? { ...result, account: sanitizeAccount(result.account) } : result;
       },
       createAutomaticBackup: () => getBackupStore().createAutomaticBackup(),

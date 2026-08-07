@@ -692,14 +692,8 @@ class AccountStore {
     return this.previewAccountsCache;
   }
 
-  saveAccount(source) {
+  saveNormalizedAccount(account) {
     this.ensureOpen();
-    const normalized = normalizeAccount(source, source?.id);
-    if (!normalized.ok) {
-      return { success: false, message: normalized.error };
-    }
-
-    const account = normalized.account;
     const ciphertext = this.encryptSecret(account.secret);
     this.database
       .prepare(`
@@ -736,6 +730,16 @@ class AccountStore {
     this.previewAccountsCache = undefined;
 
     return { success: true, account };
+  }
+
+  saveAccount(source) {
+    this.ensureOpen();
+    const normalized = normalizeAccount(source, source?.id);
+    if (!normalized.ok) {
+      return { success: false, message: normalized.error };
+    }
+
+    return this.saveNormalizedAccount(normalized.account);
   }
 
   deleteAccount(id) {

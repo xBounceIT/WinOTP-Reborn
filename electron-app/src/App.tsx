@@ -247,6 +247,7 @@ export default function App() {
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
   const accountMutationVersion = useRef(0);
+  const routeRef = useRef(route);
   const settingsRef = useRef(settings);
   const lockedRef = useRef(locked);
   const securityReadyRef = useRef(securityReady);
@@ -272,6 +273,7 @@ export default function App() {
   const backupMutationVersion = useRef(0);
   const autoStartMutationVersion = useRef(0);
   const updateSettingsVersion = useRef(0);
+  routeRef.current = route;
   settingsRef.current = settings;
   lockedRef.current = locked;
   securityReadyRef.current = securityReady;
@@ -1024,8 +1026,10 @@ export default function App() {
       accountMutationVersion.current += 1;
       const wasEditing = Boolean(editingAccount);
       setAccounts((current) => mergePersistedAccounts(current, [persistedAccount]));
-      setEditingAccount(undefined);
-      setRoute("home");
+      if (routeRef.current === "add" || routeRef.current === "manual") {
+        setEditingAccount(undefined);
+        setRoute("home");
+      }
       const operationLabel = wasEditing ? "Account updated" : "Account added";
       showToast(
         result.automaticBackup?.success === false
@@ -1793,7 +1797,6 @@ export default function App() {
           securityStatusRef.current !== securityStatusAtStart
         ) {
           showManualLockError("Security settings changed; try locking again.", reason);
-          releaseFailedLock();
           return false;
         }
 
@@ -1803,7 +1806,6 @@ export default function App() {
             setRemoteFallbackActive(true);
           } else {
             showManualLockError(windowsHelloAvailabilityMessage(availability), reason);
-            releaseFailedLock();
             return false;
           }
         } else if (availability === "unavailable") {
@@ -1811,7 +1813,6 @@ export default function App() {
           return false;
         } else if (availability === "error") {
           showManualLockError(windowsHelloAvailabilityMessage(availability), reason);
-          releaseFailedLock();
           return false;
         } else {
           setRemoteFallbackActive(false);
