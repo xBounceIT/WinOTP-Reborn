@@ -904,7 +904,11 @@ export function SettingsPage({
                   onChange("updateChannel", value as AppSettings["updateChannel"])
                 }
               >
-                <SelectTrigger id="update-channel" className="settings-select">
+                <SelectTrigger
+                  id="update-channel"
+                  className="settings-select"
+                  disabled={updateState.isBusy || Boolean(busyAction)}
+                >
                   <SelectValue placeholder="Select update channel" />
                 </SelectTrigger>
                 <SelectContent>

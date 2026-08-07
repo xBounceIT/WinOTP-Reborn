@@ -289,6 +289,7 @@ export default function App() {
   const toastTimer = useRef<number | undefined>(undefined);
   const settingsSaveQueueRef = useRef(Promise.resolve(true));
   const settingsPersistenceVersionRef = useRef(0);
+  const suppressedSettingsPersistenceRef = useRef<AppSettings | undefined>(undefined);
   const autoLockTimer = useRef<number | undefined>(undefined);
   const autoLockMonitoring = useRef(false);
   const lastActivityAt = useRef(Date.now());
@@ -748,6 +749,12 @@ export default function App() {
       return;
     }
 
+    if (suppressedSettingsPersistenceRef.current === settings) {
+      suppressedSettingsPersistenceRef.current = undefined;
+      return;
+    }
+    suppressedSettingsPersistenceRef.current = undefined;
+
     const persistenceVersion = ++settingsPersistenceVersionRef.current;
     let cancelled = false;
 
@@ -774,6 +781,7 @@ export default function App() {
             return;
           }
           if (result.success) {
+            suppressedSettingsPersistenceRef.current = result.settings;
             setSettings(result.settings);
             setSettingsSourceAvailable(true);
             setSettingsRecoveryRequired(result.settingsRecoveryRequired === true);
@@ -1256,6 +1264,13 @@ export default function App() {
       setUpdateState((current) => ({
         ...current,
         selectedChannel: value as AppSettings["updateChannel"],
+        status: "idle",
+        isUpdateAvailable: false,
+        availableUpdate: undefined,
+        downloadedInstallerPath: undefined,
+        isDownloadedAssetDigestVerified: false,
+        lastError: undefined,
+        statusMessage: "Ready to check for updates.",
       }));
     }
     if (key === "updateOnStartup") {
@@ -1335,16 +1350,35 @@ export default function App() {
       return unavailableUpdateResult();
     }
 
+    const requestVersion = updateSettingsVersion.current;
+    const requestedChannel = settings.updateChannel;
+    setUpdateState((current) => ({
+      ...current,
+      status: "checking",
+      isBusy: true,
+      statusMessage: "Checking for updates…",
+      lastError: undefined,
+    }));
+
     try {
-      const result = await updateBridge.check(settings.updateChannel, settings.updateOnStartup);
-      if (result?.state) {
+      const result = await updateBridge.check(requestedChannel, settings.updateOnStartup);
+      if (
+        result?.state &&
+        requestVersion === updateSettingsVersion.current &&
+        settingsRef.current.updateChannel === requestedChannel
+      ) {
         setUpdateState(result.state);
       }
       return result;
     } catch (error) {
-      return unavailableUpdateResult(
-        error instanceof Error ? error.message : "Unable to check for updates.",
-      );
+      const message = error instanceof Error ? error.message : "Unable to check for updates.";
+      if (
+        requestVersion !== updateSettingsVersion.current ||
+        settingsRef.current.updateChannel !== requestedChannel
+      ) {
+        return { success: false, state: updateState, message };
+      }
+      return unavailableUpdateResult(message);
     }
   }
 
@@ -1353,6 +1387,13 @@ export default function App() {
     if (!updateBridge) {
       return unavailableUpdateResult();
     }
+
+    setUpdateState((current) => ({
+      ...current,
+      isBusy: true,
+      statusMessage: "Starting update…",
+      lastError: undefined,
+    }));
 
     try {
       const result = await updateBridge.install();
