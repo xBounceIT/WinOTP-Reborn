@@ -24,7 +24,7 @@ const {
   defaultUpdateState,
   shouldQuitAfterUpdateInstall,
 } = require("./update-service.cjs");
-const { SettingsStore, getDefaultSettings, normalizeSettings } = require("./settings-store.cjs");
+const { SettingsStore, normalizeSettings } = require("./settings-store.cjs");
 const { migrateLegacySettingsForApp, runLegacyMigration } = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
@@ -35,7 +35,7 @@ const {
   generateTotpPreviews,
 } = require("./totp.cjs");
 const { getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
-const { runRustCoreAsync } = require("./rust-core.cjs");
+const { runRustCore, runRustCoreAsync } = require("./rust-core.cjs");
 const { startSessionChangeWatcher } = require("./session-monitor.cjs");
 const {
   isAllowedRendererUrl,
@@ -733,6 +733,18 @@ function initializeLegacyMigration() {
     const migration = runLegacyMigration(app, { securityStore, backupStore });
     legacySettingsMigrationFailed ||= migration.settings.status === "failed";
     legacyAppLockMigrationPending ||= migration.appLock.status === "failed";
+    if (
+      migration.settings.status === "completed" &&
+      migration.settings.importedCount > 0 &&
+      migration.appLock.importedCount > 0
+    ) {
+      try {
+        clearInactiveSecurityCredentialsSync(getSettingsStore().getSettings());
+      } catch (error) {
+        legacyAppLockMigrationPending = true;
+        console.error("Failed to reconcile migrated security credentials.", error);
+      }
+    }
     if (migration.backupPassword.status !== "failed") {
       backupStore?.reconcileAutomaticSettings();
     }
@@ -910,18 +922,34 @@ function directCredentialKinds(status) {
   );
 }
 
-async function clearInactiveSecurityCredentials(settings) {
-  const result = await runRustCoreAsync("credential-kinds-to-clear", {
+function credentialCleanupInput(settings) {
+  return {
     pinEnabled: settings.pinProtection === true,
     passwordEnabled: settings.passwordProtection === true,
     windowsHelloEnabled: settings.windowsHello === true,
     remotePinEnabled: settings.remotePin === true,
     remotePasswordEnabled: settings.remotePassword === true,
-  });
+  };
+}
+
+function removeInactiveSecurityCredentials(result) {
   if (!Array.isArray(result) || result.some((kind) => typeof kind !== "string")) {
     throw new Error("The Rust core returned invalid credential cleanup data.");
   }
-  getSecurityStore().removeCredentials(result);
+  return getSecurityStore().removeCredentials(result);
+}
+
+async function clearInactiveSecurityCredentials(settings) {
+  const result = await runRustCoreAsync(
+    "credential-kinds-to-clear",
+    credentialCleanupInput(settings),
+  );
+  return removeInactiveSecurityCredentials(result);
+}
+
+function clearInactiveSecurityCredentialsSync(settings) {
+  const result = runRustCore("credential-kinds-to-clear", credentialCleanupInput(settings));
+  return removeInactiveSecurityCredentials(result);
 }
 
 async function isRemoteWindowsHelloSession() {
@@ -1059,10 +1087,14 @@ function registerSettingsIpc() {
         return lockedSettingsResult();
       }
 
-      await clearInactiveSecurityCredentials(getDefaultSettings());
       const result = store.recoverSettings();
       settingsRecoveryRequired = false;
       rendererUnlocked = true;
+      try {
+        await clearInactiveSecurityCredentials(result.settings);
+      } catch (error) {
+        console.error("Failed to clear inactive credentials after settings recovery.", error);
+      }
       return {
         ...result,
         persistable: !legacySettingsMigrationFailed,
@@ -1101,11 +1133,17 @@ function registerSettingsIpc() {
         }
       }
 
-      if (!hasSameProtectionSettings(currentSettings, nextSettings)) {
-        await clearInactiveSecurityCredentials(nextSettings);
+      const protectionSettingsChanged = !hasSameProtectionSettings(currentSettings, nextSettings);
+      const result = store.saveSettings(nextSettings);
+      if (protectionSettingsChanged) {
+        try {
+          await clearInactiveSecurityCredentials(nextSettings);
+        } catch (error) {
+          console.error("Failed to clear inactive credentials after settings save.", error);
+        }
       }
 
-      return store.saveSettings(nextSettings);
+      return result;
     } catch (error) {
       console.error("Failed to save Electron settings.", error);
       return settingsUnavailableResult();
