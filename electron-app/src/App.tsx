@@ -2122,7 +2122,6 @@ export default function App() {
                     autoFocus
                     type="password"
                     inputMode={isPinCredential(activeCredential) ? "numeric" : undefined}
-                    maxLength={isPinCredential(activeCredential) ? 6 : undefined}
                     placeholder={`Enter ${credentialLabel(activeCredential)}`}
                     value={unlockValue}
                     onChange={(event) => setUnlockValue(event.target.value)}
