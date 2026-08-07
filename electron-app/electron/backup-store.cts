@@ -12,7 +12,6 @@ const BACKUP_HISTORY_LIMIT = 20;
 const MAX_BACKUP_FILE_SIZE_BYTES = 32 * 1024 * 1024;
 const RUST_CORE_MAX_BUFFER_BYTES = MAX_BACKUP_FILE_SIZE_BYTES * 2;
 const MAX_BACKUP_ACCOUNT_COUNT = 1_000;
-const MINIMUM_PASSWORD_LENGTH = 8;
 const PASSWORD_FILE_NAME = ".backup-password";
 const SETTINGS_FILE_NAME = "backup-settings.json";
 const DEFAULT_BACKUP_FOLDER_NAME = "Backups";
@@ -38,12 +37,20 @@ function failure(errorCode, message, extra: Record<string, unknown> = {}) {
   };
 }
 
+function validateBackupPassword(password) {
+  try {
+    runRustCore("validate-backup-password", { password });
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Backup password is invalid.",
+    };
+  }
+}
+
 function isValidPassword(password) {
-  return (
-    typeof password === "string" &&
-    password.trim().length > 0 &&
-    password.length >= MINIMUM_PASSWORD_LENGTH
-  );
+  return validateBackupPassword(password).success;
 }
 
 function normalizeCustomFolderPath(value) {
@@ -392,11 +399,9 @@ class BackupStore {
   }
 
   setStoredPassword(password) {
-    if (!isValidPassword(password)) {
-      return failure(
-        "ValidationFailed",
-        `Backup password must be at least ${MINIMUM_PASSWORD_LENGTH} characters.`,
-      );
+    const passwordValidation = validateBackupPassword(password);
+    if (!passwordValidation.success) {
+      return failure("ValidationFailed", passwordValidation.message);
     }
 
     try {
@@ -465,11 +470,9 @@ class BackupStore {
   }
 
   async enableAutomaticCore(password, customFolderPath) {
-    if (!isValidPassword(password)) {
-      return failure(
-        "ValidationFailed",
-        `Backup password must be at least ${MINIMUM_PASSWORD_LENGTH} characters.`,
-      );
+    const passwordValidation = validateBackupPassword(password);
+    if (!passwordValidation.success) {
+      return failure("ValidationFailed", passwordValidation.message);
     }
 
     const nextCustomFolderPath =
@@ -718,15 +721,15 @@ class BackupStore {
 
     const hasPasswordOverride =
       typeof passwordOverride === "string" && passwordOverride.trim().length > 0;
-    if (hasPasswordOverride && !isValidPassword(passwordOverride)) {
-      return failure(
-        "ValidationFailed",
-        `Backup password must be at least ${MINIMUM_PASSWORD_LENGTH} characters.`,
-      );
+    if (hasPasswordOverride) {
+      const passwordValidation = validateBackupPassword(passwordOverride);
+      if (!passwordValidation.success) {
+        return failure("ValidationFailed", passwordValidation.message);
+      }
     }
 
     const password = hasPasswordOverride ? passwordOverride : this.getStoredPassword();
-    if (!isValidPassword(password)) {
+    if (!password) {
       return failure("PasswordUnavailable", "A backup password is required to export a backup.");
     }
 
@@ -805,11 +808,9 @@ class BackupStore {
     if (!targetPath) {
       return failure("ValidationFailed", "Backup file path is required.");
     }
-    if (!isValidPassword(password)) {
-      return failure(
-        "ValidationFailed",
-        `Backup password must be at least ${MINIMUM_PASSWORD_LENGTH} characters.`,
-      );
+    const passwordValidation = validateBackupPassword(password);
+    if (!passwordValidation.success) {
+      return failure("ValidationFailed", passwordValidation.message);
     }
 
     let fileStats;
@@ -936,7 +937,6 @@ module.exports = {
   BackupPasswordUnavailableError,
   MAX_BACKUP_FILE_SIZE_BYTES,
   MAX_BACKUP_ACCOUNT_COUNT,
-  MINIMUM_PASSWORD_LENGTH,
   RUST_CORE_MAX_BUFFER_BYTES,
   decryptPayload,
   encryptPayload,

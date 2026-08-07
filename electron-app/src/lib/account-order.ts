@@ -13,28 +13,6 @@ export function isSortOption(value: unknown): value is SortOption {
   return typeof value === "string" && sortOptions.includes(value as SortOption);
 }
 
-export function normalizeCustomOrderIds(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const id of value) {
-    if (typeof id !== "string") {
-      continue;
-    }
-
-    const normalized = id.trim();
-    if (normalized && !seen.has(normalized)) {
-      seen.add(normalized);
-      ids.push(normalized);
-    }
-  }
-
-  return ids;
-}
-
 function bridgeAccounts(accounts: readonly OtpAccount[]) {
   return accounts.map((account) => ({ ...account, secret: "" }));
 }
@@ -85,7 +63,7 @@ export async function sortAccountsWithCore(
     const result = await bridge.sortAccounts({
       accounts: bridgeAccounts(accounts),
       sortOption: sort,
-      customOrderIds: normalizeCustomOrderIds(customOrderIds),
+      customOrderIds: [...customOrderIds],
     });
     return accountsFromCoreResult(accounts, result) ?? [...accounts];
   } catch {
@@ -97,20 +75,20 @@ export async function pruneCustomOrderIdsWithCore(
   savedOrderIds: readonly string[],
   accounts: readonly OtpAccount[],
 ): Promise<string[]> {
-  const normalizedOrderIds = normalizeCustomOrderIds(savedOrderIds);
+  const current = [...savedOrderIds];
   const bridge = window.winotp?.core;
   if (!bridge) {
-    return normalizedOrderIds;
+    return current;
   }
 
   try {
     const result = await bridge.pruneCustomOrderIds({
       accounts: bridgeAccounts(accounts),
-      orderIds: normalizedOrderIds,
+      orderIds: current,
     });
-    return Array.isArray(result) ? normalizeCustomOrderIds(result) : normalizedOrderIds;
+    return Array.isArray(result) ? result : current;
   } catch {
-    return normalizedOrderIds;
+    return current;
   }
 }
 
@@ -131,7 +109,7 @@ export async function projectOrderWithCore(
       draggedId,
       insertionIndex,
     });
-    return Array.isArray(result) ? normalizeCustomOrderIds(result) : current;
+    return Array.isArray(result) ? result : current;
   } catch {
     return current;
   }

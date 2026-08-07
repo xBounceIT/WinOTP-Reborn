@@ -195,6 +195,13 @@ mod tests {
     use crate::models::OtpAccount;
 
     #[test]
+    fn validates_passwords_with_the_portable_policy() {
+        assert!(!is_valid_backup_password("short"));
+        assert!(!is_valid_backup_password("        "));
+        assert!(is_valid_backup_password("backup-pass-1"));
+    }
+
+    #[test]
     fn encrypts_and_decrypts_the_legacy_compatible_envelope() {
         let account = OtpAccount {
             id: "account-1".to_string(),

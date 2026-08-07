@@ -271,6 +271,17 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                 })
                 .map_err(|error| error.to_string())
         }
+        "validate-backup-password" => {
+            let password = input
+                .get("password")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if backup::is_valid_backup_password(password) {
+                Ok(json!({}))
+            } else {
+                Err(backup::BackupError::InvalidPassword.to_string())
+            }
+        }
         "normalize-settings" => serde_json::to_value(settings::normalize_settings(input))
             .map_err(|error| error.to_string()),
         "sort-accounts" => {

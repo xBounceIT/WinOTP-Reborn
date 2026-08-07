@@ -120,6 +120,9 @@ function isDevelopment() {
 
 function restoreMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
+    if (app.isReady()) {
+      createWindow();
+    }
     return;
   }
 
@@ -2099,11 +2102,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    restoreMainWindow();
-  } else {
-    createWindow();
-  }
+  restoreMainWindow();
 });
 
 app.on("before-quit", () => {

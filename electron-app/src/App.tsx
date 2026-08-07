@@ -12,7 +12,6 @@ import { ManualEntryPage } from "@/pages/ManualEntryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import {
   isSortOption,
-  normalizeCustomOrderIds,
   pruneCustomOrderIdsWithCore,
   sortAccountsWithCore,
 } from "@/lib/account-order";
@@ -142,7 +141,9 @@ function readAppSettings(): AppSettings {
     accountSortOption: isSortOption(savedSettings.accountSortOption)
       ? savedSettings.accountSortOption
       : defaultSettings.accountSortOption,
-    accountCustomOrderIds: normalizeCustomOrderIds(savedSettings.accountCustomOrderIds),
+    accountCustomOrderIds: Array.isArray(savedSettings.accountCustomOrderIds)
+      ? savedSettings.accountCustomOrderIds.filter((id): id is string => typeof id === "string")
+      : [],
     autoLock: normalizeAutoLockSetting(savedSettings.autoLock, defaultSettings.autoLock),
     minimizeOnClose:
       savedSettings.minimizeOnClose === true && savedSettings.minimizeToTray !== true,
@@ -989,11 +990,8 @@ export default function App() {
     issues: readonly { code: string }[] = [],
   ) {
     const pruneVersion = ++customOrderPruneVersion.current;
-    const savedOrderIds = normalizeCustomOrderIds(settingsRef.current.accountCustomOrderIds);
+    const savedOrderIds = [...settingsRef.current.accountCustomOrderIds];
     if (issues.length > 0) {
-      if (savedOrderIds.length !== settingsRef.current.accountCustomOrderIds.length) {
-        setSettings((current) => ({ ...current, accountCustomOrderIds: savedOrderIds }));
-      }
       return;
     }
 

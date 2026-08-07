@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import {
   isSortOption,
-  normalizeCustomOrderIds,
   projectOrderWithCore,
   pruneCustomOrderIdsWithCore,
   sortAccountsWithCore,
@@ -83,11 +82,22 @@ test("delegates persisted order projection and pruning to Rust", async () => {
   ]);
 });
 
-test("normalizes settings order ids before crossing the bridge", () => {
-  assert.deepEqual(normalizeCustomOrderIds([" acct-2 ", "", "acct-1", "acct-2", 4]), [
-    "acct-2",
-    "acct-1",
-  ]);
+test("passes custom-order ids to Rust without applying a second policy", async () => {
+  let receivedOrderIds: readonly string[] | undefined;
+  (globalThis as any).window = {
+    winotp: {
+      core: {
+        sortAccounts: async ({ customOrderIds }: any) => {
+          receivedOrderIds = customOrderIds;
+          return accounts;
+        },
+      },
+    },
+  };
+
+  await sortAccountsWithCore(accounts, "CustomOrder", [" acct-2 ", "", "acct-2"]);
+
+  assert.deepEqual(receivedOrderIds, [" acct-2 ", "", "acct-2"]);
   assert.equal(isSortOption("CustomOrder"), true);
   assert.equal(isSortOption("Unknown"), false);
 });
