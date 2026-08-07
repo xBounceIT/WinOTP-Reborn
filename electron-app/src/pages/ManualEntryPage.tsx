@@ -97,6 +97,7 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
           variant="ghost"
           size="sm"
           className="back-link"
+          disabled={saving}
           onClick={() => onNavigate(account ? "home" : "add")}
         >
           <ArrowLeft size={14} />

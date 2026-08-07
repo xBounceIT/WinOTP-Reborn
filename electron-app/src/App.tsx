@@ -288,6 +288,7 @@ export default function App() {
   const lockOverlayRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
   const settingsSaveQueueRef = useRef(Promise.resolve(true));
+  const settingsPersistenceVersionRef = useRef(0);
   const autoLockTimer = useRef<number | undefined>(undefined);
   const autoLockMonitoring = useRef(false);
   const lastActivityAt = useRef(Date.now());
@@ -747,6 +748,9 @@ export default function App() {
       return;
     }
 
+    const persistenceVersion = ++settingsPersistenceVersionRef.current;
+    let cancelled = false;
+
     try {
       window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
     } catch {
@@ -755,8 +759,54 @@ export default function App() {
 
     const settingsBridge = window.winotp?.settings;
     if (settingsBridge) {
-      void persistSettingsValue(settings);
+      void persistSettingsValue(settings).then(async (persisted) => {
+        if (
+          persisted ||
+          cancelled ||
+          persistenceVersion !== settingsPersistenceVersionRef.current
+        ) {
+          return;
+        }
+
+        try {
+          const result = await settingsBridge.get();
+          if (cancelled || persistenceVersion !== settingsPersistenceVersionRef.current) {
+            return;
+          }
+          if (result.success) {
+            setSettings(result.settings);
+            setSettingsSourceAvailable(true);
+            setSettingsRecoveryRequired(result.settingsRecoveryRequired === true);
+            setSecurityMigrationPending(result.securityMigrationPending === true);
+            setSettingsPersistenceReady(
+              result.persistable !== false && result.settingsRecoveryRequired !== true,
+            );
+            try {
+              window.localStorage.setItem(settingsStorageKey, JSON.stringify(result.settings));
+            } catch {
+              // Keep the main-process copy authoritative when localStorage is unavailable.
+            }
+            showToast("Settings could not be saved; the previous values were restored.");
+            return;
+          }
+        } catch {
+          // Fall through to the unavailable-source message below.
+        }
+
+        try {
+          window.localStorage.removeItem(settingsStorageKey);
+        } catch {
+          // Keep the main-process copy authoritative when localStorage is unavailable.
+        }
+        setSettingsSourceAvailable(false);
+        setSettingsPersistenceReady(false);
+        showToast("Settings could not be saved; the previous values could not be restored.");
+      });
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [settings, settingsLoaded, settingsPersistenceReady, settingsSourceAvailable]);
 
   useEffect(() => {
