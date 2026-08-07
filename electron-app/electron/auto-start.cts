@@ -75,6 +75,10 @@ function getLinuxAutostartEntry(app, options: any = {}, enabled = true) {
   });
 }
 
+function isWindowsLoginItemEnabled(loginItem) {
+  return Boolean(loginItem?.executableWillLaunchAtLogin ?? loginItem?.openAtLogin);
+}
+
 function writeFileAtomically(filePath, contents) {
   const temporaryPath = path.join(
     path.dirname(filePath),
@@ -162,12 +166,23 @@ function getAutoStartStatus(app, options: any = {}) {
         : undefined;
 
     const loginItem = app.getLoginItemSettings(settingsOptions);
+    if (
+      platform === "win32" &&
+      loginItem.executableWillLaunchAtLogin === true &&
+      loginItem.openAtLogin !== true
+    ) {
+      app.setLoginItemSettings(loginItemSettings);
+      const canonicalLoginItem = app.getLoginItemSettings(settingsOptions);
+      return {
+        success: true,
+        enabled: isWindowsLoginItemEnabled(canonicalLoginItem),
+      };
+    }
+
     return {
       success: true,
       enabled: Boolean(
-        platform === "win32"
-          ? (loginItem.executableWillLaunchAtLogin ?? loginItem.openAtLogin)
-          : loginItem.openAtLogin,
+        platform === "win32" ? isWindowsLoginItemEnabled(loginItem) : loginItem.openAtLogin,
       ),
     };
   } catch {

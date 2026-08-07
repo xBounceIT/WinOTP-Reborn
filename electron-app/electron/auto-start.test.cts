@@ -102,12 +102,19 @@ test("updates and verifies the operating system auto-start state", () => {
 });
 
 test("recognizes the argument-less v1 Windows login item", () => {
+  let canonicalSettings;
   const app = {
+    isPackaged: true,
+    setLoginItemSettings(settings) {
+      canonicalSettings = settings;
+    },
     getLoginItemSettings() {
-      return {
-        openAtLogin: false,
-        executableWillLaunchAtLogin: true,
-      };
+      return (
+        canonicalSettings ?? {
+          openAtLogin: false,
+          executableWillLaunchAtLogin: true,
+        }
+      );
     },
   };
 
@@ -118,6 +125,12 @@ test("recognizes the argument-less v1 Windows login item", () => {
     }),
     { success: true, enabled: true },
   );
+  assert.deepEqual(canonicalSettings, {
+    openAtLogin: true,
+    path: "C:\\WinOTP_Reborn\\WinOTP.exe",
+    args: ["--hidden"],
+    name: "WinOTP_Reborn",
+  });
 });
 
 test("reports a Windows login item disabled by the operating system as disabled", () => {

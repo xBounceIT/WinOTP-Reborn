@@ -344,8 +344,9 @@ export default function App() {
     }
 
     const nextSettings = applyProtectionState(settingsValue, state);
-    setSettings((current) => (current === settingsValue ? nextSettings : current));
-    markSettingsChanged();
+    if (!(await persistProtectionSettings(nextSettings))) {
+      return false;
+    }
     return !hasConfiguredProtection(nextSettings);
   }
 
@@ -492,6 +493,10 @@ export default function App() {
   }, [securityReady]);
 
   useEffect(() => {
+    if (!settingsLoaded || !settingsSourceAvailable) {
+      return;
+    }
+
     let cancelled = false;
     const statusVersion = autoStartMutationVersion.current;
 
@@ -517,7 +522,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [settingsLoaded, settingsSourceAvailable]);
 
   useEffect(() => {
     if (!settingsLoaded || !settingsSourceAvailable) {
