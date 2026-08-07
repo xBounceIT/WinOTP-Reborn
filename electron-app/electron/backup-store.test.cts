@@ -27,7 +27,7 @@ function createAccountStore(initialAccounts = []) {
     readAccounts() {
       return { accounts: [...accounts.values()].map((account) => ({ ...account })), issues: [] };
     },
-    saveAccount(source) {
+    saveNormalizedAccount(source) {
       if (
         !source ||
         typeof source !== "object" ||
@@ -46,6 +46,15 @@ function createAccountStore(initialAccounts = []) {
       };
       accounts.set(account.id, account);
       return { success: true, account: { ...account } };
+    },
+    saveAccount(source) {
+      return this.saveNormalizedAccount({
+        usageCount: 0,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        ...source,
+      });
     },
   };
 }

@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isSecureStorageAvailable } = require("./safe-storage.cjs");
 
-const { getAppDataDirectory } = require("./account-store.cjs");
+const { getAppDataDirectory, normalizeAccounts } = require("./account-store.cjs");
 const { runRustCore } = require("./rust-core.cjs");
 
 const BACKUP_EXTENSION = ".wotpbackup";
@@ -872,13 +872,34 @@ class BackupStore {
       return failure("VaultAccessFailed", "Unable to read existing accounts.");
     }
 
+    let normalizedAccounts;
+    try {
+      normalizedAccounts = normalizeAccounts(
+        payload.accounts.map((source) => ({ source, fallbackId: source?.id })),
+      );
+    } catch {
+      return {
+        success: true,
+        importedCount: 0,
+        replacedCount: 0,
+        skippedCount: 0,
+        failedCount: payload.accounts.length,
+        message: "Import completed.",
+      };
+    }
+
     let importedCount = 0;
     let replacedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;
-    for (const source of payload.accounts) {
+    for (const normalized of normalizedAccounts) {
+      if (!normalized?.ok) {
+        skippedCount += 1;
+        continue;
+      }
+
       try {
-        const saveResult = store.saveAccount(source);
+        const saveResult = store.saveNormalizedAccount(normalized.account);
         if (!saveResult.success) {
           skippedCount += 1;
           continue;
