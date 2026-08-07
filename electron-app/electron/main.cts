@@ -24,7 +24,7 @@ const {
   defaultUpdateState,
   shouldQuitAfterUpdateInstall,
 } = require("./update-service.cjs");
-const { SettingsStore, normalizeSettings } = require("./settings-store.cjs");
+const { SettingsStore, getDefaultSettings, normalizeSettings } = require("./settings-store.cjs");
 const { migrateLegacySettingsForApp, runLegacyMigration } = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
@@ -904,6 +904,26 @@ function hasSameProtectionSettings(left, right) {
 const settingsRecoveryCredentialKinds = new Set(["pin", "password", "remotePin", "remotePassword"]);
 const remoteSettingsRecoveryCredentialKinds = new Set(["remotePin", "remotePassword"]);
 
+function directCredentialKinds(status) {
+  return [status.pinSet ? "pin" : undefined, status.passwordSet ? "password" : undefined].filter(
+    Boolean,
+  );
+}
+
+async function clearInactiveSecurityCredentials(settings) {
+  const result = await runRustCoreAsync("credential-kinds-to-clear", {
+    pinEnabled: settings.pinProtection === true,
+    passwordEnabled: settings.passwordProtection === true,
+    windowsHelloEnabled: settings.windowsHello === true,
+    remotePinEnabled: settings.remotePin === true,
+    remotePasswordEnabled: settings.remotePassword === true,
+  });
+  if (!Array.isArray(result) || result.some((kind) => typeof kind !== "string")) {
+    throw new Error("The Rust core returned invalid credential cleanup data.");
+  }
+  getSecurityStore().removeCredentials(result);
+}
+
 async function isRemoteWindowsHelloSession() {
   try {
     const availability = await getWindowsHelloAvailability();
@@ -925,7 +945,16 @@ async function authorizeSettingsRecovery(authorization: any = {}) {
 
     try {
       const status = getSecurityStore().getStatus();
-      if (Object.values(status).some((value) => value === true)) {
+      if (directCredentialKinds(status).length > 0) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    try {
+      const availability = await getWindowsHelloAvailability();
+      if (availability.status !== "available") {
         return false;
       }
     } catch {
@@ -955,6 +984,16 @@ async function authorizeSettingsRecovery(authorization: any = {}) {
   }
 
   try {
+    const status = getSecurityStore().getStatus();
+    const directKinds = directCredentialKinds(status);
+    if (authorization.kind === "pin" || authorization.kind === "password") {
+      if (directKinds.length !== 1 || directKinds[0] !== authorization.kind) {
+        return false;
+      }
+    } else if (directKinds.length > 0) {
+      return false;
+    }
+
     return getSecurityStore().verifyCredential(authorization.kind, authorization.secret).verified;
   } catch {
     return false;
@@ -1020,6 +1059,7 @@ function registerSettingsIpc() {
         return lockedSettingsResult();
       }
 
+      await clearInactiveSecurityCredentials(getDefaultSettings());
       const result = store.recoverSettings();
       settingsRecoveryRequired = false;
       rendererUnlocked = true;
@@ -1059,6 +1099,10 @@ function registerSettingsIpc() {
         ) {
           return lockedSettingsResult();
         }
+      }
+
+      if (!hasSameProtectionSettings(currentSettings, nextSettings)) {
+        await clearInactiveSecurityCredentials(nextSettings);
       }
 
       return store.saveSettings(nextSettings);

@@ -171,20 +171,27 @@ function credentialStatusForCore(isSet: boolean): "NotSet" | "Set" {
 }
 
 function recoveryCredentialKind(
+  settings: AppSettings,
   status: SecurityCredentialStatus,
 ): SecurityCredentialKind | undefined {
-  if (status.pinSet) {
-    return "pin";
+  const configuredKind = settings.windowsHello
+    ? remoteCredentialKind(settings)
+    : directCredentialKind(settings);
+  if (configuredKind && status[securityStatusKey(configuredKind)]) {
+    return configuredKind;
   }
-  if (status.passwordSet) {
-    return "password";
+
+  if (settings.windowsHello) {
+    return undefined;
   }
-  if (status.remotePinSet) {
-    return "remotePin";
+
+  const availableKinds = (["pin", "password", "remotePin", "remotePassword"] as const).filter(
+    (kind) => status[securityStatusKey(kind)],
+  );
+  if (availableKinds.length === 1) {
+    return availableKinds[0];
   }
-  if (status.remotePasswordSet) {
-    return "remotePassword";
-  }
+
   return undefined;
 }
 
@@ -1233,7 +1240,8 @@ export default function App() {
     unlockBusyRef.current = true;
     setUnlockBusy(true);
     try {
-      const recoveryKind = kind ?? recoveryCredentialKind(securityStatus) ?? "windowsHello";
+      const recoveryKind =
+        kind ?? recoveryCredentialKind(settings, securityStatus) ?? "windowsHello";
       const authorization =
         recoveryKind === "windowsHello"
           ? { kind: recoveryKind }
@@ -2173,7 +2181,9 @@ export default function App() {
   const activeCredential = remoteFallbackActive
     ? remoteCredentialKind(settings)
     : directCredentialKind(settings);
-  const recoveryKind = recoveryCredentialKind(securityStatus);
+  const recoveryKind = recoveryCredentialKind(settings, securityStatus);
+  const recoveryCanUseWindowsHello =
+    recoveryKind === "remotePin" || recoveryKind === "remotePassword";
   const protectionReady = settingsLoaded && settingsSourceAvailable && securityReady;
 
   return (
@@ -2232,16 +2242,25 @@ export default function App() {
                   ) : (
                     <p className="lock-overlay__detail">Use Windows Hello to authorize recovery.</p>
                   )}
-                  <Button
-                    onClick={() => void recoverSettings()}
-                    disabled={unlockBusy || lockRequestBusy}
-                  >
-                    {unlockBusy
-                      ? "Restoring settings…"
-                      : recoveryKind
-                        ? "Verify and restore settings"
+                  {recoveryKind && (
+                    <Button
+                      onClick={() => void recoverSettings()}
+                      disabled={unlockBusy || lockRequestBusy}
+                    >
+                      {unlockBusy ? "Restoring settings…" : "Verify and restore settings"}
+                    </Button>
+                  )}
+                  {(!recoveryKind || recoveryCanUseWindowsHello) && (
+                    <Button
+                      variant={recoveryKind ? "outline" : "default"}
+                      onClick={() => void recoverSettings("windowsHello")}
+                      disabled={unlockBusy || lockRequestBusy}
+                    >
+                      {unlockBusy
+                        ? "Restoring settings…"
                         : "Use Windows Hello and restore settings"}
-                  </Button>
+                    </Button>
+                  )}
                 </>
               ) : !protectionReady ? (
                 <p className="lock-overlay__detail">Checking protection settings…</p>

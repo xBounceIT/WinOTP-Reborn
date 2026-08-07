@@ -75,6 +75,27 @@ test("stores credentials encrypted and verifies them after reopening", () => {
   }
 });
 
+test("removes inactive credentials in one persisted update", () => {
+  const handle = createStore(createEncryption());
+
+  try {
+    handle.store.setCredential("pin", "1234");
+    handle.store.setCredential("password", "correct horse");
+    handle.store.setCredential("remotePin", "5678");
+    handle.store.setCredential("remotePassword", "remote horse");
+    handle.store.removeCredentials(["pin", "remotePassword"]);
+
+    assert.deepEqual(handle.store.getStatus(), {
+      pinSet: false,
+      passwordSet: true,
+      remotePinSet: true,
+      remotePasswordSet: false,
+    });
+  } finally {
+    handle.cleanup();
+  }
+});
+
 test("imports native app-lock credentials without replacing existing Electron credentials", () => {
   const handle = createStore(createEncryption());
 

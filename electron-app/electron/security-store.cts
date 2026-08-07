@@ -163,16 +163,12 @@ class SecurityStore {
     validateSecret(kind, secret);
     this.ensureEncryptionAvailable();
 
-    const previousCiphertext = this.state.credentials[kind];
+    const previousCredentials = { ...this.state.credentials };
     this.state.credentials[kind] = this.encryption.encryptString(secret).toString("base64");
     try {
       this.writeState();
     } catch (error) {
-      if (previousCiphertext) {
-        this.state.credentials[kind] = previousCiphertext;
-      } else {
-        delete this.state.credentials[kind];
-      }
+      this.state.credentials = previousCredentials;
       throw error;
     }
   }
@@ -209,17 +205,23 @@ class SecurityStore {
   }
 
   removeCredential(kind) {
-    validateKind(kind);
-    if (!this.state.credentials[kind]) {
+    this.removeCredentials([kind]);
+  }
+
+  removeCredentials(kinds = []) {
+    const uniqueKinds = [...new Set(kinds)];
+    uniqueKinds.forEach(validateKind);
+    const previousCredentials = { ...this.state.credentials };
+    const changed = uniqueKinds.some((kind) => this.state.credentials[kind]);
+    if (!changed) {
       return;
     }
 
-    const previousCiphertext = this.state.credentials[kind];
-    delete this.state.credentials[kind];
+    uniqueKinds.forEach((kind) => delete this.state.credentials[kind]);
     try {
       this.writeState();
     } catch (error) {
-      this.state.credentials[kind] = previousCiphertext;
+      this.state.credentials = previousCredentials;
       throw error;
     }
   }

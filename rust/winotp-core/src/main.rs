@@ -452,6 +452,31 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                 });
             serde_json::to_value(state).map_err(|error| error.to_string())
         }
+        "credential-kinds-to-clear" => {
+            let state = security::ProtectionTransitionState {
+                pin_enabled: input
+                    .get("pinEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                password_enabled: input
+                    .get("passwordEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                windows_hello_enabled: input
+                    .get("windowsHelloEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                remote_pin_enabled: input
+                    .get("remotePinEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                remote_password_enabled: input
+                    .get("remotePasswordEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            };
+            Ok(json!(security::credential_kinds_to_clear(state)))
+        }
         "format-import-summary" => Ok(json!({
             "message": import::import_summary(
                 input.get("successCount").and_then(Value::as_u64).unwrap_or(0),

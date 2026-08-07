@@ -394,6 +394,39 @@ pub fn apply_protection_transition(
     }
 }
 
+pub fn credential_kinds_to_clear(state: ProtectionTransitionState) -> Vec<String> {
+    let mut kinds = Vec::new();
+    if state.pin_enabled {
+        kinds.push("password".to_string());
+    } else if state.password_enabled {
+        kinds.push("pin".to_string());
+    } else {
+        kinds.extend(["pin", "password"].into_iter().map(str::to_string));
+    }
+
+    if state.windows_hello_enabled {
+        if state.remote_pin_enabled {
+            kinds.push("remotePassword".to_string());
+        } else if state.remote_password_enabled {
+            kinds.push("remotePin".to_string());
+        } else {
+            kinds.extend(
+                ["remotePin", "remotePassword"]
+                    .into_iter()
+                    .map(str::to_string),
+            );
+        }
+    } else {
+        kinds.extend(
+            ["remotePin", "remotePassword"]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+
+    kinds
+}
+
 pub fn validate_credential(kind: &str, secret: &str) -> Result<(), String> {
     if secret.trim().is_empty() {
         return Err("A security credential is required.".to_string());
@@ -593,6 +626,30 @@ mod tests {
         assert!(!state.windows_hello_enabled);
         assert!(!state.remote_pin_enabled);
         assert!(!state.remote_password_enabled);
+    }
+
+    #[test]
+    fn identifies_credentials_inactive_for_the_protection_state() {
+        assert_eq!(
+            credential_kinds_to_clear(ProtectionTransitionState {
+                pin_enabled: true,
+                password_enabled: false,
+                windows_hello_enabled: false,
+                remote_pin_enabled: false,
+                remote_password_enabled: false,
+            }),
+            ["password", "remotePin", "remotePassword"]
+        );
+        assert_eq!(
+            credential_kinds_to_clear(ProtectionTransitionState {
+                pin_enabled: false,
+                password_enabled: false,
+                windows_hello_enabled: true,
+                remote_pin_enabled: true,
+                remote_password_enabled: false,
+            }),
+            ["pin", "password", "remotePassword"]
+        );
     }
 
     #[test]
