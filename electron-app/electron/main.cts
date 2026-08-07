@@ -152,6 +152,11 @@ function loadStoredAccounts() {
   }
 }
 
+function isValidTrayTotpCode(code, digits) {
+  const expectedDigits = digits === 8 ? 8 : 6;
+  return typeof code === "string" && new RegExp(`^\\d{${expectedDigits}}$`).test(code);
+}
+
 function refreshTrayCodes() {
   const state = trayController?.getState();
   if (!state || !state.showTotpInTray || state.locked || !isRendererUnlocked()) {
@@ -191,11 +196,17 @@ function copyTrayCode(accountId) {
   }
 
   const storedAccounts = loadStoredAccounts();
-  const storedAccount = storedAccounts?.find((item) => item.id === account.id);
-  if (storedAccounts && !storedAccount) {
+  if (!storedAccounts) {
     return;
   }
-  const currentCode = storedAccount ? generateTotpCode(storedAccount) : account.code;
+  const storedAccount = storedAccounts.find((item) => item.id === account.id);
+  if (!storedAccount) {
+    return;
+  }
+  const currentCode = generateTotpCode(storedAccount);
+  if (!isValidTrayTotpCode(currentCode, storedAccount.digits)) {
+    return;
+  }
 
   try {
     clipboard.writeText(currentCode);
@@ -1625,7 +1636,11 @@ function registerSecurityIpc() {
     }
 
     try {
+      const wasUnprotected = isCurrentProfileUnprotected();
       getSecurityStore().setCredential(kind, secret);
+      if (wasUnprotected) {
+        rendererUnlocked = true;
+      }
       return { success: true };
     } catch (error) {
       return {

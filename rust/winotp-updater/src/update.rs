@@ -343,6 +343,10 @@ impl UpdateService {
             return self.fail_download(update, "The installer URL is not secure.".to_string());
         }
 
+        if let Err(error) = normalize_download_digest(update.installer_sha256.as_deref()) {
+            return self.fail_download(update, download_validation_error_message(error));
+        }
+
         if let Err(error) = fs::create_dir_all(&self.config.updates_directory) {
             return self.fail_download(
                 update,
@@ -460,12 +464,13 @@ impl UpdateService {
                     "The downloaded installer failed SHA-256 verification.".to_string(),
                 )
             }
-            Err(DownloadValidationError::DigestMismatch) => {
+            Err(
+                error @ (DownloadValidationError::InvalidDigest
+                | DownloadValidationError::MissingDigest
+                | DownloadValidationError::DigestMismatch),
+            ) => {
                 try_delete_file(&final_path);
-                self.fail_download(
-                    update,
-                    "The downloaded installer failed SHA-256 verification.".to_string(),
-                )
+                self.fail_download(update, download_validation_error_message(error))
             }
             Err(DownloadValidationError::Read(error)) => {
                 try_delete_file(&final_path);
@@ -512,12 +517,7 @@ impl UpdateService {
                     );
                 }
                 Err(error) => {
-                    let message = match error {
-                        DownloadValidationError::DigestMismatch => {
-                            "The downloaded installer failed SHA-256 verification.".to_string()
-                        }
-                        DownloadValidationError::Read(error) => error,
-                    };
+                    let message = download_validation_error_message(error);
                     return self.fail_install(update, message);
                 }
             };
@@ -593,8 +593,9 @@ impl UpdateService {
             }
 
             let installer_sha256 = match normalize_sha256_digest(asset.digest.as_deref()) {
-                Ok(digest) => digest,
+                Ok(Some(digest)) => Some(digest),
                 Err(_) => continue,
+                Ok(None) => continue,
             };
 
             if best_match
@@ -888,30 +889,58 @@ fn normalize_sha256_digest(digest: Option<&str>) -> Result<Option<String>, Strin
 
 #[derive(Debug)]
 enum DownloadValidationError {
+    MissingDigest,
+    InvalidDigest,
     DigestMismatch,
     Read(String),
+}
+
+fn normalize_download_digest(
+    expected_sha256: Option<&str>,
+) -> Result<String, DownloadValidationError> {
+    let Some(expected_sha256) = expected_sha256
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err(DownloadValidationError::MissingDigest);
+    };
+    let expected_sha256 = expected_sha256
+        .strip_prefix("sha256:")
+        .or_else(|| expected_sha256.strip_prefix("SHA256:"))
+        .unwrap_or(expected_sha256);
+    if expected_sha256.len() != 64
+        || !expected_sha256
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return Err(DownloadValidationError::InvalidDigest);
+    }
+    Ok(expected_sha256.to_ascii_lowercase())
 }
 
 fn validate_downloaded_file(
     path: &Path,
     expected_sha256: Option<&str>,
 ) -> Result<(bool, bool), DownloadValidationError> {
-    let Some(expected_sha256) = expected_sha256
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return Ok((true, false));
-    };
-    let expected_sha256 = expected_sha256
-        .strip_prefix("sha256:")
-        .or_else(|| expected_sha256.strip_prefix("SHA256:"))
-        .unwrap_or(expected_sha256);
+    let expected_sha256 = normalize_download_digest(expected_sha256)?;
     let bytes = fs::read(path).map_err(|error| DownloadValidationError::Read(error.to_string()))?;
     let actual_hash = hex::encode(sha2::Sha256::digest(bytes));
-    if !actual_hash.eq_ignore_ascii_case(expected_sha256) {
+    if !actual_hash.eq_ignore_ascii_case(&expected_sha256) {
         return Err(DownloadValidationError::DigestMismatch);
     }
     Ok((true, true))
+}
+
+fn download_validation_error_message(error: DownloadValidationError) -> String {
+    match error {
+        DownloadValidationError::MissingDigest => {
+            "The update does not include a trusted SHA-256 digest.".to_string()
+        }
+        DownloadValidationError::InvalidDigest | DownloadValidationError::DigestMismatch => {
+            "The downloaded installer failed SHA-256 verification.".to_string()
+        }
+        DownloadValidationError::Read(error) => error,
+    }
 }
 
 fn validate_installer_name(name: &str) -> Result<(), String> {
@@ -1004,6 +1033,7 @@ mod tests {
         let installer_name = "WinOTP-2.0.0-linux-x64-setup.AppImage".to_string();
         let installer_path = updates_directory.join(&installer_name);
         fs::write(&installer_path, b"appimage").expect("write installer");
+        let installer_sha256 = hex::encode(sha2::Sha256::digest(b"appimage"));
 
         let service = UpdateService::new(
             UpdateConfig {
@@ -1032,7 +1062,7 @@ mod tests {
                 published_at_utc: None,
                 installer_name,
                 installer_url: "https://example.com/download".to_string(),
-                installer_sha256: None,
+                installer_sha256: Some(installer_sha256),
                 release_notes: String::new(),
             },
             installer_path.to_str().expect("installer path"),

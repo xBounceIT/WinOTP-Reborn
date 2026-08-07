@@ -237,9 +237,12 @@ class SecurityStore {
 
     try {
       const secret = this.encryption.decryptString(Buffer.from(ciphertext, "base64"));
-      return typeof secret === "string" && secret.length > 0 ? secret : undefined;
+      if (typeof secret !== "string" || secret.length === 0) {
+        throw new Error("Stored security credentials are unavailable.");
+      }
+      return secret;
     } catch {
-      return undefined;
+      throw new Error("Stored security credentials are unavailable.");
     }
   }
 

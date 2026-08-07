@@ -196,8 +196,9 @@ test("rejects invalid credentials before enabling protection", () => {
   }
 });
 
-test("does not report a credential when its ciphertext cannot be decrypted", () => {
-  const handle = createStore(createEncryption());
+test("treats an undecryptable credential as unavailable storage", () => {
+  const encryption = createEncryption();
+  const handle = createStore(encryption);
 
   try {
     fs.writeFileSync(
@@ -208,16 +209,15 @@ test("does not report a credential when its ciphertext cannot be decrypted", () 
       }),
     );
 
-    assert.deepEqual(handle.store.getStatus(), {
-      pinSet: false,
-      passwordSet: false,
-      remotePinSet: false,
-      remotePasswordSet: false,
+    const corruptedStore = new SecurityStore(undefined, {
+      encryption,
+      filePath: handle.filePath,
     });
-    assert.deepEqual(handle.store.verifyCredential("pin", "1234"), {
-      verified: false,
-      credentialAvailable: false,
-    });
+    assert.throws(() => corruptedStore.getStatus(), /Stored security credentials are unavailable/);
+    assert.throws(
+      () => corruptedStore.verifyCredential("pin", "1234"),
+      /Stored security credentials are unavailable/,
+    );
   } finally {
     handle.cleanup();
   }

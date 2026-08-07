@@ -5,10 +5,12 @@ use std::sync::{Arc, Mutex};
 use sha2::Digest;
 use tempfile::tempdir;
 use winotp_updater::{
-    AppArchitecture, AppPlatform, GitHubReleaseAssetInfo, GitHubReleaseInfo, HttpRequest,
-    HttpResponse, HttpTransport, UpdateAvailabilityStatus, UpdateChannel, UpdateConfig,
-    UpdateService,
+    AppArchitecture, AppPlatform, AvailableUpdateInfo, GitHubReleaseAssetInfo, GitHubReleaseInfo,
+    HttpRequest, HttpResponse, HttpTransport, UpdateAvailabilityStatus, UpdateChannel,
+    UpdateConfig, UpdateService,
 };
+
+const TEST_DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
 struct FakeTransport {
     handler: Box<dyn Fn(HttpRequest) -> Result<HttpResponse, String> + Send + Sync>,
@@ -79,7 +81,7 @@ fn selects_highest_stable_release_for_the_current_platform() {
             vec![asset(
                 "WinOTP-1.2.0-beta.1-win-x64-setup.exe",
                 "https://example.test/preview.exe",
-                None,
+                Some(TEST_DIGEST.to_string()),
             )],
         ),
         release(
@@ -88,7 +90,7 @@ fn selects_highest_stable_release_for_the_current_platform() {
             vec![asset(
                 "WinOTP-1.1.0-win-x64-setup.exe",
                 "https://example.test/stable.exe",
-                None,
+                Some(TEST_DIGEST.to_string()),
             )],
         ),
         release(
@@ -97,7 +99,7 @@ fn selects_highest_stable_release_for_the_current_platform() {
             vec![asset(
                 "WinOTP-1.3.0-win-x64-setup.exe",
                 "https://example.test/latest.exe",
-                None,
+                Some(TEST_DIGEST.to_string()),
             )],
         ),
     ];
@@ -124,7 +126,7 @@ fn prerelease_channel_can_select_prerelease_and_uses_arm64_assets() {
         vec![asset(
             "WinOTP-1.2.0-beta.1-win-arm64-setup.exe",
             "https://example.test/preview.exe",
-            None,
+            Some(TEST_DIGEST.to_string()),
         )],
     )];
 
@@ -155,17 +157,17 @@ fn release_selection_uses_platform_specific_asset_suffixes() {
             asset(
                 "WinOTP-1.4.0-win-x64-setup.exe",
                 "https://example.test/win-x64.exe",
-                None,
+                Some(TEST_DIGEST.to_string()),
             ),
             asset(
                 "WinOTP-1.4.0-linux-arm64-setup.AppImage",
                 "https://example.test/linux-arm64.AppImage",
-                None,
+                Some(TEST_DIGEST.to_string()),
             ),
             asset(
                 "WinOTP-1.4.0-mac-universal-setup.dmg",
                 "https://example.test/mac-universal.dmg",
-                None,
+                Some(TEST_DIGEST.to_string()),
             ),
         ],
     )];
@@ -250,15 +252,13 @@ fn manual_checks_still_run_when_startup_checks_are_disabled() {
 }
 
 #[test]
-fn does_not_trust_an_existing_installer_without_a_digest() {
-    let directory = tempdir().expect("temporary directory");
-    let installer_name = "WinOTP-1.1.0-win-x64-setup.exe";
+fn does_not_select_a_release_without_a_digest() {
     let update = UpdateService::select_available_release(
         &[release(
             "v1.1.0",
             false,
             vec![asset(
-                installer_name,
+                "WinOTP-1.1.0-win-x64-setup.exe",
                 "https://example.test/installer.exe",
                 None,
             )],
@@ -268,18 +268,20 @@ fn does_not_trust_an_existing_installer_without_a_digest() {
         AppPlatform::Windows,
         AppArchitecture::X64,
     )
-    .expect("the current version is valid")
-    .expect("an update is available");
-    let installer_path = directory.path().join(installer_name);
-    fs::write(&installer_path, b"stale installer").expect("write stale installer");
+    .expect("the current version is valid");
 
+    assert!(update.is_none());
+}
+
+#[test]
+fn download_rejects_an_update_without_a_digest() {
+    let directory = tempdir().expect("temporary directory");
     let requests = Arc::new(Mutex::new(0));
     let transport = FakeTransport::new({
         let requests = requests.clone();
-        move |request| {
-            assert!(request.url.ends_with("installer.exe"));
+        move |_| {
             *requests.lock().unwrap() += 1;
-            Ok(response(b"fresh installer".to_vec(), Vec::new()))
+            Ok(response(b"untrusted installer".to_vec(), Vec::new()))
         }
     });
     let service = UpdateService::new(
@@ -292,11 +294,26 @@ fn does_not_trust_an_existing_installer_without_a_digest() {
         Arc::new(|_: &Path| Ok(())),
     );
 
-    let downloaded = service.download_installer(update);
+    let result = service.download_installer(AvailableUpdateInfo {
+        version: "1.1.0".to_string(),
+        display_version: "1.1.0".to_string(),
+        release_tag: "v1.1.0".to_string(),
+        release_title: "1.1.0".to_string(),
+        release_url: "https://example.test/release".to_string(),
+        is_pre_release: false,
+        published_at_utc: None,
+        installer_name: "WinOTP-1.1.0-win-x64-setup.exe".to_string(),
+        installer_url: "https://example.test/installer.exe".to_string(),
+        installer_sha256: None,
+        release_notes: String::new(),
+    });
 
-    assert!(downloaded.success);
-    assert_eq!(*requests.lock().unwrap(), 1);
-    assert_eq!(fs::read(installer_path).unwrap(), b"fresh installer");
+    assert!(!result.success);
+    assert_eq!(*requests.lock().unwrap(), 0);
+    assert_eq!(
+        result.error_message.as_deref(),
+        Some("The update does not include a trusted SHA-256 digest.")
+    );
 }
 
 #[test]
@@ -309,7 +326,7 @@ fn missing_installer_resets_the_launch_state() {
             vec![asset(
                 "WinOTP-1.1.0-win-x64-setup.exe",
                 "https://example.test/installer.exe",
-                None,
+                Some(TEST_DIGEST.to_string()),
             )],
         )],
         "1.0.0",
@@ -352,7 +369,7 @@ fn launch_rejects_installer_path_traversal() {
             vec![asset(
                 "WinOTP-1.1.0-win-x64-setup.exe",
                 "https://example.test/installer.exe",
-                None,
+                Some(TEST_DIGEST.to_string()),
             )],
         )],
         "1.0.0",
