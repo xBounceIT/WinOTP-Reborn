@@ -65,6 +65,12 @@ export interface ProtectionViewState {
   remotePasswordEnabled: boolean;
 }
 
+export interface ProtectionPresentationDecision {
+  shouldShowLockScreen: boolean;
+  shouldEnsureInitialPage: boolean;
+  shouldStartMonitoring: boolean;
+}
+
 export interface ProtectionCoreInput {
   pinEnabled: boolean;
   passwordEnabled: boolean;

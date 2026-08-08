@@ -203,7 +203,14 @@ pub fn resolve_presentation(
     trigger: PresentationTrigger,
     resolution: AppLockResolution,
 ) -> PresentationDecision {
-    let protected = resolution.mode != AppLockMode::None;
+    let protected = match trigger {
+        PresentationTrigger::Startup => {
+            resolution.mode != AppLockMode::None
+                || resolution.has_configured_protection_error()
+                || resolution.has_windows_hello_remote_session
+        }
+        PresentationTrigger::SettingsChange => resolution.mode != AppLockMode::None,
+    };
     match (trigger, protected) {
         (PresentationTrigger::Startup, true) => PresentationDecision {
             should_show_lock_screen: true,
@@ -553,6 +560,11 @@ pub fn reconcile_protection_view_state(inputs: ProtectionInputs) -> ProtectionVi
     }
 }
 
+pub fn resolve_startup_presentation(inputs: ProtectionInputs) -> PresentationDecision {
+    let state = reconcile_protection_view_state(inputs);
+    resolve_presentation(PresentationTrigger::Startup, state.resolution)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,6 +624,68 @@ mod tests {
         assert_eq!(state.resolution.mode, AppLockMode::None);
         assert!(state.resolution.has_windows_hello_remote_session);
         assert!(!state.resolution.disable_unavailable_windows_hello);
+    }
+
+    #[test]
+    fn startup_presentation_uses_the_authoritative_protection_resolution() {
+        let protected = resolve_startup_presentation(ProtectionInputs {
+            pin_enabled: true,
+            password_enabled: false,
+            windows_hello_enabled: false,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::Set,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(protected.should_show_lock_screen);
+
+        let unprotected = resolve_startup_presentation(ProtectionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: false,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(!unprotected.should_show_lock_screen);
+    }
+
+    #[test]
+    fn startup_presentation_stays_locked_for_protection_errors_and_remote_sessions() {
+        let error = resolve_startup_presentation(ProtectionInputs {
+            pin_enabled: true,
+            password_enabled: false,
+            windows_hello_enabled: false,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::Error,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(error.should_show_lock_screen);
+
+        let remote_session = resolve_startup_presentation(ProtectionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: true,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::RemoteSession,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(remote_session.should_show_lock_screen);
     }
 
     #[test]

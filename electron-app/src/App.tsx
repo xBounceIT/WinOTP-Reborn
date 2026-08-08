@@ -36,7 +36,6 @@ import {
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
-  shouldStartLocked,
   shouldReleaseFailedLock,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
@@ -49,6 +48,7 @@ import type {
   BackupOperationResult,
   OtpAccount,
   ProtectionCoreInput,
+  ProtectionPresentationDecision,
   ProtectionTransitionInput,
   ProtectionTransitionKind,
   ProtectionViewState,
@@ -66,6 +66,7 @@ import { defaultSettings } from "@/lib/types";
 
 const settingsStorageKey = "winotp-electron.settings";
 type LockRequestReason = "manual" | "startup" | "inactivity" | "session";
+type WinOtpCore = NonNullable<NonNullable<Window["winotp"]>["core"]>;
 
 function initialUpdateState(settings: AppSettings): UpdateState {
   const enabled = settings.updateOnStartup;
@@ -266,7 +267,7 @@ export default function App() {
   const [updateState, setUpdateState] = useState<UpdateState>(() => initialUpdateState(settings));
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
-  const [locked, setLocked] = useState(() => shouldStartLocked(settings));
+  const [locked, setLocked] = useState(true);
   const [remoteFallbackActive, setRemoteFallbackActive] = useState(false);
   const [unlockValue, setUnlockValue] = useState("");
   const [unlockError, setUnlockError] = useState("");
@@ -339,24 +340,53 @@ export default function App() {
     };
   }, [accounts, settings.accountCustomOrderIds, settings.accountSortOption]);
 
-  async function resolveProtectionViewState(
+  async function resolveProtectionCoreInput(
     settingsValue: AppSettings,
     status: SecurityCredentialStatus,
-  ): Promise<ProtectionViewState | undefined> {
+  ): Promise<ProtectionCoreInput | undefined> {
+    try {
+      const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
+      const availability = helloResult?.success ? helloResult.status : "error";
+      return protectionInputForCore(settingsValue, status, availability);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function withProtectionCore<T>(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+    operation: (core: WinOtpCore, input: ProtectionCoreInput) => Promise<T>,
+  ): Promise<T | undefined> {
     const core = window.winotp?.core;
-    if (!core) {
+    const input = await resolveProtectionCoreInput(settingsValue, status);
+    if (!core || !input) {
       return undefined;
     }
 
     try {
-      const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
-      const availability = helloResult?.success ? helloResult.status : "error";
-      return await core.reconcileProtection(
-        protectionInputForCore(settingsValue, status, availability),
-      );
+      return await operation(core, input);
     } catch {
       return undefined;
     }
+  }
+
+  async function resolveProtectionViewState(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ): Promise<ProtectionViewState | undefined> {
+    return withProtectionCore(settingsValue, status, (core, input) =>
+      core.reconcileProtection(input),
+    );
+  }
+
+  async function resolveStartupProtectionPresentation(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ): Promise<ProtectionPresentationDecision | undefined> {
+    return withProtectionCore(settingsValue, status, (core, input) =>
+      core.resolveStartupPresentation(input),
+    );
   }
 
   async function disableUnavailableProtectionIfSafe(
@@ -508,21 +538,49 @@ export default function App() {
       !settingsSourceAvailable ||
       settingsRecoveryRequired ||
       securityMigrationPending ||
+      !securityStorageAvailable ||
       startupLockHandled.current
     ) {
       return;
     }
 
-    startupLockHandled.current = true;
-    if (!shouldStartLocked(settingsRef.current, true)) {
-      setAppLocked(false);
-      return;
+    let cancelled = false;
+
+    async function resolveStartupLock() {
+      const settingsAtStart = settingsRef.current;
+      const securityStatusAtStart = securityStatusRef.current;
+      const decision = await resolveStartupProtectionPresentation(
+        settingsAtStart,
+        securityStatusAtStart,
+      );
+      if (
+        cancelled ||
+        !decision ||
+        settingsRef.current !== settingsAtStart ||
+        securityStatusRef.current !== securityStatusAtStart
+      ) {
+        return;
+      }
+
+      startupLockHandled.current = true;
+      if (!decision.shouldShowLockScreen) {
+        setAppLocked(false);
+        return;
+      }
+
+      void requestLock("startup");
     }
 
-    void requestLock("startup");
+    void resolveStartupLock();
+    return () => {
+      cancelled = true;
+    };
   }, [
     securityMigrationPending,
     securityReady,
+    securityStatus,
+    securityStorageAvailable,
+    settings,
     settingsLoaded,
     settingsRecoveryRequired,
     settingsSourceAvailable,

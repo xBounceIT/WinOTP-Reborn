@@ -414,36 +414,12 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
             });
             serde_json::to_value(resolution).map_err(|error| error.to_string())
         }
+        "resolve-startup-presentation" => {
+            let decision = security::resolve_startup_presentation(parse_protection_inputs(input));
+            serde_json::to_value(decision).map_err(|error| error.to_string())
+        }
         "reconcile-protection" => {
-            let state = security::reconcile_protection_view_state(security::ProtectionInputs {
-                pin_enabled: input
-                    .get("pinEnabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                password_enabled: input
-                    .get("passwordEnabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                windows_hello_enabled: input
-                    .get("windowsHelloEnabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                remote_pin_enabled: input
-                    .get("remotePinEnabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                remote_password_enabled: input
-                    .get("remotePasswordEnabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                pin_status: parse_credential_status(input.get("pinStatus")),
-                password_status: parse_credential_status(input.get("passwordStatus")),
-                windows_hello_availability: parse_hello_availability(
-                    input.get("windowsHelloAvailability"),
-                ),
-                remote_pin_status: parse_credential_status(input.get("remotePinStatus")),
-                remote_password_status: parse_credential_status(input.get("remotePasswordStatus")),
-            });
+            let state = security::reconcile_protection_view_state(parse_protection_inputs(input));
             serde_json::to_value(state).map_err(|error| error.to_string())
         }
         "transition-protection" => {
@@ -655,6 +631,36 @@ fn parse_hello_availability(value: Option<&Value>) -> security::WindowsHelloAvai
         "RemoteSession" | "remote-session" => security::WindowsHelloAvailability::RemoteSession,
         "Error" | "error" => security::WindowsHelloAvailability::Error,
         _ => security::WindowsHelloAvailability::Unavailable,
+    }
+}
+
+fn parse_protection_inputs(input: &Value) -> security::ProtectionInputs {
+    security::ProtectionInputs {
+        pin_enabled: input
+            .get("pinEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        password_enabled: input
+            .get("passwordEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        windows_hello_enabled: input
+            .get("windowsHelloEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        remote_pin_enabled: input
+            .get("remotePinEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        remote_password_enabled: input
+            .get("remotePasswordEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        pin_status: parse_credential_status(input.get("pinStatus")),
+        password_status: parse_credential_status(input.get("passwordStatus")),
+        windows_hello_availability: parse_hello_availability(input.get("windowsHelloAvailability")),
+        remote_pin_status: parse_credential_status(input.get("remotePinStatus")),
+        remote_password_status: parse_credential_status(input.get("remotePasswordStatus")),
     }
 }
 

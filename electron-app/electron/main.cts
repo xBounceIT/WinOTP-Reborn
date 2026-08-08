@@ -1310,6 +1310,9 @@ function registerCoreIpc() {
   ipcMain.handle("core:reconcile-protection", (event, input) =>
     runCoreFromRenderer(event, "reconcile-protection", input),
   );
+  ipcMain.handle("core:resolve-startup-presentation", (event, input) =>
+    runCoreFromRenderer(event, "resolve-startup-presentation", input),
+  );
   ipcMain.handle("core:transition-protection", (event, input) =>
     runCoreFromRenderer(event, "transition-protection", input),
   );
