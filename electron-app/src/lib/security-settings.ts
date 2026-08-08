@@ -17,9 +17,16 @@ export function isSecurityNormalizationReady(
   settingsLoaded: boolean,
   securityReady: boolean,
   securityStorageAvailable: boolean,
-  securityMigrationPending = false,
+  securityMigrationPending: boolean,
+  startupProtectionReady: boolean,
 ) {
-  return settingsLoaded && securityReady && securityStorageAvailable && !securityMigrationPending;
+  return (
+    settingsLoaded &&
+    securityReady &&
+    securityStorageAvailable &&
+    !securityMigrationPending &&
+    startupProtectionReady
+  );
 }
 
 export function isPinCredential(kind: SecurityCredentialKind) {

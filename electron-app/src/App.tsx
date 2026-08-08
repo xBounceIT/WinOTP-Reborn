@@ -300,6 +300,7 @@ export default function App() {
   const [securityMigrationPending, setSecurityMigrationPending] = useState(false);
   const [settingsRecoveryRequired, setSettingsRecoveryRequired] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
+  const [startupProtectionReady, setStartupProtectionReady] = useState(false);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
   const accountMutationVersion = useRef(0);
@@ -597,11 +598,13 @@ export default function App() {
         }
 
         startupLockHandled.current = true;
+        setStartupProtectionReady(true);
         setAppLocked(false);
         return;
       }
 
       startupLockHandled.current = true;
+      setStartupProtectionReady(true);
       void requestLock("startup");
     }
 
@@ -938,6 +941,7 @@ export default function App() {
         securityReady,
         securityStorageAvailable,
         securityMigrationPending,
+        startupProtectionReady,
       )
     ) {
       return;
@@ -971,6 +975,7 @@ export default function App() {
     securityReady,
     securityStatus,
     securityStorageAvailable,
+    startupProtectionReady,
     settingsLoaded,
     settings.passwordProtection,
     settings.pinProtection,
