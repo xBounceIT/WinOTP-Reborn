@@ -301,6 +301,7 @@ export default function App() {
   const [settingsRecoveryRequired, setSettingsRecoveryRequired] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
   const [startupProtectionReady, setStartupProtectionReady] = useState(false);
+  const [startupProtectionAttempt, setStartupProtectionAttempt] = useState(0);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
   const accountMutationVersion = useRef(0);
@@ -573,14 +574,23 @@ export default function App() {
     }
 
     let cancelled = false;
+    let retryTimer: number | undefined;
 
     async function resolveStartupLock() {
       const settingsAtStart = settingsRef.current;
       const securityStatusAtStart = securityStatusRef.current;
       const state = await resolveProtectionViewState(settingsAtStart, securityStatusAtStart);
+      if (cancelled) {
+        return;
+      }
+      if (!state) {
+        retryTimer = window.setTimeout(
+          () => setStartupProtectionAttempt((attempt) => attempt + 1),
+          1000,
+        );
+        return;
+      }
       if (
-        cancelled ||
-        !state ||
         settingsRef.current !== settingsAtStart ||
         securityStatusRef.current !== securityStatusAtStart
       ) {
@@ -611,6 +621,9 @@ export default function App() {
     void resolveStartupLock();
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
     };
   }, [
     securityMigrationPending,
@@ -621,6 +634,7 @@ export default function App() {
     settingsLoaded,
     settingsRecoveryRequired,
     settingsSourceAvailable,
+    startupProtectionAttempt,
   ]);
 
   useEffect(() => {
