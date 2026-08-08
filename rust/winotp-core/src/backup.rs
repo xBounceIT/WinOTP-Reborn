@@ -3,10 +3,11 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use getrandom::fill as random_fill;
+use getrandom::fill_uninit as random_fill_uninit;
 use pbkdf2::pbkdf2_hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::mem::MaybeUninit;
 
 use crate::models::OtpAccount;
 
@@ -75,9 +76,10 @@ fn derive_key(password: &str, salt: &[u8]) -> [u8; KEY_SIZE_BYTES] {
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], BackupError> {
-    let mut bytes = [0u8; N];
-    random_fill(&mut bytes).map_err(|_| BackupError::Corrupt)?;
-    Ok(bytes)
+    let mut bytes = [const { MaybeUninit::uninit() }; N];
+    let initialized = random_fill_uninit(&mut bytes).map_err(|_| BackupError::Corrupt)?;
+    let initialized: &mut [u8; N] = initialized.try_into().map_err(|_| BackupError::Corrupt)?;
+    Ok(*initialized)
 }
 
 pub fn encrypt_payload(
@@ -194,11 +196,15 @@ mod tests {
     use super::*;
     use crate::models::OtpAccount;
 
+    fn random_test_password() -> String {
+        BASE64.encode(random_bytes::<KEY_SIZE_BYTES>().unwrap())
+    }
+
     #[test]
     fn validates_passwords_with_the_portable_policy() {
         assert!(!is_valid_backup_password("short"));
         assert!(!is_valid_backup_password("        "));
-        assert!(is_valid_backup_password("backup-pass-1"));
+        assert!(is_valid_backup_password(&random_test_password()));
     }
 
     #[test]
@@ -210,39 +216,44 @@ mod tests {
             secret: "JBSWY3DPEHPK3PXP".to_string(),
             ..Default::default()
         };
-        let envelope = encrypt_payload(vec![account.clone()], "backup-pass-1", None).unwrap();
+        let password = random_test_password();
+        let envelope = encrypt_payload(vec![account.clone()], &password, None).unwrap();
         assert_eq!(envelope.encryption.scheme, BACKUP_SCHEME);
-        let payload = decrypt_payload(&envelope, "backup-pass-1").unwrap();
+        let payload = decrypt_payload(&envelope, &password).unwrap();
         assert_eq!(payload.accounts, [account]);
     }
 
     #[test]
     fn rejects_wrong_password_and_unsupported_iterations() {
-        let mut envelope = encrypt_payload(Vec::new(), "backup-pass-1", None).unwrap();
+        let password = random_test_password();
+        let wrong_password = random_test_password();
+        let mut envelope = encrypt_payload(Vec::new(), &password, None).unwrap();
         assert!(matches!(
-            decrypt_payload(&envelope, "wrong-pass"),
+            decrypt_payload(&envelope, &wrong_password),
             Err(BackupError::DecryptionFailed)
         ));
         envelope.encryption.iterations += 1;
         assert!(matches!(
-            decrypt_payload(&envelope, "backup-pass-1"),
+            decrypt_payload(&envelope, &password),
             Err(BackupError::UnsupportedFormat)
         ));
     }
 
     #[test]
     fn validates_envelope_metadata_and_canonical_base64_in_the_core() {
-        let mut envelope = encrypt_payload(Vec::new(), "backup-pass-1", None).unwrap();
+        let password = random_test_password();
+        let mut envelope = encrypt_payload(Vec::new(), &password, None).unwrap();
         envelope.created_at_utc = "  ".to_string();
         assert!(matches!(
-            decrypt_payload(&envelope, "backup-pass-1"),
+            decrypt_payload(&envelope, &password),
             Err(BackupError::UnsupportedFormat)
         ));
 
-        let mut envelope = encrypt_payload(Vec::new(), "backup-pass-1", None).unwrap();
+        let password = random_test_password();
+        let mut envelope = encrypt_payload(Vec::new(), &password, None).unwrap();
         envelope.encryption.salt = "A".repeat(24);
         assert!(matches!(
-            decrypt_payload(&envelope, "backup-pass-1"),
+            decrypt_payload(&envelope, &password),
             Err(BackupError::Corrupt)
         ));
     }
