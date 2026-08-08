@@ -36,6 +36,7 @@ import {
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
+  shouldStartLocked,
   shouldReleaseFailedLock,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
@@ -265,7 +266,7 @@ export default function App() {
   const [updateState, setUpdateState] = useState<UpdateState>(() => initialUpdateState(settings));
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
-  const [locked, setLocked] = useState(true);
+  const [locked, setLocked] = useState(() => shouldStartLocked(settings));
   const [remoteFallbackActive, setRemoteFallbackActive] = useState(false);
   const [unlockValue, setUnlockValue] = useState("");
   const [unlockError, setUnlockError] = useState("");

@@ -77,8 +77,16 @@ export function directCredentialKind(settings: AppSettings): SecurityCredentialK
   return undefined;
 }
 
-export function hasConfiguredProtection(settings: AppSettings) {
+export function hasConfiguredProtection(
+  settings: Pick<AppSettings, "pinProtection" | "passwordProtection" | "windowsHello">,
+) {
   return Boolean(settings.pinProtection || settings.passwordProtection || settings.windowsHello);
+}
+
+export function shouldStartLocked(
+  settings: Pick<AppSettings, "pinProtection" | "passwordProtection" | "windowsHello">,
+) {
+  return hasConfiguredProtection(settings);
 }
 
 export function shouldReleaseFailedLock(lockApplied: boolean, protectionConfigured: boolean) {

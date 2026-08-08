@@ -10,6 +10,7 @@ import {
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
+  shouldStartLocked,
   shouldReleaseFailedLock,
 } from "../src/lib/security-settings.ts";
 import { defaultSettings } from "../src/lib/types.ts";
@@ -42,6 +43,13 @@ test("maps credential kinds to their persisted status fields", () => {
   assert.equal(remoteCredentialKind(defaultSettings), undefined);
   assert.equal(hasConfiguredProtection(defaultSettings), false);
   assert.equal(hasConfiguredProtection({ ...defaultSettings, windowsHello: true }), true);
+});
+
+test("starts unlocked when no app protection method is configured", () => {
+  assert.equal(shouldStartLocked(defaultSettings), false);
+  assert.equal(shouldStartLocked({ ...defaultSettings, pinProtection: true }), true);
+  assert.equal(shouldStartLocked({ ...defaultSettings, passwordProtection: true }), true);
+  assert.equal(shouldStartLocked({ ...defaultSettings, windowsHello: true }), true);
 });
 
 test("only applies protection reconciliation for the state it started with", () => {
