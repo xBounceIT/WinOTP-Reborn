@@ -15,16 +15,25 @@ interface AddAccountPageProps {
   onAccountDetected: (account: OtpAccount) => Promise<void>;
 }
 
-function loadImage(file: File): Promise<{ image: HTMLImageElement; objectUrl: string }> {
-  const objectUrl = URL.createObjectURL(file);
+async function loadImage(file: File): Promise<HTMLImageElement> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("The selected image could not be read."));
+      }
+    };
+    reader.onerror = () => reject(new Error("The selected image could not be read."));
+    reader.readAsDataURL(file);
+  });
+
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve({ image, objectUrl });
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("The selected image could not be loaded."));
-    };
-    image.src = objectUrl;
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("The selected image could not be loaded."));
+    image.src = dataUrl;
   });
 }
 
@@ -33,39 +42,34 @@ async function decodeQrFile(file: File): Promise<string | undefined> {
     throw new Error("The selected image is too large to scan.");
   }
 
-  const { default: decoder } = await import("jsqr");
-  const { image, objectUrl } = await loadImage(file);
+  const [{ default: decoder }, image] = await Promise.all([import("jsqr"), loadImage(file)]);
 
-  try {
-    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-      return undefined;
-    }
-
-    if (
-      image.naturalWidth > MAX_QR_IMAGE_DIMENSION ||
-      image.naturalHeight > MAX_QR_IMAGE_DIMENSION ||
-      image.naturalWidth * image.naturalHeight > MAX_QR_IMAGE_PIXELS
-    ) {
-      throw new Error("The selected image dimensions are too large to scan.");
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) {
-      return undefined;
-    }
-
-    context.drawImage(image, 0, 0);
-    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-    return (
-      decoder(pixels.data, canvas.width, canvas.height, { inversionAttempts: "attemptBoth" })
-        ?.data || undefined
-    );
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+  if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+    return undefined;
   }
+
+  if (
+    image.naturalWidth > MAX_QR_IMAGE_DIMENSION ||
+    image.naturalHeight > MAX_QR_IMAGE_DIMENSION ||
+    image.naturalWidth * image.naturalHeight > MAX_QR_IMAGE_PIXELS
+  ) {
+    throw new Error("The selected image dimensions are too large to scan.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return undefined;
+  }
+
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+  return (
+    decoder(pixels.data, canvas.width, canvas.height, { inversionAttempts: "attemptBoth" })?.data ||
+    undefined
+  );
 }
 
 export function AddAccountPage({ onNavigate, onToast, onAccountDetected }: AddAccountPageProps) {

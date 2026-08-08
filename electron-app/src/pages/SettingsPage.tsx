@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Save,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { credentialLabel, isPinCredential } from "@/lib/security-settings";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import type {
   AppSettings,
   AutoStartResult,
@@ -177,18 +178,20 @@ function CredentialDialog({
   const label = credentialLabel(dialog.kind);
   const pin = isPinCredential(dialog.kind);
   const setup = dialog.mode === "setup";
-
-  useEffect(() => {
-    setSecret("");
-    setConfirmation("");
-  }, [dialog]);
+  const dialogRef = useModalDialog();
 
   return (
-    <div className="credential-dialog" role="presentation">
+    <dialog
+      ref={dialogRef}
+      className="credential-dialog"
+      aria-labelledby="credential-dialog-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+    >
       <form
         className="credential-dialog__panel"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="credential-dialog-title"
         onSubmit={(event) => {
           event.preventDefault();
@@ -236,11 +239,15 @@ function CredentialDialog({
           </Button>
         </div>
       </form>
-    </div>
+    </dialog>
   );
 }
 
-export function SettingsPage({
+export function SettingsPage(props: SettingsPageProps) {
+  return useSettingsPage(props);
+}
+
+function useSettingsPage({
   settings,
   onChange,
   onAutoStartChange,
@@ -271,6 +278,7 @@ export function SettingsPage({
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [busyAction, setBusyAction] = useState<BusyAction>();
+  const passwordDialogRef = useModalDialog(Boolean(passwordDialog));
 
   function openPasswordDialog(action: PasswordDialogAction) {
     setPasswordDialog(action);
@@ -988,11 +996,14 @@ export function SettingsPage({
         </div>
       </div>
       {passwordDialog && (
-        <div
+        <dialog
+          ref={passwordDialogRef}
           className="lock-overlay"
-          role="dialog"
-          aria-modal="true"
           aria-labelledby="backup-password-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            closePasswordDialog();
+          }}
         >
           <div className="lock-overlay__panel">
             <LockKeyhole className="lock-overlay__icon" size={42} strokeWidth={1.35} />
@@ -1032,10 +1043,11 @@ export function SettingsPage({
               </Button>
             </form>
           </div>
-        </div>
+        </dialog>
       )}
       {credentialDialog && (
         <CredentialDialog
+          key={`${credentialDialog.kind}-${credentialDialog.mode}`}
           dialog={credentialDialog}
           error={credentialDialogError}
           busy={credentialDialogBusy}

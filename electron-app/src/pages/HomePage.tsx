@@ -50,6 +50,109 @@ const sortLabels: Record<SortOption, string> = {
   UsageBased: "Most used",
 };
 
+function reorderVisibleAccounts(current: OtpAccount[], orderIds: readonly string[]) {
+  const accountById = new Map(current.map((account) => [account.id, account]));
+  const seen = new Set<string>();
+  const ordered: OtpAccount[] = [];
+  for (const id of orderIds) {
+    const account = accountById.get(id);
+    if (account && !seen.has(id)) {
+      seen.add(id);
+      ordered.push(account);
+    }
+  }
+  for (const account of current) {
+    if (!seen.has(account.id)) {
+      seen.add(account.id);
+      ordered.push(account);
+    }
+  }
+  return ordered;
+}
+
+interface AccountListProps {
+  accounts: OtpAccount[];
+  accountTiming: HomePageProps["accountTiming"];
+  codes: HomePageProps["codes"];
+  showNextCode: boolean;
+  canReorder: boolean;
+  orderProjectionPending: boolean;
+  draggedAccountId: string | null;
+  dropTargetId: string | null;
+  onMoveUp: (accountId: string) => void;
+  onMoveDown: (accountId: string) => void;
+  onDragStart: (accountId: string) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>, accountId: string) => void;
+  onDragEnd: () => void;
+  onCopy: HomePageProps["onCopy"];
+  onEdit: HomePageProps["onEdit"];
+  onDelete: HomePageProps["onDelete"];
+}
+
+function AccountList({
+  accounts,
+  accountTiming,
+  codes,
+  showNextCode,
+  canReorder,
+  orderProjectionPending,
+  draggedAccountId,
+  dropTargetId,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  onCopy,
+  onEdit,
+  onDelete,
+}: AccountListProps) {
+  return (
+    <div className="account-list">
+      {accounts.map((account, index) => {
+        const timing = accountTiming[account.id] ?? {
+          remaining: account.period,
+          progress: Math.max(0, (account.period - 1) / Math.max(1, account.period)),
+        };
+        const accountCodes = codes[account.id] ?? {
+          code: "—".repeat(account.digits),
+          nextCode: "—".repeat(account.digits),
+        };
+
+        return (
+          <AccountCard
+            key={account.id}
+            account={account}
+            code={accountCodes.code}
+            nextCode={accountCodes.nextCode}
+            remaining={timing.remaining}
+            progress={timing.progress}
+            view={{
+              showNextCode,
+              reorderable: canReorder && !orderProjectionPending,
+              canMoveUp: canReorder && !orderProjectionPending && index > 0,
+              canMoveDown: canReorder && !orderProjectionPending && index < accounts.length - 1,
+              isDragging: draggedAccountId === account.id,
+              isDropTarget: dropTargetId === account.id,
+            }}
+            onMoveUp={() => onMoveUp(account.id)}
+            onMoveDown={() => onMoveDown(account.id)}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onDragEnd={onDragEnd}
+            onCopy={onCopy}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function HomePage({
   accounts,
   sort,
@@ -95,26 +198,6 @@ export function HomePage({
       cancelled = true;
     };
   }, [customOrderIds, filteredAccounts, sort]);
-
-  function reorderVisibleAccounts(current: OtpAccount[], orderIds: readonly string[]) {
-    const accountById = new Map(current.map((account) => [account.id, account]));
-    const seen = new Set<string>();
-    const ordered = [];
-    for (const id of orderIds) {
-      const account = accountById.get(id);
-      if (account && !seen.has(id)) {
-        seen.add(id);
-        ordered.push(account);
-      }
-    }
-    for (const account of current) {
-      if (!seen.has(account.id)) {
-        seen.add(account.id);
-        ordered.push(account);
-      }
-    }
-    return ordered;
-  }
 
   async function projectCustomOrder(
     orderIds: readonly string[],
@@ -297,46 +380,25 @@ export function HomePage({
                 </span>
               </div>
             )}
-            <div className="account-list">
-              {visibleAccounts.map((account, index) => {
-                const timing = accountTiming[account.id] ?? {
-                  remaining: account.period,
-                  progress: Math.max(0, (account.period - 1) / Math.max(1, account.period)),
-                };
-                const accountCodes = codes[account.id] ?? {
-                  code: "—".repeat(account.digits),
-                  nextCode: "—".repeat(account.digits),
-                };
-
-                return (
-                  <AccountCard
-                    key={account.id}
-                    account={account}
-                    code={accountCodes.code}
-                    nextCode={accountCodes.nextCode}
-                    remaining={timing.remaining}
-                    progress={timing.progress}
-                    showNextCode={showNextCode}
-                    reorderable={canReorder && !orderProjectionPending}
-                    canMoveUp={canReorder && !orderProjectionPending && index > 0}
-                    canMoveDown={
-                      canReorder && !orderProjectionPending && index < visibleAccounts.length - 1
-                    }
-                    isDragging={draggedAccountId === account.id}
-                    isDropTarget={dropTargetId === account.id}
-                    onMoveUp={() => moveAccount(account.id, -1)}
-                    onMoveDown={() => moveAccount(account.id, 1)}
-                    onDragStart={handleDragStart}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                    onDragEnd={handleDragEnd}
-                    onCopy={onCopy}
-                    onEdit={onEdit}
-                    onDelete={onDelete}
-                  />
-                );
-              })}
-            </div>
+            <AccountList
+              accounts={visibleAccounts}
+              accountTiming={accountTiming}
+              codes={codes}
+              showNextCode={showNextCode}
+              canReorder={canReorder}
+              orderProjectionPending={orderProjectionPending}
+              draggedAccountId={draggedAccountId}
+              dropTargetId={dropTargetId}
+              onMoveUp={(accountId) => void moveAccount(accountId, -1)}
+              onMoveDown={(accountId) => void moveAccount(accountId, 1)}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onDragEnd={handleDragEnd}
+              onCopy={onCopy}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
           </>
         ) : (
           <div className="empty-state">

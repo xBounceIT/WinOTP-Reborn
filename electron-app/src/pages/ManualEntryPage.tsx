@@ -1,5 +1,5 @@
 import { ArrowLeft, Save } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,11 +44,6 @@ export function ManualEntryPage({ account, onNavigate, onSave }: ManualEntryPage
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
-
-  useEffect(() => {
-    setForm(getFormState(account));
-    setError("");
-  }, [account]);
 
   function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
