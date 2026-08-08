@@ -2,6 +2,7 @@ import { LockKeyhole, ScanFace } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { NavigationRail } from "@/components/NavigationRail";
+import { LoadingScreen } from "@/components/LoadingScreen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -37,6 +38,7 @@ import {
   settingForCredential,
   securityStatusKey,
   shouldReleaseFailedLock,
+  shouldShowStartupLoading,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
 import { useModalDialog } from "@/lib/use-modal-dialog";
@@ -383,6 +385,11 @@ function useAppView() {
   const [startupProtectionAttempt, setStartupProtectionAttempt] = useState(0);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
+  const startupLoading = shouldShowStartupLoading(
+    locked,
+    settingsRecoveryRequired,
+    startupProtectionReady,
+  );
   const accountMutationVersion = useRef(0);
   const routeRef = useRef(route);
   const settingsRef = useRef(settings);
@@ -393,7 +400,7 @@ function useAppView() {
   const settingsHydrationTouchedRef = useRef(false);
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
-  const lockOverlayRef = useModalDialog(locked);
+  const lockOverlayRef = useModalDialog(locked && !startupLoading);
   const toastTimer = useRef<number | undefined>(undefined);
   const settingsSaveQueueRef = useRef<Promise<boolean> | undefined>(undefined);
   const settingsPersistenceVersionRef = useRef(0);
@@ -413,10 +420,11 @@ function useAppView() {
   const backupMutationVersion = useRef(0);
   const autoStartMutationVersion = useRef(0);
   const updateSettingsVersion = useRef(0);
-  const { accountTiming, codes } = useTotp(
-    accounts,
-    settingsLoaded && settingsSourceAvailable && securityReady && !locked,
-  );
+  const {
+    accountTiming,
+    codes,
+    loading: totpLoading,
+  } = useTotp(accounts, settingsLoaded && settingsSourceAvailable && securityReady && !locked);
   const [orderedAccounts, setOrderedAccounts] = useState<OtpAccount[]>(accounts);
 
   useEffect(() => {
@@ -1245,14 +1253,14 @@ function useAppView() {
 
   function setAppLocked(nextLocked: boolean) {
     lockedRef.current = nextLocked;
+    window.winotp?.setTrayState({
+      minimizeOnClose: settings.minimizeOnClose,
+      minimizeToTray: settings.minimizeToTray,
+      showTotpInTray: settings.showTotpInTray,
+      locked: nextLocked,
+      accounts: [],
+    });
     if (nextLocked) {
-      window.winotp?.setTrayState({
-        minimizeOnClose: settings.minimizeOnClose,
-        minimizeToTray: settings.minimizeToTray,
-        showTotpInTray: settings.showTotpInTray,
-        locked: true,
-        accounts: [],
-      });
       setEditingAccount(undefined);
       setUnlockValue("");
       setUnlockError("");
@@ -2228,7 +2236,11 @@ function useAppView() {
       ? remoteCredentialKind(settings)
       : directCredentialKind(settings);
     if (!kind) {
-      setUnlockError("Use Windows Hello to unlock this app.");
+      setUnlockError(
+        settings.windowsHello
+          ? "Use Windows Hello to unlock this app."
+          : "App protection is not configured.",
+      );
       return;
     }
 
@@ -2409,7 +2421,6 @@ function useAppView() {
           accounts={accounts}
           sort={settings.accountSortOption}
           customOrderIds={settings.accountCustomOrderIds}
-          loading={accountsLoading}
           storageError={accountsError}
           showNextCode={settings.showNextCode}
           accountTiming={accountTiming}
@@ -2481,7 +2492,13 @@ function useAppView() {
   const recoveryKind = recoveryCredentialKind(settings, securityStatus, settingsRecoveryRequired);
   const recoveryCanUseWindowsHello =
     recoveryKind === "remotePin" || recoveryKind === "remotePassword";
-  const protectionReady = settingsLoaded && settingsSourceAvailable && securityReady;
+  const protectionReady =
+    settingsLoaded &&
+    settingsSourceAvailable &&
+    securityReady &&
+    startupProtectionReady &&
+    hasConfiguredProtection(settings);
+  const homeLoading = route === "home" && (accountsLoading || totpLoading);
 
   return (
     <TooltipProvider>
@@ -2491,14 +2508,26 @@ function useAppView() {
           <span className="window-titlebar__title">WinOTP</span>
         </div>
 
-        {!locked && (
+        {startupLoading && (
           <div className="app-body">
-            <NavigationRail route={route} onNavigate={navigate} />
-            <main className="content-frame">{renderPage()}</main>
+            <LoadingScreen />
           </div>
         )}
 
-        {locked && (
+        {!locked && !startupLoading && (
+          <div className="app-body">
+            {homeLoading ? (
+              <LoadingScreen />
+            ) : (
+              <>
+                <NavigationRail route={route} onNavigate={navigate} />
+                <main className="content-frame">{renderPage()}</main>
+              </>
+            )}
+          </div>
+        )}
+
+        {locked && !startupLoading && (
           <dialog
             ref={lockOverlayRef}
             className="lock-overlay"
