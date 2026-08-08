@@ -134,7 +134,7 @@ export function ScreenCaptureOverlay() {
   const [capture, setCapture] = useState<ScreenCapturePayload>();
   const [loadedImageId, setLoadedImageId] = useState<string>();
   const [selection, setSelection] = useState<ScreenRect>();
-  const [dragStart, setDragStart] = useState<ScreenRect>();
+  const dragStart = useRef<ScreenRect | undefined>(undefined);
   const [isScanning, setIsScanning] = useState(false);
   const [bridgeError, setBridgeError] = useState("");
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -189,26 +189,27 @@ export function ScreenCaptureOverlay() {
     }
 
     const point = getPoint(event, overlayRef.current);
-    setDragStart(point);
+    dragStart.current = point;
     setSelection(point);
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (!dragStart || !overlayRef.current) {
+    if (!dragStart.current || !overlayRef.current) {
       return;
     }
 
-    setSelection(getSelection(dragStart, getPoint(event, overlayRef.current)));
+    setSelection(getSelection(dragStart.current, getPoint(event, overlayRef.current)));
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLDivElement>) {
-    if (!dragStart || !overlayRef.current) {
+    const start = dragStart.current;
+    if (!start || !overlayRef.current) {
       return;
     }
 
-    const nextSelection = getSelection(dragStart, getPoint(event, overlayRef.current));
-    setDragStart(undefined);
+    const nextSelection = getSelection(start, getPoint(event, overlayRef.current));
+    dragStart.current = undefined;
     setSelection(nextSelection);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -232,7 +233,7 @@ export function ScreenCaptureOverlay() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    setDragStart(undefined);
+    dragStart.current = undefined;
     setSelection(undefined);
   }
 

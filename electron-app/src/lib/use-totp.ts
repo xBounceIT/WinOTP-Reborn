@@ -89,7 +89,7 @@ export function useTotp(accounts: OtpAccount[], enabled = true) {
     };
   }, [accounts, codeTimestamp, enabled]);
 
-  const visibleCodes = enabled ? codes : {};
+  const visibleCodes = useMemo(() => (enabled ? codes : {}), [codes, enabled]);
 
   const accountTiming = useMemo(
     () =>

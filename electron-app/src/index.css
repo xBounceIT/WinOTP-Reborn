@@ -679,10 +679,6 @@ html:not(.dark) .toolbar-icon-button:hover {
   animation: next-code-in 200ms ease-out both;
 }
 
-.account-card__next-code--hiding {
-  animation: next-code-out 200ms ease-in both;
-}
-
 .account-card__timer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
@@ -947,6 +943,15 @@ html:not(.dark) .choice-card:hover {
   width: 100%;
 }
 
+.credential-dialog,
+.lock-overlay {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+}
+
 .credential-dialog {
   position: fixed;
   inset: env(titlebar-area-height, 0px) 0 0;
@@ -955,7 +960,14 @@ html:not(.dark) .choice-card:hover {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  border: 0;
   background: rgb(0 0 0 / 48%);
+  color: var(--foreground);
+}
+
+.credential-dialog::backdrop,
+.lock-overlay::backdrop {
+  background: transparent;
 }
 
 .credential-dialog__panel {
@@ -1021,7 +1033,10 @@ html:not(.dark) .choice-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: 0;
   background: var(--background);
+  color: var(--foreground);
 }
 
 .lock-overlay__panel {
@@ -1156,17 +1171,6 @@ html:not(.dark) .choice-card:hover {
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-
-@keyframes next-code-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(4px);
   }
 }
 

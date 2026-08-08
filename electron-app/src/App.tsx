@@ -39,6 +39,7 @@ import {
   shouldReleaseFailedLock,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import type {
   AppSettings,
   AutoStartResult,
@@ -64,6 +65,7 @@ import type {
 import { defaultSettings } from "@/lib/types";
 
 const settingsStorageKey = "winotp-electron.settings";
+const initialActivityAt = Date.now();
 type LockRequestReason = "manual" | "startup" | "inactivity" | "session";
 
 function initialUpdateState(settings: AppSettings): UpdateState {
@@ -255,7 +257,104 @@ function applyProtectionState(
   };
 }
 
+async function resolveProtectionViewState(
+  settingsValue: AppSettings,
+  status: SecurityCredentialStatus,
+): Promise<ProtectionViewState | undefined> {
+  const core = window.winotp?.core;
+  if (!core) {
+    return undefined;
+  }
+
+  try {
+    const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
+    const availability = helloResult?.success ? helloResult.status : "error";
+    return await core.reconcileProtection(
+      protectionInputForCore(settingsValue, status, availability),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function unavailableBackupOperation(message = "The Electron backup bridge is unavailable.") {
+  return {
+    success: false,
+    errorCode: "UnexpectedError",
+    message,
+  } satisfies BackupOperationResult;
+}
+
+async function exportBackup(passwordOverride?: string): Promise<BackupOperationResult> {
+  const backupBridge = window.winotp?.backup;
+  if (!backupBridge) {
+    return unavailableBackupOperation();
+  }
+
+  try {
+    return await backupBridge.export(passwordOverride);
+  } catch {
+    return unavailableBackupOperation("Unable to export the backup.");
+  }
+}
+
+async function checkWindowsHelloAvailability(): Promise<WindowsHelloAvailabilityStatus> {
+  try {
+    const result = await window.winotp?.security.getWindowsHelloAvailability();
+    return result?.success ? result.status : "error";
+  } catch {
+    return "error";
+  }
+}
+
+async function requestWindowsHelloVerification(): Promise<WindowsHelloVerificationResult> {
+  try {
+    const result = await window.winotp?.security.verifyWindowsHello();
+    return (
+      result ?? {
+        success: false,
+        message: "The Windows Hello bridge is unavailable.",
+      }
+    );
+  } catch {
+    return {
+      success: false,
+      message: "The Windows Hello bridge is unavailable.",
+    };
+  }
+}
+
+function windowsHelloAvailabilityMessage(status: WindowsHelloAvailabilityStatus) {
+  switch (status) {
+    case "unavailable":
+      return "Windows Hello is not available or is not configured on this device.";
+    case "remote-session":
+      return "Windows Hello is unavailable over Remote Desktop. Configure a fallback credential first.";
+    default:
+      return "Windows Hello is temporarily unavailable.";
+  }
+}
+
+function windowsHelloVerificationMessage(status: string) {
+  switch (status) {
+    case "canceled":
+      return "Windows Hello verification was canceled.";
+    case "failed":
+      return "Windows Hello verification failed. Please try again.";
+    case "remote-session":
+      return "Windows Hello is unavailable over Remote Desktop.";
+    case "unavailable":
+      return "Windows Hello is no longer available on this device.";
+    default:
+      return "Windows Hello is temporarily unavailable.";
+  }
+}
+
 export default function App() {
+  return useAppView();
+}
+
+function useAppView() {
   const [route, setRoute] = useState<Route>("home");
   const [accounts, setAccounts] = useState<OtpAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
@@ -290,14 +389,14 @@ export default function App() {
   const settingsHydrationTouchedRef = useRef(false);
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
-  const lockOverlayRef = useRef<HTMLDivElement>(null);
+  const lockOverlayRef = useModalDialog(locked);
   const toastTimer = useRef<number | undefined>(undefined);
-  const settingsSaveQueueRef = useRef(Promise.resolve(true));
+  const settingsSaveQueueRef = useRef<Promise<boolean> | undefined>(undefined);
   const settingsPersistenceVersionRef = useRef(0);
   const suppressedSettingsPersistenceRef = useRef<AppSettings | undefined>(undefined);
   const autoLockTimer = useRef<number | undefined>(undefined);
   const autoLockMonitoring = useRef(false);
-  const lastActivityAt = useRef(Date.now());
+  const lastActivityAt = useRef(initialActivityAt);
   const startupLockHandled = useRef(false);
   const customOrderPruneVersion = useRef(0);
   const pendingSessionLock = useRef(false);
@@ -306,21 +405,26 @@ export default function App() {
   const requestLockRef = useRef<((reason: LockRequestReason) => Promise<boolean>) | undefined>(
     undefined,
   );
+  const scheduleAutoLockTimerRef = useRef<(() => void) | undefined>(undefined);
   const backupMutationVersion = useRef(0);
   const autoStartMutationVersion = useRef(0);
   const updateSettingsVersion = useRef(0);
-  routeRef.current = route;
-  settingsRef.current = settings;
-  lockedRef.current = locked;
-  securityReadyRef.current = securityReady;
-  securityStorageAvailableRef.current = securityStorageAvailable;
-  securityStatusRef.current = securityStatus;
-  requestLockRef.current = requestLock;
   const { accountTiming, codes } = useTotp(
     accounts,
     settingsLoaded && settingsSourceAvailable && securityReady && !locked,
   );
   const [orderedAccounts, setOrderedAccounts] = useState<OtpAccount[]>(accounts);
+
+  useEffect(() => {
+    routeRef.current = route;
+    settingsRef.current = settings;
+    lockedRef.current = locked;
+    securityReadyRef.current = securityReady;
+    securityStorageAvailableRef.current = securityStorageAvailable;
+    securityStatusRef.current = securityStatus;
+    requestLockRef.current = requestLock;
+    scheduleAutoLockTimerRef.current = scheduleAutoLockTimer;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -337,26 +441,6 @@ export default function App() {
       cancelled = true;
     };
   }, [accounts, settings.accountCustomOrderIds, settings.accountSortOption]);
-
-  async function resolveProtectionViewState(
-    settingsValue: AppSettings,
-    status: SecurityCredentialStatus,
-  ): Promise<ProtectionViewState | undefined> {
-    const core = window.winotp?.core;
-    if (!core) {
-      return undefined;
-    }
-
-    try {
-      const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
-      const availability = helloResult?.success ? helloResult.status : "error";
-      return await core.reconcileProtection(
-        protectionInputForCore(settingsValue, status, availability),
-      );
-    } catch {
-      return undefined;
-    }
-  }
 
   async function disableUnavailableProtectionIfSafe(
     settingsValue: AppSettings,
@@ -396,15 +480,14 @@ export default function App() {
       setAccountsError("");
 
       const accountsBridge = window.winotp?.accounts;
-      if (!accountsBridge) {
-        if (!cancelled) {
-          setAccountsLoading(false);
-          setAccountsError("The Electron storage bridge is unavailable.");
-        }
-        return;
-      }
-
       try {
+        if (!accountsBridge) {
+          if (!cancelled) {
+            setAccountsError("The Electron storage bridge is unavailable.");
+          }
+          return;
+        }
+
         const result = await loadAccountsUntilCurrent(
           () => accountsBridge.list(),
           () => accountMutationVersion.current,
@@ -416,7 +499,6 @@ export default function App() {
 
         setAccounts(result.accounts);
         pruneStoredCustomOrderIds(result.accounts, result.issues);
-        setAccountsLoading(false);
         const storageIssue = result.issues.find((issue) => issue.code === "storage-unavailable");
         if (storageIssue) {
           setAccountsError(storageIssue.message);
@@ -443,8 +525,13 @@ export default function App() {
       } catch (error) {
         console.error("Failed to load stored WinOTP accounts.", error);
         if (!cancelled) {
-          setAccountsLoading(false);
           setAccountsError("Unable to load accounts from the local SQLite database.");
+        }
+      } finally {
+        if (!cancelled) {
+          // The reset is intentionally kept in finally so failures cannot leave the spinner stuck.
+          // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
+          setAccountsLoading(false);
         }
       }
     }
@@ -465,7 +552,7 @@ export default function App() {
 
       lastActivityAt.current = Date.now();
       if (autoLockMonitoring.current && autoLockTimer.current === undefined) {
-        scheduleAutoLockTimer();
+        scheduleAutoLockTimerRef.current?.();
       }
     };
 
@@ -477,7 +564,7 @@ export default function App() {
       stopAutoLockTimer();
     } else {
       lastActivityAt.current = Date.now();
-      scheduleAutoLockTimer();
+      scheduleAutoLockTimerRef.current?.();
     }
 
     return () => {
@@ -512,7 +599,7 @@ export default function App() {
     }
 
     startupLockHandled.current = true;
-    void requestLock("startup");
+    void requestLockRef.current?.("startup");
   }, [securityReady, settingsLoaded, settingsSourceAvailable, settingsRecoveryRequired]);
 
   useEffect(() => {
@@ -531,6 +618,8 @@ export default function App() {
     return unsubscribe;
   }, [securityReady]);
 
+  // The cancellation/version guard protects the post-await state update from stale responses.
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!settingsLoaded || !settingsSourceAvailable) {
       return;
@@ -563,6 +652,8 @@ export default function App() {
     };
   }, [settingsLoaded, settingsSourceAvailable]);
 
+  // The cancellation/version guards protect every post-await state update in this status refresh.
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!settingsLoaded || !settingsSourceAvailable) {
       return;
@@ -749,6 +840,8 @@ export default function App() {
     };
   }, []);
 
+  // The cancellation/version guards protect the rollback state update from stale persistence work.
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!settingsLoaded || !settingsSourceAvailable || !settingsPersistenceReady) {
       return;
@@ -826,6 +919,8 @@ export default function App() {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
   }, [settings.theme]);
 
+  // The cancellation/version guards protect reconciliation from stale security responses.
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (
       !isSecurityNormalizationReady(
@@ -840,14 +935,15 @@ export default function App() {
 
     let cancelled = false;
     const reconciliationVersion = ++protectionReconciliationVersion.current;
+    const settingsAtStart = settingsRef.current;
     async function reconcileProtection() {
-      const state = await resolveProtectionViewState(settings, securityStatus);
+      const state = await resolveProtectionViewState(settingsAtStart, securityStatus);
       if (
         !cancelled &&
         reconciliationVersion === protectionReconciliationVersion.current &&
         state &&
         canApplyProtectionReconciliation(
-          settings,
+          settingsAtStart,
           securityStatus,
           settingsRef.current,
           securityStatusRef.current,
@@ -981,7 +1077,7 @@ export default function App() {
 
     overlay.addEventListener("keydown", handleKeyDown);
     return () => overlay.removeEventListener("keydown", handleKeyDown);
-  }, [locked]);
+  }, [lockOverlayRef, locked]);
 
   useEffect(() => {
     const unsubscribe = window.winotp?.onTrayUsageRecorded(({ id, usageCount, lastUsedAt }) => {
@@ -1456,7 +1552,8 @@ export default function App() {
       return Promise.resolve(false);
     }
 
-    const saveOperation = settingsSaveQueueRef.current.then(async () => {
+    const previousSave = settingsSaveQueueRef.current ?? Promise.resolve(true);
+    const saveOperation = previousSave.then(async () => {
       try {
         const result = await settingsBridge.save(settingsValue);
         return result?.success === true;
@@ -1519,14 +1616,6 @@ export default function App() {
       effectiveFolderPath: settings.customBackupFolderPath,
       hasStoredPassword: false,
     };
-  }
-
-  function unavailableBackupOperation(message = "The Electron backup bridge is unavailable.") {
-    return {
-      success: false,
-      errorCode: "UnexpectedError",
-      message,
-    } satisfies BackupOperationResult;
   }
 
   async function changeAutomaticBackup(enabled: boolean, password?: string) {
@@ -1637,19 +1726,6 @@ export default function App() {
     }
   }
 
-  async function exportBackup(passwordOverride?: string): Promise<BackupOperationResult> {
-    const backupBridge = window.winotp?.backup;
-    if (!backupBridge) {
-      return unavailableBackupOperation();
-    }
-
-    try {
-      return await backupBridge.export(passwordOverride);
-    } catch {
-      return unavailableBackupOperation("Unable to export the backup.");
-    }
-  }
-
   async function setSecurityCredential(
     kind: SecurityCredentialKind,
     secret: string,
@@ -1707,58 +1783,6 @@ export default function App() {
     }
   }
 
-  async function checkWindowsHelloAvailability(): Promise<WindowsHelloAvailabilityStatus> {
-    try {
-      const result = await window.winotp?.security.getWindowsHelloAvailability();
-      return result?.success ? result.status : "error";
-    } catch {
-      return "error";
-    }
-  }
-
-  async function requestWindowsHelloVerification(): Promise<WindowsHelloVerificationResult> {
-    try {
-      const result = await window.winotp?.security.verifyWindowsHello();
-      return (
-        result ?? {
-          success: false,
-          message: "The Windows Hello bridge is unavailable.",
-        }
-      );
-    } catch {
-      return {
-        success: false,
-        message: "The Windows Hello bridge is unavailable.",
-      };
-    }
-  }
-
-  function windowsHelloAvailabilityMessage(status: WindowsHelloAvailabilityStatus) {
-    switch (status) {
-      case "unavailable":
-        return "Windows Hello is not available or is not configured on this device.";
-      case "remote-session":
-        return "Windows Hello is unavailable over Remote Desktop. Configure a fallback credential first.";
-      default:
-        return "Windows Hello is temporarily unavailable.";
-    }
-  }
-
-  function windowsHelloVerificationMessage(status: string) {
-    switch (status) {
-      case "canceled":
-        return "Windows Hello verification was canceled.";
-      case "failed":
-        return "Windows Hello verification failed. Please try again.";
-      case "remote-session":
-        return "Windows Hello is unavailable over Remote Desktop.";
-      case "unavailable":
-        return "Windows Hello is no longer available on this device.";
-      default:
-        return "Windows Hello is temporarily unavailable.";
-    }
-  }
-
   async function removeConfiguredCredential(kind: SecurityCredentialKind, updateSetting = false) {
     if (!securityStatus[securityStatusKey(kind)]) {
       return true;
@@ -1772,13 +1796,12 @@ export default function App() {
   }
 
   async function clearWindowsHelloFallbackCredentials(updateSetting = false) {
-    let removed = true;
-    for (const kind of ["remotePin", "remotePassword"] as const) {
-      if (!(await removeConfiguredCredential(kind, updateSetting))) {
-        removed = false;
-      }
-    }
-    return removed;
+    const results = await Promise.all(
+      (["remotePin", "remotePassword"] as const).map((kind) =>
+        removeConfiguredCredential(kind, updateSetting),
+      ),
+    );
+    return results.every(Boolean);
   }
 
   async function enableWindowsHelloProtection() {
@@ -1916,13 +1939,13 @@ export default function App() {
     }
 
     autoLockMonitoring.current = true;
-    const elapsed = Date.now() - lastActivityAt.current;
+    const elapsed = Date.now() - (lastActivityAt.current ?? Date.now());
     const remaining = timeout - elapsed;
     const delay = Math.max(100, Math.min(remaining, 10_000));
     autoLockTimer.current = window.setTimeout(() => {
       autoLockTimer.current = undefined;
 
-      if (Date.now() - lastActivityAt.current >= timeout) {
+      if (Date.now() - (lastActivityAt.current ?? Date.now()) >= timeout) {
         void requestLock("inactivity").finally(() => {
           if (!lockedRef.current) {
             scheduleAutoLockTimer();
@@ -2286,7 +2309,12 @@ export default function App() {
     }
     if (route === "manual") {
       return (
-        <ManualEntryPage account={editingAccount} onNavigate={navigate} onSave={saveAccount} />
+        <ManualEntryPage
+          key={editingAccount?.id ?? "new-account"}
+          account={editingAccount}
+          onNavigate={navigate}
+          onSave={saveAccount}
+        />
       );
     }
     return (
@@ -2347,12 +2375,11 @@ export default function App() {
         )}
 
         {locked && (
-          <div
+          <dialog
             ref={lockOverlayRef}
             className="lock-overlay"
-            role="dialog"
-            aria-modal="true"
             aria-labelledby="lock-title"
+            onCancel={(event) => event.preventDefault()}
           >
             <div className="lock-overlay__panel">
               <LockKeyhole className="lock-overlay__icon" size={54} strokeWidth={1.35} />
@@ -2449,7 +2476,7 @@ export default function App() {
                 </Button>
               )}
             </div>
-          </div>
+          </dialog>
         )}
 
         {toast && (

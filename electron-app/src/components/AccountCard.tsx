@@ -8,18 +8,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { isTotpPreviewAvailable } from "@/lib/totp-preview";
 import type { OtpAccount } from "@/lib/types";
 
-interface AccountCardProps {
-  account: OtpAccount;
-  code: string;
-  nextCode: string;
-  remaining: number;
-  progress: number;
+interface AccountCardViewState {
   showNextCode: boolean;
   reorderable: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
+}
+
+interface AccountCardProps {
+  account: OtpAccount;
+  code: string;
+  nextCode: string;
+  remaining: number;
+  progress: number;
+  view: AccountCardViewState;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDragStart: (accountId: string) => void;
@@ -80,35 +84,8 @@ function AnimatedCode({ code }: { code: string }) {
   );
 }
 
-function NextCodePreview({ code, visible }: { code: string; visible: boolean }) {
-  const [mounted, setMounted] = useState(visible);
-
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-    }
-  }, [visible]);
-
-  if (!mounted) {
-    return null;
-  }
-
-  return (
-    <span
-      key={code}
-      className={`account-card__next-code ${
-        visible ? "account-card__next-code--visible" : "account-card__next-code--hiding"
-      }`}
-      aria-hidden={!visible}
-      onAnimationEnd={() => {
-        if (!visible) {
-          setMounted(false);
-        }
-      }}
-    >
-      {code}
-    </span>
-  );
+function NextCodePreview({ code }: { code: string }) {
+  return <span className="account-card__next-code account-card__next-code--visible">{code}</span>;
 }
 
 function TickProgress({
@@ -155,12 +132,7 @@ export function AccountCard({
   nextCode,
   remaining,
   progress,
-  showNextCode,
-  reorderable,
-  canMoveUp,
-  canMoveDown,
-  isDragging,
-  isDropTarget,
+  view,
   onMoveUp,
   onMoveDown,
   onDragStart,
@@ -171,6 +143,7 @@ export function AccountCard({
   onEdit,
   onDelete,
 }: AccountCardProps) {
+  const { showNextCode, reorderable, canMoveUp, canMoveDown, isDragging, isDropTarget } = view;
   const [copied, setCopied] = useState(false);
   const accountLabel = account.issuer || account.accountName;
   const isCodeAvailable = isTotpPreviewAvailable(code, account.digits);
@@ -315,7 +288,7 @@ export function AccountCard({
 
       <div className="account-card__code-row">
         <AnimatedCode code={code} />
-        <NextCodePreview code={nextCode} visible={showNextCode && remaining <= 5} />
+        {showNextCode && remaining <= 5 && <NextCodePreview code={nextCode} />}
       </div>
 
       <div className="account-card__timer">
