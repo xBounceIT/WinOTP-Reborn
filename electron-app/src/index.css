@@ -679,10 +679,6 @@ html:not(.dark) .toolbar-icon-button:hover {
   animation: next-code-in 200ms ease-out both;
 }
 
-.account-card__next-code--hiding {
-  animation: next-code-out 200ms ease-in both;
-}
-
 .account-card__timer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
@@ -1175,17 +1171,6 @@ html:not(.dark) .choice-card:hover {
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-
-@keyframes next-code-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(4px);
   }
 }
 

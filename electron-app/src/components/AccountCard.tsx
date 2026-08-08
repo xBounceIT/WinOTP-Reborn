@@ -84,18 +84,8 @@ function AnimatedCode({ code }: { code: string }) {
   );
 }
 
-function NextCodePreview({ code, visible }: { code: string; visible: boolean }) {
-  return (
-    <span
-      key={code}
-      className={`account-card__next-code ${
-        visible ? "account-card__next-code--visible" : "account-card__next-code--hiding"
-      }`}
-      aria-hidden={!visible}
-    >
-      {code}
-    </span>
-  );
+function NextCodePreview({ code }: { code: string }) {
+  return <span className="account-card__next-code account-card__next-code--visible">{code}</span>;
 }
 
 function TickProgress({
@@ -298,7 +288,7 @@ export function AccountCard({
 
       <div className="account-card__code-row">
         <AnimatedCode code={code} />
-        {showNextCode && <NextCodePreview code={nextCode} visible={remaining <= 5} />}
+        {showNextCode && remaining <= 5 && <NextCodePreview code={nextCode} />}
       </div>
 
       <div className="account-card__timer">
