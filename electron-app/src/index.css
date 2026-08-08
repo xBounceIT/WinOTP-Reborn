@@ -955,7 +955,9 @@ html:not(.dark) .choice-card:hover {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  border: 0;
   background: rgb(0 0 0 / 48%);
+  color: var(--foreground);
 }
 
 .credential-dialog__panel {
@@ -1021,7 +1023,11 @@ html:not(.dark) .choice-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+  max-width: none;
+  padding: 0;
+  border: 0;
   background: var(--background);
+  color: var(--foreground);
 }
 
 .lock-overlay__panel {

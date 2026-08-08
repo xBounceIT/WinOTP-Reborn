@@ -41,7 +41,6 @@ export function NavigationRail({ route, onNavigate }: NavigationRailProps) {
           id="primary-navigation"
           className={cn("nav-rail", expanded && "nav-rail--expanded")}
           aria-label="Primary navigation"
-          aria-expanded={expanded}
         >
           <div className="nav-rail__group">
             <Tooltip>

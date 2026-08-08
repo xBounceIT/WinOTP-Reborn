@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Save,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -178,17 +178,10 @@ function CredentialDialog({
   const pin = isPinCredential(dialog.kind);
   const setup = dialog.mode === "setup";
 
-  useEffect(() => {
-    setSecret("");
-    setConfirmation("");
-  }, [dialog]);
-
   return (
-    <div className="credential-dialog" role="presentation">
+    <dialog className="credential-dialog" open aria-labelledby="credential-dialog-title">
       <form
         className="credential-dialog__panel"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="credential-dialog-title"
         onSubmit={(event) => {
           event.preventDefault();
@@ -236,11 +229,15 @@ function CredentialDialog({
           </Button>
         </div>
       </form>
-    </div>
+    </dialog>
   );
 }
 
-export function SettingsPage({
+export function SettingsPage(props: SettingsPageProps) {
+  return useSettingsPage(props);
+}
+
+function useSettingsPage({
   settings,
   onChange,
   onAutoStartChange,
@@ -988,12 +985,7 @@ export function SettingsPage({
         </div>
       </div>
       {passwordDialog && (
-        <div
-          className="lock-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="backup-password-title"
-        >
+        <dialog className="lock-overlay" aria-labelledby="backup-password-title" open>
           <div className="lock-overlay__panel">
             <LockKeyhole className="lock-overlay__icon" size={42} strokeWidth={1.35} />
             <h1 id="backup-password-title" className="lock-overlay__title">
@@ -1032,10 +1024,11 @@ export function SettingsPage({
               </Button>
             </form>
           </div>
-        </div>
+        </dialog>
       )}
       {credentialDialog && (
         <CredentialDialog
+          key={`${credentialDialog.kind}-${credentialDialog.mode}`}
           dialog={credentialDialog}
           error={credentialDialogError}
           busy={credentialDialogBusy}
