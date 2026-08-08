@@ -507,14 +507,26 @@ export default function App() {
       !settingsLoaded ||
       !settingsSourceAvailable ||
       settingsRecoveryRequired ||
+      securityMigrationPending ||
       startupLockHandled.current
     ) {
       return;
     }
 
     startupLockHandled.current = true;
+    if (!shouldStartLocked(settingsRef.current, true)) {
+      setAppLocked(false);
+      return;
+    }
+
     void requestLock("startup");
-  }, [securityReady, settingsLoaded, settingsSourceAvailable, settingsRecoveryRequired]);
+  }, [
+    securityMigrationPending,
+    securityReady,
+    settingsLoaded,
+    settingsRecoveryRequired,
+    settingsSourceAvailable,
+  ]);
 
   useEffect(() => {
     if (!securityReady) {

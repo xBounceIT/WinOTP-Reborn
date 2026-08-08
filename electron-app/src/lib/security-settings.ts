@@ -85,8 +85,9 @@ export function hasConfiguredProtection(
 
 export function shouldStartLocked(
   settings: Pick<AppSettings, "pinProtection" | "passwordProtection" | "windowsHello">,
+  settingsAuthoritative = false,
 ) {
-  return hasConfiguredProtection(settings);
+  return !settingsAuthoritative || hasConfiguredProtection(settings);
 }
 
 export function shouldReleaseFailedLock(lockApplied: boolean, protectionConfigured: boolean) {
