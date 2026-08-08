@@ -67,6 +67,7 @@ import { defaultSettings } from "@/lib/types";
 const settingsStorageKey = "winotp-electron.settings";
 const initialActivityAt = Date.now();
 type LockRequestReason = "manual" | "startup" | "inactivity" | "session";
+type WinOtpCore = NonNullable<NonNullable<Window["winotp"]>["core"]>;
 
 function initialUpdateState(settings: AppSettings): UpdateState {
   const enabled = settings.updateOnStartup;
@@ -168,7 +169,14 @@ function hasStoredAppSettings() {
   }
 }
 
-function credentialStatusForCore(isSet: boolean): "NotSet" | "Set" {
+function credentialStatusForCore(
+  isSet: boolean,
+  securityStorageAvailable: boolean,
+): "NotSet" | "Set" | "Error" {
+  if (!securityStorageAvailable) {
+    return "Error";
+  }
+
   return isSet ? "Set" : "NotSet";
 }
 
@@ -221,6 +229,7 @@ function protectionInputForCore(
   settings: AppSettings,
   status: SecurityCredentialStatus,
   helloAvailability: WindowsHelloAvailabilityStatus,
+  securityStorageAvailable: boolean,
 ): ProtectionCoreInput {
   return {
     pinEnabled: settings.pinProtection,
@@ -228,11 +237,14 @@ function protectionInputForCore(
     windowsHelloEnabled: settings.windowsHello,
     remotePinEnabled: settings.remotePin,
     remotePasswordEnabled: settings.remotePassword,
-    pinStatus: credentialStatusForCore(status.pinSet),
-    passwordStatus: credentialStatusForCore(status.passwordSet),
+    pinStatus: credentialStatusForCore(status.pinSet, securityStorageAvailable),
+    passwordStatus: credentialStatusForCore(status.passwordSet, securityStorageAvailable),
     windowsHelloAvailability: helloAvailabilityForCore(helloAvailability),
-    remotePinStatus: credentialStatusForCore(status.remotePinSet),
-    remotePasswordStatus: credentialStatusForCore(status.remotePasswordSet),
+    remotePinStatus: credentialStatusForCore(status.remotePinSet, securityStorageAvailable),
+    remotePasswordStatus: credentialStatusForCore(
+      status.remotePasswordSet,
+      securityStorageAvailable,
+    ),
   };
 }
 
@@ -257,24 +269,14 @@ function applyProtectionState(
   };
 }
 
-async function resolveProtectionViewState(
-  settingsValue: AppSettings,
-  status: SecurityCredentialStatus,
-): Promise<ProtectionViewState | undefined> {
-  const core = window.winotp?.core;
-  if (!core) {
-    return undefined;
-  }
-
-  try {
-    const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
-    const availability = helloResult?.success ? helloResult.status : "error";
-    return await core.reconcileProtection(
-      protectionInputForCore(settingsValue, status, availability),
-    );
-  } catch {
-    return undefined;
-  }
+function hasProtectionSettingsChanged(left: AppSettings, right: AppSettings) {
+  return (
+    left.pinProtection !== right.pinProtection ||
+    left.passwordProtection !== right.passwordProtection ||
+    left.windowsHello !== right.windowsHello ||
+    left.remotePin !== right.remotePin ||
+    left.remotePassword !== right.remotePassword
+  );
 }
 
 function unavailableBackupOperation(message = "The Electron backup bridge is unavailable.") {
@@ -377,6 +379,8 @@ function useAppView() {
   const [securityMigrationPending, setSecurityMigrationPending] = useState(false);
   const [settingsRecoveryRequired, setSettingsRecoveryRequired] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
+  const [startupProtectionReady, setStartupProtectionReady] = useState(false);
+  const [startupProtectionAttempt, setStartupProtectionAttempt] = useState(0);
   const [securityStatus, setSecurityStatus] =
     useState<SecurityCredentialStatus>(emptySecurityStatus);
   const accountMutationVersion = useRef(0);
@@ -442,16 +446,62 @@ function useAppView() {
     };
   }, [accounts, settings.accountCustomOrderIds, settings.accountSortOption]);
 
-  async function disableUnavailableProtectionIfSafe(
+  async function resolveProtectionCoreInput(
     settingsValue: AppSettings,
     status: SecurityCredentialStatus,
-  ) {
+  ): Promise<ProtectionCoreInput | undefined> {
+    try {
+      const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
+      const availability = helloResult?.success ? helloResult.status : "error";
+      return protectionInputForCore(
+        settingsValue,
+        status,
+        availability,
+        securityStorageAvailableRef.current,
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function withProtectionCore<T>(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+    operation: (core: WinOtpCore, input: ProtectionCoreInput) => Promise<T>,
+  ): Promise<T | undefined> {
+    const core = window.winotp?.core;
+    const input = await resolveProtectionCoreInput(settingsValue, status);
+    if (!core || !input) {
+      return undefined;
+    }
+
+    try {
+      return await operation(core, input);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function resolveProtectionViewState(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ): Promise<ProtectionViewState | undefined> {
+    return withProtectionCore(settingsValue, status, (core, input) =>
+      core.reconcileProtection(input),
+    );
+  }
+
+  async function reconcileProtectionSettingsIfSafe(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+    resolvedState?: ProtectionViewState,
+  ): Promise<AppSettings | undefined> {
     if (securityMigrationPending) {
-      return false;
+      return undefined;
     }
 
     const reconciliationVersion = ++protectionReconciliationVersion.current;
-    const state = await resolveProtectionViewState(settingsValue, status);
+    const state = resolvedState ?? (await resolveProtectionViewState(settingsValue, status));
     if (
       !state ||
       reconciliationVersion !== protectionReconciliationVersion.current ||
@@ -462,14 +512,25 @@ function useAppView() {
         securityStatusRef.current,
       )
     ) {
-      return false;
+      return undefined;
     }
 
     const nextSettings = applyProtectionState(settingsValue, state);
-    if (!(await persistProtectionSettings(nextSettings))) {
-      return false;
+    if (
+      hasProtectionSettingsChanged(settingsValue, nextSettings) &&
+      !(await persistProtectionSettings(nextSettings))
+    ) {
+      return undefined;
     }
-    return !hasConfiguredProtection(nextSettings);
+    return nextSettings;
+  }
+
+  async function disableUnavailableProtectionIfSafe(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ) {
+    const nextSettings = await reconcileProtectionSettingsIfSafe(settingsValue, status);
+    return nextSettings ? !hasConfiguredProtection(nextSettings) : false;
   }
 
   useEffect(() => {
@@ -593,14 +654,75 @@ function useAppView() {
       !settingsLoaded ||
       !settingsSourceAvailable ||
       settingsRecoveryRequired ||
+      securityMigrationPending ||
       startupLockHandled.current
     ) {
       return;
     }
 
-    startupLockHandled.current = true;
-    void requestLockRef.current?.("startup");
-  }, [securityReady, settingsLoaded, settingsSourceAvailable, settingsRecoveryRequired]);
+    let cancelled = false;
+    let retryTimer: number | undefined;
+
+    async function resolveStartupLock() {
+      const settingsAtStart = settingsRef.current;
+      const securityStatusAtStart = securityStatusRef.current;
+      const state = await resolveProtectionViewState(settingsAtStart, securityStatusAtStart);
+      if (cancelled) {
+        return;
+      }
+      if (!state) {
+        retryTimer = window.setTimeout(
+          () => setStartupProtectionAttempt((attempt) => attempt + 1),
+          1000,
+        );
+        return;
+      }
+      if (
+        settingsRef.current !== settingsAtStart ||
+        securityStatusRef.current !== securityStatusAtStart
+      ) {
+        return;
+      }
+
+      if (!state.presentation.shouldShowLockScreen) {
+        const reconciledSettings = await reconcileProtectionSettingsIfSafe(
+          settingsAtStart,
+          securityStatusAtStart,
+          state,
+        );
+        if (cancelled || !reconciledSettings) {
+          return;
+        }
+
+        startupLockHandled.current = true;
+        setStartupProtectionReady(true);
+        setAppLocked(false);
+        return;
+      }
+
+      startupLockHandled.current = true;
+      setStartupProtectionReady(true);
+      void requestLock("startup");
+    }
+
+    void resolveStartupLock();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [
+    securityMigrationPending,
+    securityReady,
+    securityStatus,
+    securityStorageAvailable,
+    settings,
+    settingsLoaded,
+    settingsRecoveryRequired,
+    settingsSourceAvailable,
+    startupProtectionAttempt,
+  ]);
 
   useEffect(() => {
     if (!securityReady) {
@@ -928,6 +1050,7 @@ function useAppView() {
         securityReady,
         securityStorageAvailable,
         securityMigrationPending,
+        startupProtectionReady,
       )
     ) {
       return;
@@ -962,6 +1085,7 @@ function useAppView() {
     securityReady,
     securityStatus,
     securityStorageAvailable,
+    startupProtectionReady,
     settingsLoaded,
     settings.passwordProtection,
     settings.pinProtection,

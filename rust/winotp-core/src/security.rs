@@ -203,7 +203,14 @@ pub fn resolve_presentation(
     trigger: PresentationTrigger,
     resolution: AppLockResolution,
 ) -> PresentationDecision {
-    let protected = resolution.mode != AppLockMode::None;
+    let protected = match trigger {
+        PresentationTrigger::Startup => {
+            resolution.mode != AppLockMode::None
+                || resolution.has_configured_protection_error()
+                || resolution.has_windows_hello_remote_session
+        }
+        PresentationTrigger::SettingsChange => resolution.mode != AppLockMode::None,
+    };
     match (trigger, protected) {
         (PresentationTrigger::Startup, true) => PresentationDecision {
             should_show_lock_screen: true,
@@ -305,6 +312,7 @@ pub fn should_reconcile_on_session_change(code: u32) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct ProtectionViewState {
     pub resolution: AppLockResolution,
+    pub presentation: PresentationDecision,
     pub pin_enabled: bool,
     pub password_enabled: bool,
     pub windows_hello_enabled: bool,
@@ -543,8 +551,10 @@ pub fn reconcile_protection_view_state(inputs: ProtectionInputs) -> ProtectionVi
             remote_password_status,
         });
     }
+    let presentation = resolve_presentation(PresentationTrigger::Startup, resolution);
     ProtectionViewState {
         resolution,
+        presentation,
         pin_enabled,
         password_enabled,
         windows_hello_enabled,
@@ -612,6 +622,88 @@ mod tests {
         assert_eq!(state.resolution.mode, AppLockMode::None);
         assert!(state.resolution.has_windows_hello_remote_session);
         assert!(!state.resolution.disable_unavailable_windows_hello);
+    }
+
+    #[test]
+    fn startup_presentation_uses_the_authoritative_protection_resolution() {
+        let protected = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: true,
+            password_enabled: false,
+            windows_hello_enabled: false,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::Set,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(protected.presentation.should_show_lock_screen);
+
+        let unprotected = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: false,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(!unprotected.presentation.should_show_lock_screen);
+    }
+
+    #[test]
+    fn startup_presentation_uses_the_same_state_that_disables_unavailable_windows_hello() {
+        let state = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: true,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+
+        assert!(!state.windows_hello_enabled);
+        assert_eq!(state.resolution.mode, AppLockMode::None);
+        assert!(!state.presentation.should_show_lock_screen);
+    }
+
+    #[test]
+    fn startup_presentation_stays_locked_for_protection_errors_and_remote_sessions() {
+        let error = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: true,
+            password_enabled: false,
+            windows_hello_enabled: false,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::Error,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::Unavailable,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(error.presentation.should_show_lock_screen);
+
+        let remote_session = reconcile_protection_view_state(ProtectionInputs {
+            pin_enabled: false,
+            password_enabled: false,
+            windows_hello_enabled: true,
+            remote_pin_enabled: false,
+            remote_password_enabled: false,
+            pin_status: CredentialStatus::NotSet,
+            password_status: CredentialStatus::NotSet,
+            windows_hello_availability: WindowsHelloAvailability::RemoteSession,
+            remote_pin_status: CredentialStatus::NotSet,
+            remote_password_status: CredentialStatus::NotSet,
+        });
+        assert!(remote_session.presentation.should_show_lock_screen);
     }
 
     #[test]

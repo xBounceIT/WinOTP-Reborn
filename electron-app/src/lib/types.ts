@@ -58,11 +58,18 @@ export interface ProtectionViewState {
     disableUnavailableWindowsHelloRemotePin: boolean;
     disableUnavailableWindowsHelloRemotePassword: boolean;
   };
+  presentation: ProtectionPresentationDecision;
   pinEnabled: boolean;
   passwordEnabled: boolean;
   windowsHelloEnabled: boolean;
   remotePinEnabled: boolean;
   remotePasswordEnabled: boolean;
+}
+
+export interface ProtectionPresentationDecision {
+  shouldShowLockScreen: boolean;
+  shouldEnsureInitialPage: boolean;
+  shouldStartMonitoring: boolean;
 }
 
 export interface ProtectionCoreInput {

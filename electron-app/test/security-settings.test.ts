@@ -14,12 +14,13 @@ import {
 } from "../src/lib/security-settings.ts";
 import { defaultSettings } from "../src/lib/types.ts";
 
-test("does not normalize protection settings while secure storage is unavailable", () => {
-  assert.equal(isSecurityNormalizationReady(true, true, false), false);
-  assert.equal(isSecurityNormalizationReady(true, false, true), false);
-  assert.equal(isSecurityNormalizationReady(false, true, true), false);
-  assert.equal(isSecurityNormalizationReady(true, true, true, true), false);
-  assert.equal(isSecurityNormalizationReady(true, true, true), true);
+test("normalizes protection settings only after security and startup are ready", () => {
+  assert.equal(isSecurityNormalizationReady(true, true, false, false, true), false);
+  assert.equal(isSecurityNormalizationReady(true, false, true, false, true), false);
+  assert.equal(isSecurityNormalizationReady(false, true, true, false, true), false);
+  assert.equal(isSecurityNormalizationReady(true, true, true, true, true), false);
+  assert.equal(isSecurityNormalizationReady(true, true, true, false, false), false);
+  assert.equal(isSecurityNormalizationReady(true, true, true, false, true), true);
 });
 
 test("maps credential kinds to their persisted status fields", () => {
