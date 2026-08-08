@@ -1,186 +1,69 @@
 # WinOTP
 
-Successor to my previous project: https://github.com/xBounceIT/WinOTP
+WinOTP is a secure, cross-platform TOTP authenticator with a TypeScript-only desktop frontend and an entirely Rust backend.
 
-A modern, secure TOTP (Time-based One-Time Password) authenticator app for Windows 11, built with .NET 10 and WinUI 3.
+## Current architecture
 
-![Windows](https://img.shields.io/badge/Windows-11-blue?logo=windows)
-![.NET](https://img.shields.io/badge/.NET-10.0-purple?logo=dotnet)
-![Platform](https://img.shields.io/badge/platform-x64%20%7C%20ARM64-lightgrey)
+- `electron-app/src/` — TypeScript 7 React renderer and typed frontend state.
+- `electron-app/electron/` — TypeScript Electron host, preload bridge, persistence boundary, and OS adapters. These files are part of the desktop frontend/platform layer: they must not contain portable domain or cryptographic backend logic.
+- `electron-app/scripts/` and `electron-app/vite.config.ts` — TypeScript development, build, packaging, and frontend configuration.
+- `electron-app/electron-dist/` — ignored generated CommonJS runtime output compiled from `.cts` sources; it is never a source directory.
+- `rust/winotp-core/` — portable account model, OTP generation, URI/import mapping, backup cryptography, ordering, settings, and protection policy.
+- `rust/winotp-updater/` — platform-neutral update discovery and installer verification sidecar.
 
-## Features
+The Electron main process stores accounts in its per-user `WinOTP_Reborn/accounts.db` directory. TOTP secrets and security credentials are encrypted with Electron `safeStorage` before they are written to disk; Electron maps that API to DPAPI, Keychain, or the Linux secret-service backend as appropriate. On Windows, valid entries from the previous Credential Manager store are imported once. The same launch migrates the legacy settings and credentials when they are available.
 
-- **Secure Storage**: TOTP secrets are encrypted and stored using Windows Credential Manager (DPAPI)
-- **QR Code Import**: Scan QR codes from files or screen capture
-- **Manual Entry**: Add accounts manually with support for custom settings
-- **Encrypted Backups**: Create password-protected backup files and optional automatic local backup history
-- **Real-time Codes**: Auto-refreshing TOTP codes with visual countdown timers
-- **Multiple Algorithms**: Supports SHA1, SHA256, and SHA512
-- **Flexible Sorting**: Sort accounts by date added or alphabetically (ascending/descending)
-- **Account Management**: Easy deletion with confirmation dialogs
-- **Native Windows UI**: Modern WinUI 3 interface with dark/light mode support
+Rust is the complete backend and is authoritative for data normalization, OTP and backup cryptography, imports, ordering rules, settings normalization, protection decisions, plus update discovery, selection, download, digest verification, and installer launch. TypeScript is frontend-only: Electron owns the cross-platform host and adapter boundary—IPC, update UI state, SQLite and OS-backed persistence access, windows, login items, desktop capture, and renderer-only browser work such as `jsqr`—but no backend business rules.
 
-## Screenshots
+## Run the Electron app
 
-<img width="731" height="797" alt="immagine" src="https://github.com/user-attachments/assets/dc4ec69c-fb41-4862-9df3-81397f82d0da" />
-<img width="731" height="797" alt="immagine" src="https://github.com/user-attachments/assets/4657af51-8024-474d-ab2a-e824a4ba47d6" />
-
-
-
-## Requirements
-
-- Windows 11 (Build 19041 or later)
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for building from source
-
-## Installation
-
-### Download Pre-built Binary
-
-Download the latest release from the [Releases](https://github.com/xBounceIT/WinOTP-Reborn/releases) page. The installer packages the required .NET and Windows App SDK runtime files for the target architecture.
-
-### Build from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/xBounceIT/WinOTP-Reborn.git
-cd WinOTP-Reborn
-
-# Build the project
-dotnet build -c Release
-
-# Run the app
-dotnet run
-```
-
-### Build Installer
-
-The project version in `WinOTP.csproj` is the source of truth for both the app and installer version.
-
-Prerequisites:
-
-- Windows PowerShell
-- .NET SDK installed at `C:\Program Files\dotnet\dotnet.exe`
-- Inno Setup 6 installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
-
-Run the packaging script from Windows PowerShell:
+Requirements: Node.js 24 or newer.
 
 ```powershell
-.\scripts\Build-Installer.ps1 -Architecture x64
+cd electron-app
+npm install
+npm run dev
 ```
 
-Build an ARM64 installer:
+For production renderer checks:
 
 ```powershell
-.\scripts\Build-Installer.ps1 -Architecture arm64
+cd electron-app
+npm run typecheck
+npm run lint
+npm run format:check
+npm run test
+npm run test:electron
+npm run build
 ```
 
-The script publishes a self-contained app payload, validates that the publish directory contains the compiled WinUI XAML assets (`WinOTP.pri` and app `.xbf` files), reads the version from `WinOTP.csproj`, and passes it into `installer/WinOTP.iss`.
-The raw project version is kept for installer metadata, while the generated installer filename uses a normalized version that strips any leading `v` and SemVer build metadata so release assets match the updater's expected naming.
+The app currently supports the home, add-account, manual-entry, import, settings, multi-display QR screen-capture, backup, protection, and update flows. Portable behavior is implemented in Rust and exposed through a narrow JSON sidecar bridge; Electron IPC exposes only renderer-safe operations.
 
-## Usage
+## Test the Rust core
 
-### Adding an Account
+```powershell
+cargo test --manifest-path rust/Cargo.toml --workspace
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+```
 
-1. Click **"Add Account"** on the home screen
-2. Choose one of the following methods:
-   - **Import QR from File**: Select a QR code image from your computer
-   - **Capture QR from Screen**: Select a region of your screen containing a QR code
-   - **Manual Entry**: Enter the account details and secret key manually
+Packaging automatically builds both platform-specific Rust sidecars through the `prepackage` lifecycle hook. To build them separately for a packaged Electron build:
 
-### Viewing TOTP Codes
-
-- All accounts are displayed on the home screen with their current TOTP codes
-- Codes automatically refresh every 30 seconds (or custom period)
-- A progress bar shows how much time remains before the code changes
-
-### Sorting Accounts
-
-Use the dropdown menu to sort accounts by:
-- Date Added (Newest First)
-- Date Added (Oldest First)
-- Name (A → Z)
-- Name (Z → A)
-
-### Deleting an Account
-
-Click the trash icon next to an account and confirm the deletion. The account and its secret will be permanently removed from Windows Credential Manager.
-
-### Backing Up Tokens
-
-- Open **Settings** to enable automatic backups
-- Automatic backups are password-protected and stored in `%LocalAppData%\\WinOTP_Reborn\\Backups` by default
-- You can choose a custom folder for automatic backups from **Settings**
-- Manual **Export backup** writes a `.wotpbackup` file to a location you choose
-- Manual **Import backup** restores tokens from a `.wotpbackup` file using its password
+```powershell
+cd electron-app
+npm run build:updater
+npm run build:core
+npm run package -- --win --x64
+```
 
 ## Security
 
-WinOTP prioritizes the security of your TOTP secrets:
+- Account secrets are encrypted with OS-backed Electron `safeStorage` before database storage.
+- Legacy Windows Credential Manager entries are read only for the one-time migration; existing Electron credentials and settings remain authoritative when already present.
+- Backup data remains local and password-protected where the corresponding Electron bridge is enabled.
+- No cloud synchronization is performed.
 
-- **Encryption**: All secrets are encrypted using Windows Data Protection API (DPAPI)
-- **Isolation**: Credentials are stored per Windows user account
-- **No Cloud Sync**: Your secrets never leave your device
-- **Password-Protected Backups**: Backup files are encrypted with a user-provided password
-- **OS-Level Security**: Leverages Windows Credential Manager for secure storage
+## Project status
 
-## Supported Algorithms
+The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging is now handled by `.github/workflows/release.yml`, which builds a Windows NSIS setup, Linux AppImage, and universal macOS DMG for version tags such as `v2.0.0`.
 
-| Algorithm | Hash Function |
-|-----------|--------------|
-| SHA1      | HMAC-SHA1    |
-| SHA256    | HMAC-SHA256  |
-| SHA512    | HMAC-SHA512  |
-
-## Compatible Services
-
-WinOTP works with any service that supports standard TOTP authenticator apps:
-
-- Google
-- Microsoft
-- GitHub
-- AWS
-- Discord
-- Dropbox
-- And many more...
-
-## Dependencies
-
-- [Microsoft.WindowsAppSDK](https://www.nuget.org/packages/Microsoft.WindowsAppSDK/) (1.8.260209005)
-- [Otp.NET](https://www.nuget.org/packages/Otp.NET/) (1.4.1) - TOTP generation
-- [ZXing.Net](https://www.nuget.org/packages/ZXing.Net/) (0.16.11) - QR code decoding
-
-## Architecture
-
-```
-WinOTP/
-├── Models/
-│   └── OtpAccount.cs          # TOTP account model
-├── Services/
-│   ├── CredentialManagerService.cs  # Secure storage
-│   ├── BackupService.cs             # Encrypted backup import/export
-│   └── TotpCodeGenerator.cs         # TOTP code generation
-├── Pages/
-│   ├── HomePage.xaml          # Main account list
-│   ├── AddAccountPage.xaml    # Add account methods
-│   ├── ManualEntryPage.xaml   # Manual account entry
-│   ├── SettingsPage.xaml      # Security, display, and backup settings
-│   └── ScreenCaptureOverlay.xaml    # Screen QR capture
-└── Helpers/
-    ├── QrCodeHelper.cs        # QR code processing
-    ├── OtpUriParser.cs        # OTP URI parsing
-    └── ScreenCaptureHelper.cs # Screen capture utilities
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- [Otp.NET](https://github.com/kspearrin/Otp.NET) for TOTP implementation
-- [ZXing.Net](https://github.com/micjahn/ZXing.Net) for QR code processing
-- [WinUI 3](https://github.com/microsoft/microsoft-ui-xaml) for the modern Windows UI framework
+WinOTP is licensed under the MIT License.

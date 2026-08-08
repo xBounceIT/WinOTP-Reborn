@@ -1,0 +1,946 @@
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const { isSecureStorageAvailable } = require("./safe-storage.cjs");
+
+const { getAppDataDirectory, normalizeAccounts } = require("./account-store.cjs");
+const { runRustCore } = require("./rust-core.cjs");
+
+const BACKUP_EXTENSION = ".wotpbackup";
+const AUTOMATIC_BACKUP_PREFIX = "auto-";
+const BACKUP_HISTORY_LIMIT = 20;
+const MAX_BACKUP_FILE_SIZE_BYTES = 32 * 1024 * 1024;
+const RUST_CORE_MAX_BUFFER_BYTES = MAX_BACKUP_FILE_SIZE_BYTES * 2;
+const MAX_BACKUP_ACCOUNT_COUNT = 1_000;
+const PASSWORD_FILE_NAME = ".backup-password";
+const SETTINGS_FILE_NAME = "backup-settings.json";
+const DEFAULT_BACKUP_FOLDER_NAME = "Backups";
+const BACKUP_FORMAT_ERROR_MESSAGES = new Set([
+  "The backup file format is not supported.",
+  "The backup file is corrupted.",
+  "The backup file payload is invalid.",
+]);
+
+class BackupPasswordUnavailableError extends Error {
+  constructor() {
+    super("Stored backup password is unavailable.");
+    this.name = "BackupPasswordUnavailableError";
+  }
+}
+
+function failure(errorCode, message, extra: Record<string, unknown> = {}) {
+  return {
+    success: false,
+    errorCode,
+    message,
+    ...extra,
+  };
+}
+
+function validateBackupPassword(password) {
+  try {
+    runRustCore("validate-backup-password", { password });
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Backup password is invalid.",
+    };
+  }
+}
+
+function isValidPassword(password) {
+  return validateBackupPassword(password).success;
+}
+
+function normalizeCustomFolderPath(value) {
+  const folderPath = typeof value === "string" ? value.trim() : "";
+  if (!folderPath) {
+    return "";
+  }
+
+  if (!path.isAbsolute(folderPath)) {
+    return folderPath;
+  }
+
+  try {
+    return path.resolve(folderPath);
+  } catch {
+    return folderPath;
+  }
+}
+
+function defaultBackupSettings() {
+  return {
+    automaticEnabled: false,
+    customFolderPath: "",
+  };
+}
+
+function readStoredBackupSettings(filePath, options: any = {}) {
+  const strict = options.strict === true;
+  let contents;
+
+  try {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+
+    if (strict) {
+      throw new Error("The stored backup settings could not be read.");
+    }
+
+    return undefined;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (typeof parsed.automaticEnabled !== "boolean") {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  if (parsed.customFolderPath !== undefined && typeof parsed.customFolderPath !== "string") {
+    if (strict) {
+      throw new Error("The stored backup settings are invalid.");
+    }
+
+    return undefined;
+  }
+
+  const customFolderPath = normalizeCustomFolderPath(parsed.customFolderPath);
+  return {
+    automaticEnabled: parsed.automaticEnabled,
+    customFolderPath: customFolderPath && path.isAbsolute(customFolderPath) ? customFolderPath : "",
+  };
+}
+
+function getUniquePath(basePath) {
+  if (!fs.existsSync(basePath)) {
+    return basePath;
+  }
+
+  const directory = path.dirname(basePath);
+  const extension = path.extname(basePath);
+  const fileName = path.basename(basePath, extension);
+  for (let index = 1; index < 1000; index += 1) {
+    const candidate = path.join(directory, `${fileName}-${index}${extension}`);
+    if (!fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return path.join(directory, `${fileName}-${crypto.randomUUID()}${extension}`);
+}
+
+function writeFileAtomically(filePath, data, options = {}) {
+  const temporaryPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${crypto.randomUUID()}.tmp`,
+  );
+
+  try {
+    fs.writeFileSync(temporaryPath, data, { ...options, flag: "wx" });
+    fs.renameSync(temporaryPath, filePath);
+  } finally {
+    try {
+      fs.rmSync(temporaryPath, { force: true });
+    } catch {
+      // The destination may already have been replaced successfully.
+    }
+  }
+}
+
+function encodeDateForFileName(date) {
+  return date
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
+}
+
+function encryptPayload(payload, password) {
+  const rustEnvelope = runRustCore(
+    "backup-encrypt",
+    {
+      accounts: payload.accounts,
+      password,
+      exportedAtUtc: payload.exportedAtUtc,
+    },
+    { maxBuffer: RUST_CORE_MAX_BUFFER_BYTES },
+  );
+  if (!rustEnvelope || typeof rustEnvelope !== "object" || Array.isArray(rustEnvelope)) {
+    throw new Error("The WinOTP Rust core returned invalid backup data.");
+  }
+  return rustEnvelope;
+}
+
+function decryptPayload(envelope, password) {
+  const rustPayload = runRustCore(
+    "backup-decrypt",
+    { envelope, password },
+    { maxBuffer: RUST_CORE_MAX_BUFFER_BYTES },
+  );
+  if (!rustPayload || typeof rustPayload !== "object" || Array.isArray(rustPayload)) {
+    throw new Error("The WinOTP Rust core returned invalid backup payload data.");
+  }
+  return rustPayload;
+}
+
+function isBackupFormatError(error) {
+  return error instanceof Error && BACKUP_FORMAT_ERROR_MESSAGES.has(error.message);
+}
+
+class BackupStore {
+  accountStoreProvider: any;
+  encryption: any;
+  directoryPath: string;
+  defaultBackupFolderPath: string;
+  passwordPath: string;
+  settingsPath: string;
+  automaticBackupQueue: Promise<any>;
+  configurationQueue: Promise<any>;
+  automaticReconciliationDeferred: boolean;
+  settings: any;
+
+  constructor(app, accountStoreProvider, options: any = {}) {
+    this.accountStoreProvider = accountStoreProvider;
+    this.encryption = options.encryption;
+    this.directoryPath = options.directoryPath ?? getAppDataDirectory(app);
+    this.defaultBackupFolderPath = path.join(this.directoryPath, DEFAULT_BACKUP_FOLDER_NAME);
+    this.passwordPath = path.join(this.directoryPath, PASSWORD_FILE_NAME);
+    this.settingsPath = path.join(this.directoryPath, SETTINGS_FILE_NAME);
+    this.automaticBackupQueue = Promise.resolve();
+    this.configurationQueue = Promise.resolve();
+    this.automaticReconciliationDeferred = options.skipAutomaticReconciliation === true;
+    this.settings = this.readSettings();
+    if (!this.automaticReconciliationDeferred) {
+      this.reconcileAutomaticSettings();
+    }
+  }
+
+  enqueueConfiguration(operation) {
+    const next = this.configurationQueue.then(operation, operation);
+    this.configurationQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  readSettings() {
+    return readStoredBackupSettings(this.settingsPath, { strict: true }) ?? defaultBackupSettings();
+  }
+
+  persistSettings() {
+    fs.mkdirSync(this.directoryPath, { recursive: true });
+    writeFileAtomically(this.settingsPath, `${JSON.stringify(this.settings)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  }
+
+  reconcileAutomaticSettings() {
+    this.automaticReconciliationDeferred = false;
+    const storedPassword = this.getStoredPassword();
+    if (!this.settings.automaticEnabled || storedPassword) {
+      return storedPassword;
+    }
+
+    this.settings = {
+      ...this.settings,
+      automaticEnabled: false,
+    };
+    try {
+      this.persistSettings();
+    } catch {
+      // Keep the in-memory state safe even if the durable repair cannot be written.
+    }
+    return undefined;
+  }
+
+  getEffectiveBackupFolderPath() {
+    return this.settings.customFolderPath || this.defaultBackupFolderPath;
+  }
+
+  getStatus() {
+    const storedPassword = this.automaticReconciliationDeferred
+      ? this.getStoredPassword()
+      : this.reconcileAutomaticSettings();
+    return {
+      automaticEnabled: this.settings.automaticEnabled,
+      customFolderPath: this.settings.customFolderPath,
+      defaultFolderPath: this.defaultBackupFolderPath,
+      effectiveFolderPath: this.getEffectiveBackupFolderPath(),
+      hasStoredPassword: Boolean(storedPassword),
+    };
+  }
+
+  configure(settings: any = {}) {
+    return this.enqueueConfiguration(() => this.configureCore(settings));
+  }
+
+  configureCore(settings: any = {}) {
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+      return failure("ValidationFailed", "Backup settings are invalid.");
+    }
+
+    const previous = this.settings;
+    const customFolderPath =
+      settings.customFolderPath === undefined
+        ? previous.customFolderPath
+        : normalizeCustomFolderPath(settings.customFolderPath);
+    if (customFolderPath && !path.isAbsolute(customFolderPath)) {
+      return failure("ValidationFailed", "Backup folder path must be an absolute path.");
+    }
+
+    this.settings = {
+      automaticEnabled: settings.automaticEnabled === true,
+      customFolderPath,
+    };
+
+    if (this.settings.automaticEnabled) {
+      if (!this.getStoredPassword()) {
+        this.settings = previous;
+        return failure(
+          "PasswordUnavailable",
+          "Automatic backup cannot be enabled without a stored backup password.",
+        );
+      }
+
+      const folderValidation = this.validateBackupFolder(this.getEffectiveBackupFolderPath());
+      if (!folderValidation.success) {
+        this.settings = previous;
+        return folderValidation;
+      }
+    }
+
+    try {
+      this.persistSettings();
+      return { success: true, ...this.getStatus() };
+    } catch {
+      this.settings = previous;
+      return failure("FileAccessFailed", "Unable to save backup settings.");
+    }
+  }
+
+  getStoredPassword() {
+    let passwordFileExists;
+    try {
+      passwordFileExists = fs.existsSync(this.passwordPath);
+    } catch {
+      throw new BackupPasswordUnavailableError();
+    }
+
+    if (!passwordFileExists) {
+      return undefined;
+    }
+
+    if (!this.encryption || typeof this.encryption.isEncryptionAvailable !== "function") {
+      throw new BackupPasswordUnavailableError();
+    }
+
+    try {
+      if (!isSecureStorageAvailable(this.encryption)) {
+        throw new BackupPasswordUnavailableError();
+      }
+
+      const password = this.encryption.decryptString(fs.readFileSync(this.passwordPath));
+      return isValidPassword(password) ? password : undefined;
+    } catch (error) {
+      if (error instanceof BackupPasswordUnavailableError) {
+        throw error;
+      }
+      throw new BackupPasswordUnavailableError();
+    }
+  }
+
+  importLegacyPassword(password) {
+    if (this.getStoredPassword()) {
+      return {
+        success: true,
+        imported: false,
+        importedCount: 0,
+        skippedCount: 1,
+        issueCount: 0,
+      };
+    }
+
+    const result = this.setStoredPassword(password);
+    if (!result.success) {
+      return result;
+    }
+
+    return {
+      ...result,
+      imported: true,
+      importedCount: 1,
+      skippedCount: 0,
+      issueCount: 0,
+    };
+  }
+
+  setStoredPassword(password) {
+    const passwordValidation = validateBackupPassword(password);
+    if (!passwordValidation.success) {
+      return failure("ValidationFailed", passwordValidation.message);
+    }
+
+    try {
+      if (!isSecureStorageAvailable(this.encryption)) {
+        return failure("VaultAccessFailed", "OS-backed password encryption is unavailable.");
+      }
+
+      const encrypted = this.encryption.encryptString(password);
+      if (!Buffer.isBuffer(encrypted)) {
+        return failure("VaultAccessFailed", "Failed to encrypt the backup password.");
+      }
+
+      fs.mkdirSync(this.directoryPath, { recursive: true });
+      writeFileAtomically(this.passwordPath, encrypted, { mode: 0o600 });
+      return { success: true };
+    } catch {
+      return failure("VaultAccessFailed", "Failed to store the backup password.");
+    }
+  }
+
+  clearStoredPassword() {
+    try {
+      fs.rmSync(this.passwordPath, { force: true });
+      return { success: true };
+    } catch {
+      return failure("VaultAccessFailed", "Failed to clear the backup password.");
+    }
+  }
+
+  validateBackupFolder(folderPath): any {
+    const trimmedPath = typeof folderPath === "string" ? folderPath.trim() : "";
+    if (!trimmedPath) {
+      return failure("ValidationFailed", "Backup folder path is required.");
+    }
+    if (!path.isAbsolute(trimmedPath)) {
+      return failure("ValidationFailed", "Backup folder path must be an absolute path.");
+    }
+
+    let normalizedPath;
+    try {
+      normalizedPath = path.resolve(trimmedPath);
+    } catch {
+      return failure("ValidationFailed", "The selected backup folder path is invalid.");
+    }
+
+    try {
+      if (fs.existsSync(normalizedPath) && !fs.statSync(normalizedPath).isDirectory()) {
+        return failure(
+          "FileAccessFailed",
+          "The selected backup folder points to a file, not a folder.",
+        );
+      }
+
+      fs.mkdirSync(normalizedPath, { recursive: true });
+      const probePath = path.join(normalizedPath, `.winotp-probe-${crypto.randomUUID()}.tmp`);
+      fs.writeFileSync(probePath, "probe", { flag: "wx" });
+      fs.rmSync(probePath, { force: true });
+      return { success: true, resolvedPath: normalizedPath };
+    } catch {
+      return failure("FileAccessFailed", "WinOTP could not write to the selected backup folder.");
+    }
+  }
+
+  async enableAutomatic(password, customFolderPath) {
+    return this.enqueueConfiguration(() => this.enableAutomaticCore(password, customFolderPath));
+  }
+
+  async enableAutomaticCore(password, customFolderPath) {
+    const passwordValidation = validateBackupPassword(password);
+    if (!passwordValidation.success) {
+      return failure("ValidationFailed", passwordValidation.message);
+    }
+
+    const nextCustomFolderPath =
+      customFolderPath === undefined
+        ? this.settings.customFolderPath
+        : normalizeCustomFolderPath(customFolderPath);
+    const folderValidation = this.validateBackupFolder(
+      nextCustomFolderPath || this.defaultBackupFolderPath,
+    );
+    if (!folderValidation.success) {
+      return folderValidation;
+    }
+
+    const previousSettings = this.settings;
+    const previousPassword = this.getStoredPassword();
+    const passwordResult = this.setStoredPassword(password);
+    if (!passwordResult.success) {
+      return passwordResult;
+    }
+
+    this.settings = {
+      automaticEnabled: true,
+      customFolderPath: nextCustomFolderPath,
+    };
+
+    try {
+      this.persistSettings();
+      const backupResult = await this.createAutomaticBackup();
+      if (!backupResult.success) {
+        this.restoreAutomaticSettings(previousSettings, previousPassword);
+        return backupResult;
+      }
+
+      return {
+        success: true,
+        message: "Automatic backup is enabled.",
+        ...this.getStatus(),
+        filePath: backupResult.filePath,
+        accountCount: backupResult.accountCount,
+      };
+    } catch {
+      this.restoreAutomaticSettings(previousSettings, previousPassword);
+      return failure("UnexpectedError", "Unable to enable automatic backup.");
+    }
+  }
+
+  restoreAutomaticSettings(previousSettings, previousPassword) {
+    this.settings = previousSettings;
+    try {
+      this.persistSettings();
+    } catch {
+      // The operation already failed; the next startup will recover from the persisted state.
+    }
+
+    if (previousPassword) {
+      this.setStoredPassword(previousPassword);
+    } else {
+      this.clearStoredPassword();
+    }
+  }
+
+  disableAutomatic() {
+    return this.enqueueConfiguration(() => this.disableAutomaticCore());
+  }
+
+  disableAutomaticCore() {
+    const previousSettings = this.settings;
+    const previousPassword = this.getStoredPassword();
+    const passwordResult = this.clearStoredPassword();
+    if (!passwordResult.success) {
+      return passwordResult;
+    }
+
+    this.settings = {
+      ...this.settings,
+      automaticEnabled: false,
+    };
+    try {
+      this.persistSettings();
+      return { success: true, message: "Automatic backup has been disabled.", ...this.getStatus() };
+    } catch {
+      this.settings = previousSettings;
+      try {
+        this.persistSettings();
+      } catch {
+        // Preserve the original failure for the renderer.
+      }
+      if (previousPassword) {
+        this.setStoredPassword(previousPassword);
+      }
+      return failure("FileAccessFailed", "Unable to save backup settings.");
+    }
+  }
+
+  async setCustomFolderPath(customFolderPath) {
+    return this.enqueueConfiguration(() => this.setCustomFolderPathCore(customFolderPath));
+  }
+
+  async setCustomFolderPathCore(customFolderPath) {
+    const nextCustomFolderPath = normalizeCustomFolderPath(customFolderPath);
+    const folderValidation = this.validateBackupFolder(
+      nextCustomFolderPath || this.defaultBackupFolderPath,
+    );
+    if (!folderValidation.success) {
+      return folderValidation;
+    }
+
+    const previousSettings = this.settings;
+    this.settings = {
+      ...this.settings,
+      customFolderPath: nextCustomFolderPath,
+    };
+
+    try {
+      this.persistSettings();
+      if (this.settings.automaticEnabled) {
+        const backupResult = await this.createAutomaticBackup();
+        if (!backupResult.success) {
+          this.settings = previousSettings;
+          this.persistSettings();
+          return backupResult;
+        }
+      }
+
+      return {
+        success: true,
+        message: nextCustomFolderPath
+          ? "Automatic backup folder updated."
+          : "Automatic backup folder reset to default.",
+        ...this.getStatus(),
+      };
+    } catch {
+      this.settings = previousSettings;
+      try {
+        this.persistSettings();
+      } catch {
+        // Preserve the original failure for the renderer.
+      }
+      return failure("FileAccessFailed", "Unable to save the backup folder setting.");
+    }
+  }
+
+  async createAutomaticBackup() {
+    if (!this.settings.automaticEnabled) {
+      return { success: true, skipped: true };
+    }
+
+    const operation = this.automaticBackupQueue.then(
+      () => this.createAutomaticBackupCore(),
+      () => this.createAutomaticBackupCore(),
+    );
+    this.automaticBackupQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  createAutomaticBackupCore() {
+    if (!this.settings.automaticEnabled) {
+      return { success: true, skipped: true };
+    }
+
+    const password = this.getStoredPassword();
+    if (!password) {
+      return failure(
+        "PasswordUnavailable",
+        "Automatic backup is enabled, but no stored backup password is available.",
+      );
+    }
+
+    const folderValidation = this.validateBackupFolder(this.getEffectiveBackupFolderPath());
+    if (!folderValidation.success) {
+      return folderValidation;
+    }
+
+    const timestamp = new Date();
+    const fileName = `${AUTOMATIC_BACKUP_PREFIX}${encodeDateForFileName(timestamp)}${BACKUP_EXTENSION}`;
+    const destinationPath = getUniquePath(path.join(folderValidation.resolvedPath, fileName));
+    const result = this.exportBackup(destinationPath, password);
+    if (result.success) {
+      this.pruneAutomaticBackups(folderValidation.resolvedPath);
+    }
+    return result;
+  }
+
+  pruneAutomaticBackups(folderPath) {
+    try {
+      const automaticFiles = fs
+        .readdirSync(folderPath)
+        .filter(
+          (fileName) =>
+            fileName.startsWith(AUTOMATIC_BACKUP_PREFIX) && fileName.endsWith(BACKUP_EXTENSION),
+        )
+        .map((fileName) => {
+          const filePath = path.join(folderPath, fileName);
+          return { filePath, modifiedAt: fs.statSync(filePath).mtimeMs };
+        })
+        .sort((left, right) => right.modifiedAt - left.modifiedAt);
+
+      for (const entry of automaticFiles.slice(BACKUP_HISTORY_LIMIT)) {
+        try {
+          fs.rmSync(entry.filePath, { force: true });
+        } catch {
+          // Pruning is best-effort and should not make a successful backup fail.
+        }
+      }
+    } catch {
+      // Pruning is best-effort and should not make a successful backup fail.
+    }
+  }
+
+  exportBackup(destinationFilePath, passwordOverride) {
+    const targetPath = typeof destinationFilePath === "string" ? destinationFilePath.trim() : "";
+    if (!targetPath) {
+      return failure("ValidationFailed", "Backup file path is required.");
+    }
+
+    let normalizedTargetPath;
+    try {
+      normalizedTargetPath = path.resolve(targetPath);
+    } catch {
+      return failure("ValidationFailed", "The selected backup file path is invalid.");
+    }
+
+    const pathComparisonKey = (value) =>
+      process.platform === "win32" ? value.toLowerCase() : value;
+    const reservedPaths = [
+      this.passwordPath,
+      this.settingsPath,
+      path.join(this.directoryPath, "settings.json"),
+      path.join(this.directoryPath, "app-settings.json"),
+      path.join(this.directoryPath, "legacy-migration.json"),
+      path.join(this.directoryPath, "accounts.db"),
+      path.join(this.directoryPath, "accounts.db-wal"),
+      path.join(this.directoryPath, "accounts.db-shm"),
+    ].map((value) => pathComparisonKey(path.resolve(value)));
+    if (reservedPaths.includes(pathComparisonKey(normalizedTargetPath))) {
+      return failure("ValidationFailed", "The selected backup file path is reserved by WinOTP.");
+    }
+
+    if (
+      passwordOverride !== undefined &&
+      passwordOverride !== null &&
+      typeof passwordOverride !== "string"
+    ) {
+      return failure("ValidationFailed", "Backup password must be a string.");
+    }
+
+    const hasPasswordOverride =
+      typeof passwordOverride === "string" && passwordOverride.trim().length > 0;
+    if (hasPasswordOverride) {
+      const passwordValidation = validateBackupPassword(passwordOverride);
+      if (!passwordValidation.success) {
+        return failure("ValidationFailed", passwordValidation.message);
+      }
+    }
+
+    const password = hasPasswordOverride ? passwordOverride : this.getStoredPassword();
+    if (!password) {
+      return failure("PasswordUnavailable", "A backup password is required to export a backup.");
+    }
+
+    const store = this.accountStoreProvider();
+    if (!store) {
+      return failure("VaultAccessFailed", "The local account database is unavailable.");
+    }
+
+    let loadResult;
+    try {
+      loadResult = store.readAccounts();
+    } catch {
+      return failure("VaultAccessFailed", "Unable to read accounts for the backup.");
+    }
+
+    if (loadResult.issues?.length > 0) {
+      return failure(
+        "IncompleteData",
+        "Backup could not be created because one or more saved accounts could not be read.",
+      );
+    }
+
+    if (
+      loadResult.migration?.status === "failed" ||
+      Number(loadResult.migration?.issueCount ?? 0) > 0
+    ) {
+      return failure(
+        "IncompleteData",
+        "Backup could not be created because account migration is incomplete.",
+      );
+    }
+
+    const payload = {
+      source: "WinOTP-Reborn",
+      exportedAtUtc: new Date().toISOString(),
+      accounts: loadResult.accounts ?? [],
+    };
+    if (payload.accounts.length > MAX_BACKUP_ACCOUNT_COUNT) {
+      return failure(
+        "ValidationFailed",
+        `The backup cannot contain more than ${MAX_BACKUP_ACCOUNT_COUNT.toLocaleString("en-US")} accounts.`,
+      );
+    }
+    let serializedEnvelope;
+    try {
+      const envelope = encryptPayload(payload, password);
+      serializedEnvelope = `${JSON.stringify(envelope)}\n`;
+    } catch {
+      return failure("UnexpectedError", "Unable to encrypt the backup file.");
+    }
+
+    if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_BACKUP_FILE_SIZE_BYTES) {
+      return failure("ValidationFailed", "The backup contains too much data to export.");
+    }
+
+    try {
+      const directory = path.dirname(targetPath);
+      fs.mkdirSync(directory, { recursive: true });
+      writeFileAtomically(targetPath, serializedEnvelope, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      return {
+        success: true,
+        filePath: targetPath,
+        accountCount: payload.accounts.length,
+        message: "Backup created.",
+      };
+    } catch {
+      return failure("FileAccessFailed", "Failed to write the backup file.");
+    }
+  }
+
+  importBackup(sourceFilePath, password) {
+    const targetPath = typeof sourceFilePath === "string" ? sourceFilePath.trim() : "";
+    if (!targetPath) {
+      return failure("ValidationFailed", "Backup file path is required.");
+    }
+    const passwordValidation = validateBackupPassword(password);
+    if (!passwordValidation.success) {
+      return failure("ValidationFailed", passwordValidation.message);
+    }
+
+    let fileStats;
+    try {
+      fileStats = fs.statSync(targetPath);
+    } catch {
+      return failure("FileAccessFailed", "Failed to read the backup file.");
+    }
+
+    if (!fileStats.isFile()) {
+      return failure("FileAccessFailed", "The selected backup path is not a file.");
+    }
+    if (fileStats.size > MAX_BACKUP_FILE_SIZE_BYTES) {
+      return failure("InvalidFormat", "The backup file is too large to import.");
+    }
+
+    let serializedBackup;
+    try {
+      serializedBackup = fs.readFileSync(targetPath);
+    } catch {
+      return failure("FileAccessFailed", "Failed to read the backup file.");
+    }
+    if (serializedBackup.length > MAX_BACKUP_FILE_SIZE_BYTES) {
+      return failure("InvalidFormat", "The backup file is too large to import.");
+    }
+
+    let envelope;
+    try {
+      envelope = JSON.parse(serializedBackup.toString("utf8"));
+    } catch {
+      return failure("InvalidFormat", "The backup file is not valid.");
+    }
+
+    let payload;
+    try {
+      payload = decryptPayload(envelope, password);
+    } catch (error) {
+      if (isBackupFormatError(error)) {
+        return failure("InvalidFormat", "The backup file is corrupted or not supported.");
+      }
+      return failure("DecryptionFailed", "Backup password is incorrect or the file is corrupted.");
+    }
+
+    if (payload.accounts.length > MAX_BACKUP_ACCOUNT_COUNT) {
+      return failure(
+        "InvalidFormat",
+        `The backup cannot contain more than ${MAX_BACKUP_ACCOUNT_COUNT.toLocaleString("en-US")} accounts.`,
+      );
+    }
+
+    const store = this.accountStoreProvider();
+    if (!store) {
+      return failure("VaultAccessFailed", "The local account database is unavailable.");
+    }
+
+    let existingIds;
+    try {
+      existingIds = new Set(store.readAccounts().accounts.map((account) => account.id));
+    } catch {
+      return failure("VaultAccessFailed", "Unable to read existing accounts.");
+    }
+
+    let normalizedAccounts;
+    try {
+      normalizedAccounts = normalizeAccounts(
+        payload.accounts.map((source) => ({ source, fallbackId: source?.id })),
+      );
+    } catch {
+      return {
+        success: true,
+        importedCount: 0,
+        replacedCount: 0,
+        skippedCount: 0,
+        failedCount: payload.accounts.length,
+        message: "Import completed.",
+      };
+    }
+
+    let importedCount = 0;
+    let replacedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    for (const normalized of normalizedAccounts) {
+      if (!normalized?.ok) {
+        skippedCount += 1;
+        continue;
+      }
+
+      try {
+        const saveResult = store.saveNormalizedAccount(normalized.account);
+        if (!saveResult.success) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const persistedId = saveResult.account.id;
+        if (existingIds.has(persistedId)) {
+          replacedCount += 1;
+        } else {
+          existingIds.add(persistedId);
+        }
+        importedCount += 1;
+      } catch {
+        failedCount += 1;
+      }
+    }
+
+    return {
+      success: true,
+      importedCount,
+      replacedCount,
+      skippedCount,
+      failedCount,
+      message: "Import completed.",
+    };
+  }
+}
+
+module.exports = {
+  AUTOMATIC_BACKUP_PREFIX,
+  BACKUP_EXTENSION,
+  BACKUP_HISTORY_LIMIT,
+  BackupStore,
+  BackupPasswordUnavailableError,
+  MAX_BACKUP_FILE_SIZE_BYTES,
+  MAX_BACKUP_ACCOUNT_COUNT,
+  RUST_CORE_MAX_BUFFER_BYTES,
+  decryptPayload,
+  encryptPayload,
+  getUniquePath,
+  isValidPassword,
+  readStoredBackupSettings,
+};

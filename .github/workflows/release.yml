@@ -1,73 +1,187 @@
-name: Release
+name: Release Electron app
 
 on:
   push:
     tags: ['v*.*.*']
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64, arm64]
+  checks:
+    name: Verify Electron app
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: electron-app
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-node@v4
         with:
-          dotnet-version: '10.0.x'
+          node-version: 24
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
 
-      - name: Verify tag matches csproj <Version>
-        shell: pwsh
-        run: |
-          [xml]$p = Get-Content WinOTP.csproj
-          $csprojVersion = ($p.Project.PropertyGroup.Version | Select-Object -First 1).Trim()
-          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
-          if ($csprojVersion -ne $tagVersion) {
-            throw "Tag '${{ github.ref_name }}' does not match <Version> '$csprojVersion' in WinOTP.csproj. Bump the version first."
-          }
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Install Inno Setup 6
-        run: choco install innosetup -y --no-progress
+      - name: Verify tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/verify-release-tag.ts
 
-      - name: Build installer (${{ matrix.arch }})
-        shell: pwsh
-        run: ./scripts/Build-Installer.ps1 -Architecture ${{ matrix.arch }}
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run test:electron
+      - run: npm run build
 
-      - name: Upload installer artifact
+      - name: Test Rust workspace
+        working-directory: ${{ github.workspace }}
+        run: cargo test --manifest-path rust/Cargo.toml --workspace
+
+      - name: Check Rust formatting
+        working-directory: ${{ github.workspace }}
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+  package:
+    name: Package ${{ matrix.platform }}
+    needs: checks
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+            builder_platform: win
+            builder_arch: x64
+            target_arch: x64
+            artifact: electron-app/release/WinOTP-*-win-x64-setup.exe
+          - platform: windows-arm64
+            runner: windows-latest
+            builder_platform: win
+            builder_arch: arm64
+            target_arch: arm64
+            artifact: electron-app/release/WinOTP-*-win-arm64-setup.exe
+          - platform: linux
+            runner: ubuntu-latest
+            builder_platform: linux
+            builder_arch: x64
+            target_arch: x64
+            artifact: electron-app/release/WinOTP-*-linux-x64-setup.AppImage
+          - platform: linux-arm64
+            runner: ubuntu-latest
+            builder_platform: linux
+            builder_arch: arm64
+            target_arch: arm64
+            artifact: electron-app/release/WinOTP-*-linux-arm64-setup.AppImage
+          - platform: macos
+            runner: macos-latest
+            builder_platform: mac
+            builder_arch: universal
+            target_arch: universal
+            artifact: electron-app/release/WinOTP-*-mac-universal-setup.dmg
+
+    env:
+      WINOTP_TARGET_ARCH: ${{ matrix.target_arch }}
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+      AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+
+    defaults:
+      run:
+        working-directory: electron-app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC developer environment
+        if: matrix.builder_platform == 'win'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux ARM64 toolchain
+        if: matrix.builder_platform == 'linux' && matrix.builder_arch == 'arm64'
+        working-directory: ${{ github.workspace }}
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Build ${{ matrix.platform }} installer
+        run: npm run package -- --${{ matrix.builder_platform }} --${{ matrix.builder_arch }}
+
+      - name: Upload ${{ matrix.platform }} installer
         uses: actions/upload-artifact@v4
         with:
-          name: installer-${{ matrix.arch }}
-          path: installer/output/WinOTP-*-win-${{ matrix.arch }}-setup.exe
+          name: electron-${{ matrix.platform }}
+          path: ${{ matrix.artifact }}
           if-no-files-found: error
           retention-days: 1
 
   release:
-    needs: build
+    name: Publish GitHub release
+    needs: package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Download all installer artifacts
+      - name: Download installers
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: Create draft release with auto-generated notes
+      - name: Publish release with generated notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --draft \
-            --generate-notes \
-            dist/WinOTP-*-setup.exe
+          set -euo pipefail
+
+          if release_json="$(gh release view "$RELEASE_TAG" --repo "$REPOSITORY" --json isDraft,assets 2>/dev/null)"; then
+            is_draft="$(jq -r '.isDraft' <<<"$release_json")"
+            existing_assets="$(jq -r '.assets[].name' <<<"$release_json")"
+
+            for asset in dist/*; do
+              asset_name="$(basename "$asset")"
+              if grep -Fqx "$asset_name" <<<"$existing_assets"; then
+                if [[ "$is_draft" == "true" ]]; then
+                  gh release upload "$RELEASE_TAG" "$asset" --repo "$REPOSITORY" --clobber
+                fi
+              else
+                gh release upload "$RELEASE_TAG" "$asset" --repo "$REPOSITORY"
+              fi
+            done
+
+            gh release edit "$RELEASE_TAG" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --draft=false
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              dist/*
+          fi

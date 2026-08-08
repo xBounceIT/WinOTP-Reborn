@@ -1,0 +1,26 @@
+[package]
+name = "winotp-updater"
+description = "Rust update service bridge for the WinOTP Electron app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "winotp_updater"
+path = "src/lib.rs"
+
+[[bin]]
+name = "winotp-updater"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+hex.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

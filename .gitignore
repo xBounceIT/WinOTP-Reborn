@@ -1,32 +1,19 @@
 .claude
 
-# .NET / Visual Studio
-**/[Bb]in/
-**/[Oo]bj/
-**/[Dd]ebug/
-**/[Rr]elease/
-artifacts/
-TestResults/
-AppPackages/
-BundleArtifacts/
-Generated Files/
-*.user
-*.suo
-*.userprefs
-*.rsuser
-.vs/
-*.DotSettings.user
-*.binlog
-*.log
-
 # Build
 publish/
 installer/output/
+rust/target/
 *.nupkg
 *.snupkg
 
-# NuGet
-packages/
+# Electron frontend
+electron-app/node_modules/
+electron-app/dist/
+electron-app/electron-dist/
+electron-app/native/*
+electron-app/release/
+!electron-app/native/.gitkeep
 
 # IDEs/editors
 .idea/
