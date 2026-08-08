@@ -168,7 +168,14 @@ function hasStoredAppSettings() {
   }
 }
 
-function credentialStatusForCore(isSet: boolean): "NotSet" | "Set" {
+function credentialStatusForCore(
+  isSet: boolean,
+  securityStorageAvailable: boolean,
+): "NotSet" | "Set" | "Error" {
+  if (!securityStorageAvailable) {
+    return "Error";
+  }
+
   return isSet ? "Set" : "NotSet";
 }
 
@@ -221,6 +228,7 @@ function protectionInputForCore(
   settings: AppSettings,
   status: SecurityCredentialStatus,
   helloAvailability: WindowsHelloAvailabilityStatus,
+  securityStorageAvailable: boolean,
 ): ProtectionCoreInput {
   return {
     pinEnabled: settings.pinProtection,
@@ -228,11 +236,14 @@ function protectionInputForCore(
     windowsHelloEnabled: settings.windowsHello,
     remotePinEnabled: settings.remotePin,
     remotePasswordEnabled: settings.remotePassword,
-    pinStatus: credentialStatusForCore(status.pinSet),
-    passwordStatus: credentialStatusForCore(status.passwordSet),
+    pinStatus: credentialStatusForCore(status.pinSet, securityStorageAvailable),
+    passwordStatus: credentialStatusForCore(status.passwordSet, securityStorageAvailable),
     windowsHelloAvailability: helloAvailabilityForCore(helloAvailability),
-    remotePinStatus: credentialStatusForCore(status.remotePinSet),
-    remotePasswordStatus: credentialStatusForCore(status.remotePasswordSet),
+    remotePinStatus: credentialStatusForCore(status.remotePinSet, securityStorageAvailable),
+    remotePasswordStatus: credentialStatusForCore(
+      status.remotePasswordSet,
+      securityStorageAvailable,
+    ),
   };
 }
 
@@ -255,6 +266,16 @@ function applyProtectionState(
     remotePin: state.remotePinEnabled,
     remotePassword: state.remotePasswordEnabled,
   };
+}
+
+function hasProtectionSettingsChanged(left: AppSettings, right: AppSettings) {
+  return (
+    left.pinProtection !== right.pinProtection ||
+    left.passwordProtection !== right.passwordProtection ||
+    left.windowsHello !== right.windowsHello ||
+    left.remotePin !== right.remotePin ||
+    left.remotePassword !== right.remotePassword
+  );
 }
 
 export default function App() {
@@ -347,7 +368,12 @@ export default function App() {
     try {
       const helloResult = await window.winotp?.security.getWindowsHelloAvailability();
       const availability = helloResult?.success ? helloResult.status : "error";
-      return protectionInputForCore(settingsValue, status, availability);
+      return protectionInputForCore(
+        settingsValue,
+        status,
+        availability,
+        securityStorageAvailableRef.current,
+      );
     } catch {
       return undefined;
     }
@@ -389,12 +415,12 @@ export default function App() {
     );
   }
 
-  async function disableUnavailableProtectionIfSafe(
+  async function reconcileProtectionSettingsIfSafe(
     settingsValue: AppSettings,
     status: SecurityCredentialStatus,
-  ) {
+  ): Promise<AppSettings | undefined> {
     if (securityMigrationPending) {
-      return false;
+      return undefined;
     }
 
     const reconciliationVersion = ++protectionReconciliationVersion.current;
@@ -409,14 +435,25 @@ export default function App() {
         securityStatusRef.current,
       )
     ) {
-      return false;
+      return undefined;
     }
 
     const nextSettings = applyProtectionState(settingsValue, state);
-    if (!(await persistProtectionSettings(nextSettings))) {
-      return false;
+    if (
+      hasProtectionSettingsChanged(settingsValue, nextSettings) &&
+      !(await persistProtectionSettings(nextSettings))
+    ) {
+      return undefined;
     }
-    return !hasConfiguredProtection(nextSettings);
+    return nextSettings;
+  }
+
+  async function disableUnavailableProtectionIfSafe(
+    settingsValue: AppSettings,
+    status: SecurityCredentialStatus,
+  ) {
+    const nextSettings = await reconcileProtectionSettingsIfSafe(settingsValue, status);
+    return nextSettings ? !hasConfiguredProtection(nextSettings) : false;
   }
 
   useEffect(() => {
@@ -538,7 +575,6 @@ export default function App() {
       !settingsSourceAvailable ||
       settingsRecoveryRequired ||
       securityMigrationPending ||
-      !securityStorageAvailable ||
       startupLockHandled.current
     ) {
       return;
@@ -562,12 +598,21 @@ export default function App() {
         return;
       }
 
-      startupLockHandled.current = true;
       if (!decision.shouldShowLockScreen) {
+        const reconciledSettings = await reconcileProtectionSettingsIfSafe(
+          settingsAtStart,
+          securityStatusAtStart,
+        );
+        if (cancelled || !reconciledSettings) {
+          return;
+        }
+
+        startupLockHandled.current = true;
         setAppLocked(false);
         return;
       }
 
+      startupLockHandled.current = true;
       void requestLock("startup");
     }
 
