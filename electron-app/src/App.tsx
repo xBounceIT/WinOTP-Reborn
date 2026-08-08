@@ -39,6 +39,7 @@ import {
   shouldReleaseFailedLock,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import type {
   AppSettings,
   AutoStartResult,
@@ -388,7 +389,7 @@ function useAppView() {
   const settingsHydrationTouchedRef = useRef(false);
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
-  const lockOverlayRef = useRef<HTMLDialogElement>(null);
+  const lockOverlayRef = useModalDialog(locked);
   const toastTimer = useRef<number | undefined>(undefined);
   const settingsSaveQueueRef = useRef<Promise<boolean> | undefined>(undefined);
   const settingsPersistenceVersionRef = useRef(0);
@@ -1076,7 +1077,7 @@ function useAppView() {
 
     overlay.addEventListener("keydown", handleKeyDown);
     return () => overlay.removeEventListener("keydown", handleKeyDown);
-  }, [locked]);
+  }, [lockOverlayRef, locked]);
 
   useEffect(() => {
     const unsubscribe = window.winotp?.onTrayUsageRecorded(({ id, usageCount, lastUsedAt }) => {
@@ -2374,7 +2375,12 @@ function useAppView() {
         )}
 
         {locked && (
-          <dialog ref={lockOverlayRef} className="lock-overlay" aria-labelledby="lock-title" open>
+          <dialog
+            ref={lockOverlayRef}
+            className="lock-overlay"
+            aria-labelledby="lock-title"
+            onCancel={(event) => event.preventDefault()}
+          >
             <div className="lock-overlay__panel">
               <LockKeyhole className="lock-overlay__icon" size={54} strokeWidth={1.35} />
               <h1 id="lock-title" className="lock-overlay__title">

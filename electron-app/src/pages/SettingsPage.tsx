@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { credentialLabel, isPinCredential } from "@/lib/security-settings";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import type {
   AppSettings,
   AutoStartResult,
@@ -177,9 +178,18 @@ function CredentialDialog({
   const label = credentialLabel(dialog.kind);
   const pin = isPinCredential(dialog.kind);
   const setup = dialog.mode === "setup";
+  const dialogRef = useModalDialog();
 
   return (
-    <dialog className="credential-dialog" open aria-labelledby="credential-dialog-title">
+    <dialog
+      ref={dialogRef}
+      className="credential-dialog"
+      aria-labelledby="credential-dialog-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+    >
       <form
         className="credential-dialog__panel"
         aria-labelledby="credential-dialog-title"
@@ -268,6 +278,7 @@ function useSettingsPage({
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [busyAction, setBusyAction] = useState<BusyAction>();
+  const passwordDialogRef = useModalDialog(Boolean(passwordDialog));
 
   function openPasswordDialog(action: PasswordDialogAction) {
     setPasswordDialog(action);
@@ -985,7 +996,15 @@ function useSettingsPage({
         </div>
       </div>
       {passwordDialog && (
-        <dialog className="lock-overlay" aria-labelledby="backup-password-title" open>
+        <dialog
+          ref={passwordDialogRef}
+          className="lock-overlay"
+          aria-labelledby="backup-password-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            closePasswordDialog();
+          }}
+        >
           <div className="lock-overlay__panel">
             <LockKeyhole className="lock-overlay__icon" size={42} strokeWidth={1.35} />
             <h1 id="backup-password-title" className="lock-overlay__title">

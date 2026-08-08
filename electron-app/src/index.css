@@ -947,6 +947,15 @@ html:not(.dark) .choice-card:hover {
   width: 100%;
 }
 
+.credential-dialog,
+.lock-overlay {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+}
+
 .credential-dialog {
   position: fixed;
   inset: env(titlebar-area-height, 0px) 0 0;
@@ -958,6 +967,11 @@ html:not(.dark) .choice-card:hover {
   border: 0;
   background: rgb(0 0 0 / 48%);
   color: var(--foreground);
+}
+
+.credential-dialog::backdrop,
+.lock-overlay::backdrop {
+  background: transparent;
 }
 
 .credential-dialog__panel {
@@ -1023,7 +1037,6 @@ html:not(.dark) .choice-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  max-width: none;
   padding: 0;
   border: 0;
   background: var(--background);
