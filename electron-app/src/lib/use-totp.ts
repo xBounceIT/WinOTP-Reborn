@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { areTotpPreviewsAvailable } from "@/lib/totp-preview";
 import type { OtpAccount, TotpPreview } from "@/lib/types";
 
 type CodeState = TotpPreview;
@@ -90,6 +91,7 @@ export function useTotp(accounts: OtpAccount[], enabled = true) {
   }, [accounts, codeTimestamp, enabled]);
 
   const visibleCodes = useMemo(() => (enabled ? codes : {}), [codes, enabled]);
+  const loading = enabled && !areTotpPreviewsAvailable(accounts, codes);
 
   const accountTiming = useMemo(
     () =>
@@ -111,5 +113,5 @@ export function useTotp(accounts: OtpAccount[], enabled = true) {
     [accounts, visibleCodes],
   );
 
-  return { accountTiming, codes: visibleCodes };
+  return { accountTiming, codes: visibleCodes, loading };
 }

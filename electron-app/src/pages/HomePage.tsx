@@ -2,7 +2,6 @@ import {
   ArrowDownUp,
   Database,
   GripVertical,
-  LoaderCircle,
   Plus,
   Search,
   SlidersHorizontal,
@@ -28,7 +27,6 @@ interface HomePageProps {
   accounts: OtpAccount[];
   sort: SortOption;
   customOrderIds: string[];
-  loading: boolean;
   storageError: string;
   showNextCode: boolean;
   accountTiming: Record<string, { remaining: number; progress: number }>;
@@ -157,7 +155,6 @@ export function HomePage({
   accounts,
   sort,
   customOrderIds,
-  loading,
   storageError,
   showNextCode,
   accountTiming,
@@ -353,13 +350,7 @@ export function HomePage({
           </div>
         </div>
 
-        {loading ? (
-          <div className="empty-state">
-            <LoaderCircle className="animate-spin" size={42} strokeWidth={1.2} />
-            <div className="empty-state__title">Loading accounts</div>
-            <div className="empty-state__detail">Opening the local SQLite database…</div>
-          </div>
-        ) : storageError ? (
+        {storageError ? (
           <div className="empty-state">
             <Database className="empty-state__icon" size={42} strokeWidth={1.2} />
             <div className="empty-state__title">Account storage unavailable</div>

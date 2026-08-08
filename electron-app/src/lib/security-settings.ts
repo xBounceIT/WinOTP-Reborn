@@ -29,6 +29,14 @@ export function isSecurityNormalizationReady(
   );
 }
 
+export function shouldShowStartupLoading(
+  locked: boolean,
+  settingsRecoveryRequired: boolean,
+  startupProtectionReady: boolean,
+) {
+  return locked && !settingsRecoveryRequired && !startupProtectionReady;
+}
+
 export function isPinCredential(kind: SecurityCredentialKind) {
   return kind === "pin" || kind === "remotePin";
 }

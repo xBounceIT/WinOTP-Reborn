@@ -11,6 +11,7 @@ import {
   settingForCredential,
   securityStatusKey,
   shouldReleaseFailedLock,
+  shouldShowStartupLoading,
 } from "../src/lib/security-settings.ts";
 import { defaultSettings } from "../src/lib/types.ts";
 
@@ -21,6 +22,13 @@ test("normalizes protection settings only after security and startup are ready",
   assert.equal(isSecurityNormalizationReady(true, true, true, true, true), false);
   assert.equal(isSecurityNormalizationReady(true, true, true, false, false), false);
   assert.equal(isSecurityNormalizationReady(true, true, true, false, true), true);
+});
+
+test("keeps the loading screen visible until startup protection is resolved", () => {
+  assert.equal(shouldShowStartupLoading(true, false, false), true);
+  assert.equal(shouldShowStartupLoading(true, false, true), false);
+  assert.equal(shouldShowStartupLoading(true, true, false), false);
+  assert.equal(shouldShowStartupLoading(false, false, false), false);
 });
 
 test("maps credential kinds to their persisted status fields", () => {
