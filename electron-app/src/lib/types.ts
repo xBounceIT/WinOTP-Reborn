@@ -58,6 +58,7 @@ export interface ProtectionViewState {
     disableUnavailableWindowsHelloRemotePin: boolean;
     disableUnavailableWindowsHelloRemotePassword: boolean;
   };
+  presentation: ProtectionPresentationDecision;
   pinEnabled: boolean;
   passwordEnabled: boolean;
   windowsHelloEnabled: boolean;

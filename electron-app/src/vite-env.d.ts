@@ -15,7 +15,6 @@ import type {
   OtpAccount,
   ParsedAccountImport,
   ProtectionCoreInput,
-  ProtectionPresentationDecision,
   ProtectionTransitionInput,
   ProtectionTransitionState,
   ProtectionViewState,
@@ -146,9 +145,6 @@ declare global {
         orderDropIndex: (input: CoreOrderDropInput) => Promise<number>;
         orderProject: (input: CoreOrderProjectInput) => Promise<string[]>;
         reconcileProtection: (input: ProtectionCoreInput) => Promise<ProtectionViewState>;
-        resolveStartupPresentation: (
-          input: ProtectionCoreInput,
-        ) => Promise<ProtectionPresentationDecision>;
         transitionProtection: (
           input: ProtectionTransitionInput,
         ) => Promise<ProtectionTransitionState>;

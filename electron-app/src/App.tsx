@@ -48,7 +48,6 @@ import type {
   BackupOperationResult,
   OtpAccount,
   ProtectionCoreInput,
-  ProtectionPresentationDecision,
   ProtectionTransitionInput,
   ProtectionTransitionKind,
   ProtectionViewState,
@@ -406,25 +405,17 @@ export default function App() {
     );
   }
 
-  async function resolveStartupProtectionPresentation(
-    settingsValue: AppSettings,
-    status: SecurityCredentialStatus,
-  ): Promise<ProtectionPresentationDecision | undefined> {
-    return withProtectionCore(settingsValue, status, (core, input) =>
-      core.resolveStartupPresentation(input),
-    );
-  }
-
   async function reconcileProtectionSettingsIfSafe(
     settingsValue: AppSettings,
     status: SecurityCredentialStatus,
+    resolvedState?: ProtectionViewState,
   ): Promise<AppSettings | undefined> {
     if (securityMigrationPending) {
       return undefined;
     }
 
     const reconciliationVersion = ++protectionReconciliationVersion.current;
-    const state = await resolveProtectionViewState(settingsValue, status);
+    const state = resolvedState ?? (await resolveProtectionViewState(settingsValue, status));
     if (
       !state ||
       reconciliationVersion !== protectionReconciliationVersion.current ||
@@ -585,23 +576,21 @@ export default function App() {
     async function resolveStartupLock() {
       const settingsAtStart = settingsRef.current;
       const securityStatusAtStart = securityStatusRef.current;
-      const decision = await resolveStartupProtectionPresentation(
-        settingsAtStart,
-        securityStatusAtStart,
-      );
+      const state = await resolveProtectionViewState(settingsAtStart, securityStatusAtStart);
       if (
         cancelled ||
-        !decision ||
+        !state ||
         settingsRef.current !== settingsAtStart ||
         securityStatusRef.current !== securityStatusAtStart
       ) {
         return;
       }
 
-      if (!decision.shouldShowLockScreen) {
+      if (!state.presentation.shouldShowLockScreen) {
         const reconciledSettings = await reconcileProtectionSettingsIfSafe(
           settingsAtStart,
           securityStatusAtStart,
+          state,
         );
         if (cancelled || !reconciledSettings) {
           return;
