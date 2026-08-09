@@ -13,27 +13,25 @@ const {
 } = require("./rust-core.cjs");
 
 test("finds the packaged core beside Electron resources without an app object", () => {
+  const resourcesPath = path.resolve("fixture-packaged-app", "resources");
   const candidates = getCoreBinaryCandidates({
     platform: "win32",
-    environment: { RESOURCES_PATH: "C:\\Program Files\\WinOTP\\resources" },
-    dirname: "C:\\Program Files\\WinOTP\\resources\\app.asar\\electron",
+    environment: { RESOURCES_PATH: resourcesPath },
+    dirname: path.join(resourcesPath, "app.asar", "electron"),
   });
 
-  assert.ok(
-    candidates.includes(
-      path.join("C:\\Program Files\\WinOTP\\resources", "updater", "winotp-core.exe"),
-    ),
-  );
+  assert.ok(candidates.includes(path.join(resourcesPath, "updater", "winotp-core.exe")));
 });
 
 test("finds the unpackaged core from the compiled Electron layout", () => {
+  const appRoot = path.resolve("fixture-unpackaged-app");
   const candidates = getCoreBinaryCandidates({
     platform: "win32",
     environment: {},
-    dirname: "C:\\work\\WinOTP\\electron-dist\\electron",
+    dirname: path.join(appRoot, "electron-dist", "electron"),
   });
 
-  assert.ok(candidates.includes(path.join("C:\\work\\WinOTP", "native", "winotp-core.exe")));
+  assert.ok(candidates.includes(path.join(appRoot, "native", "winotp-core.exe")));
 });
 
 test("resolves the packaged core from the resource directory", () => {

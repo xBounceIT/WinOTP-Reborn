@@ -5,13 +5,21 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const {
-  completeLegacySettingsMigration,
+  completeLegacySettingsMigration: completeLegacySettingsMigrationForPlatform,
   mapLegacySettings,
-  runLegacyMigration,
+  runLegacyMigration: runLegacyMigrationForPlatform,
 } = require("./legacy-migration.cjs");
 
 function createDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "winotp-legacy-migration-"));
+}
+
+function runLegacyMigration(app, options = {}) {
+  return runLegacyMigrationForPlatform(app, { platform: "win32", ...options });
+}
+
+function completeLegacySettingsMigration(app, options = {}) {
+  return completeLegacySettingsMigrationForPlatform(app, { platform: "win32", ...options });
 }
 
 test("preserves the native never-lock default when the timeout is absent", () => {

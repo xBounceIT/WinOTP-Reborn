@@ -249,7 +249,7 @@ function createTestStore(
 ) {
   return new AccountStore(
     { getPath: () => directoryPath },
-    { directoryPath, encryption, legacyCredentialReader, ...options },
+    { directoryPath, encryption, legacyCredentialReader, platform: "win32", ...options },
   );
 }
 

@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
+const path = require("node:path");
 const { test } = require("node:test");
+const { pathToFileURL } = require("node:url");
 
 const {
   hasConfiguredProtection,
@@ -85,6 +87,8 @@ test("only the active screen-capture overlay main frame can submit capture IPC",
 
 test("renderer navigation is limited to the expected local origin", () => {
   const devOptions = { isDev: true, rendererUrl: "http://127.0.0.1:5173" };
+  const rendererFilePath = path.resolve("fixture app", "dist", "index.html");
+  const unexpectedRendererFilePath = path.resolve("fixture app", "evil.html");
   assert.equal(isLoopbackRendererUrl("http://127.0.0.1:5173"), true);
   assert.equal(isLoopbackRendererUrl("https://localhost:4173"), true);
   assert.equal(isLoopbackRendererUrl("https://evil.example/"), false);
@@ -94,18 +98,18 @@ test("renderer navigation is limited to the expected local origin", () => {
   assert.equal(isAllowedRendererUrl("http://evil.example/", devOptions), false);
   assert.equal(isAllowedRendererUrl("file:///tmp/evil.html", devOptions), false);
   assert.equal(
-    isAllowedRendererUrl("file:///C:/Program%20Files/WinOTP/dist/index.html", {
+    isAllowedRendererUrl(pathToFileURL(rendererFilePath).href, {
       isDev: false,
       rendererUrl: "not a dev URL",
-      rendererFilePath: "C:\\Program Files\\WinOTP\\dist\\index.html",
+      rendererFilePath,
     }),
     true,
   );
   assert.equal(
-    isAllowedRendererUrl("file:///C:/Program%20Files/WinOTP/evil.html", {
+    isAllowedRendererUrl(pathToFileURL(unexpectedRendererFilePath).href, {
       isDev: false,
       rendererUrl: "http://127.0.0.1:5173",
-      rendererFilePath: "C:\\Program Files\\WinOTP\\dist\\index.html",
+      rendererFilePath,
     }),
     false,
   );
@@ -113,7 +117,7 @@ test("renderer navigation is limited to the expected local origin", () => {
     isAllowedRendererUrl("https://evil.example/", {
       isDev: false,
       rendererUrl: "http://127.0.0.1:5173",
-      rendererFilePath: "C:\\Program Files\\WinOTP\\dist\\index.html",
+      rendererFilePath,
     }),
     false,
   );
