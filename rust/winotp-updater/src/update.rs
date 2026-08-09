@@ -946,6 +946,8 @@ fn download_validation_error_message(error: DownloadValidationError) -> String {
 fn validate_installer_name(name: &str) -> Result<(), String> {
     let path = Path::new(name);
     if name.trim().is_empty()
+        || name.contains('/')
+        || name.contains('\\')
         || path.is_absolute()
         || path.components().count() != 1
         || path.file_name().and_then(|file| file.to_str()) != Some(name)
