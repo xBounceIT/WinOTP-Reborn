@@ -112,7 +112,12 @@ jobs:
       - name: Install Linux ARM64 toolchain
         if: matrix.builder_platform == 'linux' && matrix.builder_arch == 'arm64'
         working-directory: ${{ github.workspace }}
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
 
       - uses: actions/setup-node@v4
         with:
@@ -127,7 +132,7 @@ jobs:
         run: npm run build
 
       - name: Build ${{ matrix.platform }} installer
-        run: npm run package -- --${{ matrix.builder_platform }} --${{ matrix.builder_arch }}
+        run: npm run package -- --${{ matrix.builder_platform }} --${{ matrix.builder_arch }} --config.artifactName='WinOTP-${version}-${os}-${env.WINOTP_TARGET_ARCH}-setup.${ext}'
 
       - name: Upload ${{ matrix.platform }} installer
         uses: actions/upload-artifact@v4

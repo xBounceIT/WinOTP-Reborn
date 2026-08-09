@@ -142,8 +142,14 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
     workflow,
     /- name: Install Linux ARM64 toolchain\r?\n        if: matrix\.builder_platform == 'linux' && matrix\.builder_arch == 'arm64'[\s\S]*?gcc-aarch64-linux-gnu/,
   );
+  assert.match(workflow, /g\+\+-aarch64-linux-gnu/);
+  assert.match(workflow, /libc6-dev-arm64-cross/);
   assert.match(
     workflow,
     /run: npm run package -- --\$\{\{ matrix\.builder_platform \}\} --\$\{\{ matrix\.builder_arch \}\}/,
+  );
+  assert.match(
+    workflow,
+    /--config\.artifactName='WinOTP-\$\{version\}-\$\{os\}-\$\{env\.WINOTP_TARGET_ARCH\}-setup\.\$\{ext\}'/,
   );
 });
