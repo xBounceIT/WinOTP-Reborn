@@ -10,20 +10,19 @@ function createApp(isPackaged) {
 }
 
 test("keeps the Windows safe-storage profile compatible with migrated accounts", () => {
+  const appDataPath = path.resolve("fixture-app-data");
+  const expectedUserDataPath = path.join(appDataPath, "Electron");
   let configuredPath;
   const app = {
-    getPath: (name) => (name === "appData" ? "C:\\Users\\test\\AppData\\Roaming" : ""),
+    getPath: (name) => (name === "appData" ? appDataPath : ""),
     setPath: (name, value) => {
       assert.equal(name, "userData");
       configuredPath = value;
     },
   };
 
-  assert.equal(
-    configureUserDataPath(app, { platform: "win32" }),
-    "C:\\Users\\test\\AppData\\Roaming\\Electron",
-  );
-  assert.equal(configuredPath, "C:\\Users\\test\\AppData\\Roaming\\Electron");
+  assert.equal(configureUserDataPath(app, { platform: "win32" }), expectedUserDataPath);
+  assert.equal(configuredPath, expectedUserDataPath);
 });
 
 test("does not override the user-data profile on non-Windows platforms", () => {
