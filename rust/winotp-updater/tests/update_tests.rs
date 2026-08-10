@@ -6,8 +6,8 @@ use sha2::Digest;
 use tempfile::tempdir;
 use winotp_updater::{
     AppArchitecture, AppPlatform, AvailableUpdateInfo, GitHubReleaseAssetInfo, GitHubReleaseInfo,
-    HttpRequest, HttpResponse, HttpTransport, UpdateAvailabilityStatus, UpdateChannel,
-    UpdateConfig, UpdateService,
+    HttpRequest, HttpResponse, HttpTransport, LinuxPackageType, UpdateAvailabilityStatus,
+    UpdateChannel, UpdateConfig, UpdateService,
 };
 
 const TEST_DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -67,6 +67,7 @@ fn config(directory: &Path, channel: UpdateChannel, platform: AppPlatform) -> Up
         selected_channel: channel,
         platform,
         architecture: AppArchitecture::X64,
+        linux_package_type: LinuxPackageType::AppImage,
         updates_directory: directory.to_path_buf(),
         automatic_check_enabled: true,
     }
@@ -199,6 +200,49 @@ fn release_selection_uses_platform_specific_asset_suffixes() {
         mac_update.installer_name,
         "WinOTP-1.4.0-mac-universal-setup.dmg"
     );
+}
+
+#[test]
+fn native_linux_packages_select_the_matching_release_asset() {
+    let releases = vec![release(
+        "v1.4.0",
+        false,
+        vec![
+            asset(
+                "WinOTP-1.4.0-linux-x64-setup.AppImage",
+                "https://example.test/linux-x64.AppImage",
+                Some(TEST_DIGEST.to_string()),
+            ),
+            asset(
+                "WinOTP-1.4.0-linux-x64-setup.deb",
+                "https://example.test/linux-x64.deb",
+                Some(TEST_DIGEST.to_string()),
+            ),
+            asset(
+                "WinOTP-1.4.0-linux-x64-setup.rpm",
+                "https://example.test/linux-x64.rpm",
+                Some(TEST_DIGEST.to_string()),
+            ),
+        ],
+    )];
+
+    for (package_type, expected_name) in [
+        (LinuxPackageType::Deb, "WinOTP-1.4.0-linux-x64-setup.deb"),
+        (LinuxPackageType::Rpm, "WinOTP-1.4.0-linux-x64-setup.rpm"),
+    ] {
+        let update = UpdateService::select_available_release_for_package(
+            &releases,
+            "1.0.0",
+            UpdateChannel::Stable,
+            AppPlatform::Linux,
+            AppArchitecture::X64,
+            package_type,
+        )
+        .expect("the current version is valid")
+        .expect("a matching native Linux package is available");
+
+        assert_eq!(update.installer_name, expected_name);
+    }
 }
 
 #[test]

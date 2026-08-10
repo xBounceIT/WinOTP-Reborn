@@ -7,8 +7,10 @@ const { test } = require("node:test");
 
 const {
   createUpdateService,
+  getLinuxPackageType,
   getUpdaterCommand,
   getRepositoryRoot,
+  isLinuxManualInstallReady,
   runUpdater,
   shouldQuitAfterUpdateInstall,
   UPDATE_STATUS,
@@ -62,6 +64,81 @@ test("quits only after a successful Windows installer launch", () => {
   assert.equal(shouldQuitAfterUpdateInstall("linux", { success: true }), false);
 });
 
+test("exposes only successfully prepared AppImages for manual replacement", () => {
+  const ready = {
+    success: true,
+    state: { downloadedInstallerPath: "/tmp/WinOTP.AppImage" },
+  };
+  assert.equal(
+    isLinuxManualInstallReady("linux", { APPIMAGE: "/opt/WinOTP.AppImage" }, ready),
+    true,
+  );
+  assert.equal(
+    isLinuxManualInstallReady(
+      "linux",
+      { APPIMAGE: "/opt/WinOTP.AppImage" },
+      { ...ready, success: false },
+    ),
+    false,
+  );
+  assert.equal(isLinuxManualInstallReady("linux", {}, ready), false);
+  assert.equal(isLinuxManualInstallReady("linux", { APPIMAGE: "   " }, ready), false);
+  assert.equal(
+    isLinuxManualInstallReady("darwin", { APPIMAGE: "/opt/WinOTP.AppImage" }, ready),
+    false,
+  );
+});
+
+test("detects the installed Linux package format from native markers", () => {
+  assert.equal(
+    getLinuxPackageType({
+      platform: "linux",
+      environment: { APPIMAGE: "/opt/WinOTP.AppImage" },
+      resourcesPath: "/resources",
+      readFileSync: () => "rpm",
+    }),
+    "appimage",
+  );
+  assert.equal(
+    getLinuxPackageType({
+      platform: "linux",
+      environment: {},
+      resourcesPath: "/resources",
+      readFileSync: () => " DEB\n",
+    }),
+    "deb",
+  );
+  assert.equal(
+    getLinuxPackageType({
+      platform: "linux",
+      environment: {},
+      resourcesPath: "/resources",
+      readFileSync: () => "untrusted",
+    }),
+    "appimage",
+  );
+  assert.equal(getLinuxPackageType({ platform: "darwin" }), undefined);
+});
+
+test("passes the detected Linux package format to the Rust updater", async () => {
+  let request;
+  const service = createUpdateService({
+    app: { isPackaged: true, getVersion: () => "2.0.0", getPath: () => "/tmp" },
+    environment: { WINOTP_UPDATER_PATH: process.execPath },
+    platform: "linux",
+    resourcesPath: "/resources",
+    readFileSync: () => "rpm",
+    spawnProcess: createSpawnMock((payload) => {
+      request = payload;
+      return { success: true, state: createState() };
+    }),
+  });
+
+  await service.check("Stable");
+
+  assert.equal(request.linuxPackageType, "rpm");
+});
+
 test("resolves the repository root from the compiled Electron layout", () => {
   const repositoryRoot = getRepositoryRoot();
 
@@ -96,6 +173,40 @@ test("uses the configured Rust updater path without shell execution", async () =
 
   assert.equal(result.success, true);
   assert.equal(request.command, "status");
+});
+
+test("preserves UTF-8 updater responses split across chunks", async () => {
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => undefined;
+    child.stdin = {
+      end: () => {
+        queueMicrotask(() => {
+          const response = Buffer.from(
+            JSON.stringify({ success: false, message: "Aggiornamento — non disponibile" }),
+          );
+          const splitIndex = response.indexOf(Buffer.from("—")) + 1;
+          child.stdout.emit("data", response.subarray(0, splitIndex));
+          child.stdout.emit("data", response.subarray(splitIndex));
+          child.emit("close", 0, null);
+        });
+      },
+    };
+    return child;
+  };
+
+  const result = await runUpdater(
+    { command: "status" },
+    {
+      app: { isPackaged: false },
+      environment: { WINOTP_UPDATER_PATH: process.execPath },
+      spawnProcess,
+    },
+  );
+
+  assert.equal(result.message, "Aggiornamento — non disponibile");
 });
 
 test("falls back to cargo in an unpackaged checkout and refuses a missing packaged bridge", () => {

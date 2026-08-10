@@ -695,8 +695,9 @@ fn main() {
         }
     };
     if request.get("operation").and_then(Value::as_str) == Some("session-watch") {
-        // Stream Windows session-change transitions until the process exits so
-        // the Electron host can lock the app on Remote Desktop transitions.
+        // Stream native session-change transitions until the process exits so
+        // the Electron host can lock the app without exposing platform APIs to
+        // the renderer.
         match platform::run_session_notification_watch() {
             Ok(events) => {
                 for (code, reason) in events {

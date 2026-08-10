@@ -22,6 +22,7 @@ const { SecurityStore } = require("./security-store.cjs");
 const {
   createUpdateService,
   defaultUpdateState,
+  isLinuxManualInstallReady,
   shouldQuitAfterUpdateInstall,
 } = require("./update-service.cjs");
 const { SettingsStore, normalizeSettings } = require("./settings-store.cjs");
@@ -32,15 +33,24 @@ const {
 } = require("./legacy-migration.cjs");
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
+const { configureLinuxWindowing } = require("./linux-windowing.cjs");
 const {
   createTotpPreviewRunner,
   generateTotpCode,
   generateTotpCodes,
   generateTotpPreviews,
 } = require("./totp.cjs");
-const { getAutoStartStatus, setAutoStart } = require("./auto-start.cjs");
+const {
+  getAutoStartStatus,
+  getLinuxLaunchExecutable,
+  isStartedHidden,
+  setAutoStart,
+} = require("./auto-start.cjs");
 const { runRustCore, runRustCoreAsync } = require("./rust-core.cjs");
-const { startSessionChangeWatcher } = require("./session-monitor.cjs");
+const {
+  shouldStartSessionChangeWatcher,
+  startSessionChangeWatcher,
+} = require("./session-monitor.cjs");
 const {
   isAllowedRendererUrl,
   isAllowedExternalUrl,
@@ -79,14 +89,15 @@ const defaultTitleBarTheme = {
 };
 
 configureUserDataPath(app);
-
-function isStartedHidden() {
-  return process.argv.includes("--hidden");
-}
+// Electron 38+ selects native Wayland automatically. The QR capture overlay
+// needs global window positioning, so prefer XWayland when it is available.
+configureLinuxWindowing(app);
 
 function getAutoStartOptions() {
   const execPath =
-    process.platform === "linux" && app.isPackaged ? process.env.APPIMAGE : process.execPath;
+    process.platform === "linux"
+      ? getLinuxLaunchExecutable({ isPackaged: app.isPackaged })
+      : process.execPath;
   return {
     appPath: app.isPackaged ? undefined : app.getAppPath(),
     isPackaged: app.isPackaged,
@@ -306,14 +317,14 @@ function registerSessionChangeMonitoring() {
     powerMonitor.on(eventName, () => notifyRendererOfSessionChange(eventName));
   }
 
-  if (process.platform === "win32") {
-    // Remote Desktop connect/disconnect transitions do not raise Electron
-    // power events; stream them from a hidden watcher window owned by the
-    // Rust sidecar so the app locks on session changes.
+  if (shouldStartSessionChangeWatcher(process.platform)) {
+    // Windows Remote Desktop transitions and Linux login-session locks do not
+    // raise Electron power events. Stream both through the Rust platform
+    // adapter so the renderer and tray are locked on every supported desktop.
     sessionChangeWatcher = startSessionChangeWatcher({
       onSessionChange: (reason) => notifyRendererOfSessionChange(reason),
       onError: (error) => {
-        console.error("Windows session-change monitoring failed.", error);
+        console.error("Native session-change monitoring failed.", error);
       },
     });
   }
@@ -792,12 +803,7 @@ function updateUnavailableResult(message = "The Rust update bridge is unavailabl
 }
 
 function exposeLinuxAppImageUpdate(result) {
-  if (
-    process.platform !== "linux" ||
-    !process.env.APPIMAGE ||
-    result?.success === true ||
-    typeof result?.state?.downloadedInstallerPath !== "string"
-  ) {
+  if (!isLinuxManualInstallReady(process.platform, process.env, result)) {
     return result;
   }
 
@@ -2144,7 +2150,7 @@ function createWindow() {
   }
 
   mainWindow.once("ready-to-show", () => {
-    if (!isStartedHidden()) {
+    if (!isStartedHidden(app)) {
       mainWindow.show();
     }
   });
@@ -2219,7 +2225,7 @@ if (!hasSingleInstanceLock) {
     trayController = createTrayController({
       Tray,
       Menu,
-      iconPath: getIconPath(app, __dirname),
+      iconPath: getIconPath(app, __dirname, { usage: "tray" }),
       onOpen: restoreMainWindow,
       onCopy: copyTrayCode,
       onExit: quitApp,

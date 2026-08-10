@@ -124,7 +124,14 @@ test("Electron release packaging covers the supported desktop targets", () => {
     /\$\{If\} \$isWinOtpUpdate == "1"\s+\$\{StdUtils\.ExecShellAsUser\} \$0 "\$launchLink" "open" ""\s+\$\{EndIf\}/,
   );
   assert.doesNotMatch(installerSource, /DeleteRegKey HKCU "\$APPDATA/);
-  assert.equal(build.linux.target, "AppImage");
+  assert.deepEqual(build.linux.target, ["AppImage", "deb", "rpm"]);
+  assert.equal(build.linux.maintainer, "xBounceIT <xBounceIT@users.noreply.github.com>");
+  assert.equal(build.linux.vendor, "xBounceIT");
+  assert.deepEqual(build.linux.publish, {
+    provider: "github",
+    owner: "xBounceIT",
+    repo: "WinOTP-Reborn",
+  });
   assert.equal(build.linux.syncDesktopName, true);
   assert.equal(build.mac.target, "dmg");
 });

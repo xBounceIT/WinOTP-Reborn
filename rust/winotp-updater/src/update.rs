@@ -84,6 +84,23 @@ impl AppArchitecture {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinuxPackageType {
+    AppImage,
+    Deb,
+    Rpm,
+}
+
+impl LinuxPackageType {
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "deb" => Self::Deb,
+            "rpm" => Self::Rpm,
+            _ => Self::AppImage,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableUpdateInfo {
@@ -140,6 +157,7 @@ pub struct UpdateConfig {
     pub selected_channel: UpdateChannel,
     pub platform: AppPlatform,
     pub architecture: AppArchitecture,
+    pub linux_package_type: LinuxPackageType,
     pub updates_directory: PathBuf,
     pub automatic_check_enabled: bool,
 }
@@ -559,9 +577,27 @@ impl UpdateService {
         platform: AppPlatform,
         architecture: AppArchitecture,
     ) -> Result<Option<AvailableUpdateInfo>, String> {
+        Self::select_available_release_for_package(
+            releases,
+            current_version,
+            channel,
+            platform,
+            architecture,
+            LinuxPackageType::AppImage,
+        )
+    }
+
+    pub fn select_available_release_for_package(
+        releases: &[GitHubReleaseInfo],
+        current_version: &str,
+        channel: UpdateChannel,
+        platform: AppPlatform,
+        architecture: AppArchitecture,
+        linux_package_type: LinuxPackageType,
+    ) -> Result<Option<AvailableUpdateInfo>, String> {
         let current_app_version = AppVersion::parse(current_version)
             .ok_or_else(|| format!("The current app version '{current_version}' is invalid."))?;
-        let best_asset_suffix = asset_suffix(platform, architecture)?;
+        let best_asset_suffix = asset_suffix(platform, architecture, linux_package_type)?;
         let mut best_match: Option<(AppVersion, AvailableUpdateInfo)> = None;
 
         for release in releases {
@@ -632,12 +668,13 @@ impl UpdateService {
 
     fn fetch_and_select(&self) -> Result<Option<AvailableUpdateInfo>, String> {
         let releases = self.fetch_releases()?;
-        Self::select_available_release(
+        Self::select_available_release_for_package(
             &releases,
             &self.current_state().current_version,
             self.config.selected_channel,
             self.config.platform,
             self.config.architecture,
+            self.config.linux_package_type,
         )
     }
 
@@ -734,14 +771,7 @@ impl UpdateService {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            let is_installer = path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    extension.eq_ignore_ascii_case("exe")
-                        || extension.eq_ignore_ascii_case("appimage")
-                        || extension.eq_ignore_ascii_case("dmg")
-                });
+            let is_installer = is_installer_path(&path);
             let is_current = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -751,6 +781,16 @@ impl UpdateService {
             }
         }
     }
+}
+
+fn is_installer_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            ["exe", "appimage", "deb", "rpm", "dmg"]
+                .iter()
+                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -807,6 +847,7 @@ pub fn normalize_version_string(raw_version: &str) -> String {
 fn asset_suffix(
     platform: AppPlatform,
     architecture: AppArchitecture,
+    linux_package_type: LinuxPackageType,
 ) -> Result<&'static str, String> {
     match platform {
         AppPlatform::Windows => match architecture {
@@ -817,8 +858,16 @@ fn asset_suffix(
             }
         },
         AppPlatform::Linux => match architecture {
-            AppArchitecture::X64 => Ok("linux-x64-setup.AppImage"),
-            AppArchitecture::Arm64 => Ok("linux-arm64-setup.AppImage"),
+            AppArchitecture::X64 => match linux_package_type {
+                LinuxPackageType::AppImage => Ok("linux-x64-setup.AppImage"),
+                LinuxPackageType::Deb => Ok("linux-x64-setup.deb"),
+                LinuxPackageType::Rpm => Ok("linux-x64-setup.rpm"),
+            },
+            AppArchitecture::Arm64 => match linux_package_type {
+                LinuxPackageType::AppImage => Ok("linux-arm64-setup.AppImage"),
+                LinuxPackageType::Deb => Ok("linux-arm64-setup.deb"),
+                LinuxPackageType::Rpm => Ok("linux-arm64-setup.rpm"),
+            },
             AppArchitecture::Unknown => {
                 Err("Updates are not supported on this architecture.".to_string())
             }
@@ -975,6 +1024,43 @@ fn is_https_url(url: &str) -> bool {
 
 const WINDOWS_INSTALLER_ARGUMENTS: [&str; 3] = ["/S", "/CURRENTUSER", "/LOG"];
 
+#[cfg(unix)]
+fn prepare_linux_installer(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("The downloaded AppImage could not be inspected: {error}"))?;
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(permissions.mode() | 0o111);
+    fs::set_permissions(path, permissions)
+        .map_err(|error| format!("The downloaded AppImage could not be made executable: {error}"))
+}
+
+#[cfg(not(unix))]
+fn prepare_linux_installer(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+fn linux_package_type_from_path(path: &Path) -> Result<LinuxPackageType, String> {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("appimage") => Ok(LinuxPackageType::AppImage),
+        Some("deb") => Ok(LinuxPackageType::Deb),
+        Some("rpm") => Ok(LinuxPackageType::Rpm),
+        _ => Err("The Linux installer format is not supported.".to_string()),
+    }
+}
+
+fn linux_native_package_command(path: &Path) -> Command {
+    let mut command = Command::new("xdg-open");
+    command.arg(path);
+    command
+}
+
 fn launch_installer_process(path: &Path, platform: AppPlatform) -> Result<(), String> {
     match platform {
         AppPlatform::Windows => {
@@ -983,25 +1069,25 @@ fn launch_installer_process(path: &Path, platform: AppPlatform) -> Result<(), St
             launch_process(command)
         }
         AppPlatform::Linux => {
-            if std::env::var_os("APPIMAGE").is_some() {
-                // A running AppImage is mounted from its own file, so it cannot
-                // be replaced while the app is active; spawning the downloaded
-                // copy only starts a second instance that yields to this one.
-                return Err(
-                    "On Linux, install the update by replacing the AppImage while WinOTP is closed."
-                        .to_string(),
-                );
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(metadata) = fs::metadata(path) {
-                    let mut permissions = metadata.permissions();
-                    permissions.set_mode(permissions.mode() | 0o111);
-                    let _ = fs::set_permissions(path, permissions);
+            match linux_package_type_from_path(path)? {
+                LinuxPackageType::AppImage => {
+                    // Preserve the executable bit even when the running
+                    // AppImage must be replaced manually after WinOTP exits.
+                    prepare_linux_installer(path)?;
+                    if std::env::var_os("APPIMAGE")
+                        .is_some_and(|value| !value.to_string_lossy().trim().is_empty())
+                    {
+                        // A running AppImage is mounted from its own file, so it
+                        // cannot be replaced while the app is active; spawning
+                        // the downloaded copy only starts a second instance.
+                        return Ok(());
+                    }
+                    launch_process(Command::new(path))
+                }
+                LinuxPackageType::Deb | LinuxPackageType::Rpm => {
+                    launch_process(linux_native_package_command(path))
                 }
             }
-            launch_process(Command::new(path))
         }
         AppPlatform::MacOs => {
             let mut command = Command::new("open");
@@ -1028,8 +1114,69 @@ mod tests {
         assert_eq!(WINDOWS_INSTALLER_ARGUMENTS, ["/S", "/CURRENTUSER", "/LOG"]);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn install_refusal_surfaces_error_and_keeps_installer() {
+    fn downloaded_linux_installer_is_made_executable_for_manual_replacement() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let installer_path = temp_dir.path().join("WinOTP.AppImage");
+        fs::write(&installer_path, b"appimage").expect("write installer");
+        let mut permissions = fs::metadata(&installer_path)
+            .expect("installer metadata")
+            .permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&installer_path, permissions).expect("clear executable bits");
+
+        prepare_linux_installer(&installer_path).expect("prepare installer");
+
+        let mode = fs::metadata(&installer_path)
+            .expect("installer metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111);
+    }
+
+    #[test]
+    fn linux_installer_paths_allow_only_published_package_formats() {
+        assert_eq!(
+            linux_package_type_from_path(Path::new("WinOTP.AppImage")),
+            Ok(LinuxPackageType::AppImage)
+        );
+        assert_eq!(
+            linux_package_type_from_path(Path::new("WinOTP.deb")),
+            Ok(LinuxPackageType::Deb)
+        );
+        assert_eq!(
+            linux_package_type_from_path(Path::new("WinOTP.RPM")),
+            Ok(LinuxPackageType::Rpm)
+        );
+        assert!(linux_package_type_from_path(Path::new("WinOTP.sh")).is_err());
+
+        let command = linux_native_package_command(Path::new("/tmp/WinOTP.deb"));
+        assert_eq!(command.get_program(), "xdg-open");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [std::ffi::OsStr::new("/tmp/WinOTP.deb")]
+        );
+    }
+
+    #[test]
+    fn update_cleanup_recognizes_every_published_installer_format() {
+        for name in [
+            "WinOTP.exe",
+            "WinOTP.AppImage",
+            "WinOTP.deb",
+            "WinOTP.RPM",
+            "WinOTP.dmg",
+        ] {
+            assert!(is_installer_path(Path::new(name)), "{name}");
+        }
+        assert!(!is_installer_path(Path::new("release-notes.txt")));
+    }
+
+    #[test]
+    fn installer_launch_failure_surfaces_error_and_keeps_installer() {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let updates_directory = temp_dir.path().to_path_buf();
         let installer_name = "WinOTP-2.0.0-linux-x64-setup.AppImage".to_string();
@@ -1043,14 +1190,12 @@ mod tests {
                 selected_channel: UpdateChannel::Stable,
                 platform: AppPlatform::Linux,
                 architecture: AppArchitecture::X64,
+                linux_package_type: LinuxPackageType::AppImage,
                 updates_directory,
                 automatic_check_enabled: false,
             },
             Arc::new(NoOpTransport),
-            Arc::new(|_| {
-                Err("On Linux, install the update by replacing the AppImage while WinOTP is closed."
-                    .to_string())
-            }),
+            Arc::new(|_| Err("The installer could not be started.".to_string())),
         );
 
         let result = service.launch_installer(
@@ -1073,11 +1218,11 @@ mod tests {
         assert!(!result.success);
         assert_eq!(
             result.error_message.as_deref(),
-            Some("On Linux, install the update by replacing the AppImage while WinOTP is closed.")
+            Some("The installer could not be started.")
         );
         assert_eq!(
             service.current_state().last_error.as_deref(),
-            Some("On Linux, install the update by replacing the AppImage while WinOTP is closed.")
+            Some("The installer could not be started.")
         );
         assert!(installer_path.exists());
     }
@@ -1103,6 +1248,8 @@ pub struct UpdaterRequest {
     pub platform: String,
     #[serde(default)]
     pub architecture: String,
+    #[serde(default)]
+    pub linux_package_type: String,
     #[serde(default)]
     pub updates_directory: PathBuf,
     #[serde(default = "default_true")]
@@ -1156,6 +1303,7 @@ pub fn run_request(request: UpdaterRequest) -> Result<UpdaterResponse, String> {
         selected_channel: UpdateChannel::parse(&request.channel),
         platform: AppPlatform::parse(&request.platform),
         architecture: AppArchitecture::parse(&request.architecture),
+        linux_package_type: LinuxPackageType::parse(&request.linux_package_type),
         updates_directory: request.updates_directory,
         automatic_check_enabled: request.automatic_check_enabled,
     };

@@ -64,12 +64,14 @@ jobs:
             runner: windows-latest
             builder_platform: win
             builder_arch: x64
+            msvc_arch: amd64
             target_arch: x64
             artifact: electron-app/release/WinOTP-*-win-x64-setup.exe
           - platform: windows-arm64
             runner: windows-latest
             builder_platform: win
             builder_arch: arm64
+            msvc_arch: amd64_arm64
             target_arch: arm64
             artifact: electron-app/release/WinOTP-*-win-arm64-setup.exe
           - platform: linux
@@ -77,13 +79,13 @@ jobs:
             builder_platform: linux
             builder_arch: x64
             target_arch: x64
-            artifact: electron-app/release/WinOTP-*-linux-x64-setup.AppImage
+            artifact: electron-app/release/WinOTP-*-linux-x64-setup.*
           - platform: linux-arm64
             runner: ubuntu-latest
             builder_platform: linux
             builder_arch: arm64
             target_arch: arm64
-            artifact: electron-app/release/WinOTP-*-linux-arm64-setup.AppImage
+            artifact: electron-app/release/WinOTP-*-linux-arm64-setup.*
           - platform: macos
             runner: macos-latest
             builder_platform: mac
@@ -108,12 +110,20 @@ jobs:
       - name: Set up MSVC developer environment
         if: matrix.builder_platform == 'win'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install Linux packaging tools
+        if: matrix.builder_platform == 'linux'
+        working-directory: ${{ github.workspace }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y rpm xz-utils
 
       - name: Install Linux ARM64 toolchain
         if: matrix.builder_platform == 'linux' && matrix.builder_arch == 'arm64'
         working-directory: ${{ github.workspace }}
         run: |
-          sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
@@ -131,10 +141,30 @@ jobs:
       - name: Build renderer
         run: npm run build
 
-      - name: Build ${{ matrix.platform }} installer
+      - name: Build ${{ matrix.platform }} installer artifacts
         run: npm run package -- --${{ matrix.builder_platform }} --${{ matrix.builder_arch }} --config.artifactName='WinOTP-${version}-${os}-${env.WINOTP_TARGET_ARCH}-setup.${ext}'
 
-      - name: Upload ${{ matrix.platform }} installer
+      - name: Verify Linux installer artifacts
+        if: matrix.builder_platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for extension in AppImage deb rpm; do
+            mapfile -t installers < <(
+              compgen -G "release/WinOTP-*-linux-${WINOTP_TARGET_ARCH}-setup.${extension}" || true
+            )
+            if [[ "${#installers[@]}" -ne 1 ]]; then
+              echo "::error::Expected exactly one Linux ${extension} installer, found ${#installers[@]}"
+              exit 1
+            fi
+            if [[ ! -s "${installers[0]}" ]]; then
+              echo "::error::Linux ${extension} installer is empty: ${installers[0]}"
+              exit 1
+            fi
+          done
+
+      - name: Upload ${{ matrix.platform }} installer artifacts
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.platform }}

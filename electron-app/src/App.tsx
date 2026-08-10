@@ -2504,7 +2504,7 @@ function useAppView() {
     <TooltipProvider>
       <div className="app-shell">
         <div className="window-titlebar" aria-label="WinOTP" aria-hidden={locked} inert={locked}>
-          <img className="window-titlebar__icon" src="./app.ico" alt="" aria-hidden="true" />
+          <img className="window-titlebar__icon" src="./app.png" alt="" aria-hidden="true" />
           <span className="window-titlebar__title">WinOTP</span>
         </div>
 

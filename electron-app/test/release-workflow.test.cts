@@ -8,12 +8,25 @@ const workflow = fs.readFileSync(
   path.resolve(process.cwd(), "../.github/workflows/release.yml"),
   "utf8",
 );
-const packageVersion = JSON.parse(
+const indexHtml = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf8");
+const packageJson = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
-).version;
+);
+const packageVersion = packageJson.version;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function readPngDimensions(relativePath) {
+  const contents = fs.readFileSync(path.resolve(process.cwd(), relativePath));
+  assert.deepEqual(
+    contents.subarray(0, 8),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    `${relativePath} is not a PNG`,
+  );
+  assert.equal(contents.subarray(12, 16).toString("ascii"), "IHDR");
+  return { width: contents.readUInt32BE(16), height: contents.readUInt32BE(20) };
 }
 
 function packageEntryBlock(platform) {
@@ -93,6 +106,7 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
     runner: "windows-latest",
     builder_platform: "win",
     builder_arch: "x64",
+    msvc_arch: "amd64",
     target_arch: "x64",
     artifact: "electron-app/release/WinOTP-*-win-x64-setup.exe",
   });
@@ -101,6 +115,7 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
     runner: "windows-latest",
     builder_platform: "win",
     builder_arch: "arm64",
+    msvc_arch: "amd64_arm64",
     target_arch: "arm64",
     artifact: "electron-app/release/WinOTP-*-win-arm64-setup.exe",
   });
@@ -110,7 +125,7 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
     builder_platform: "linux",
     builder_arch: "x64",
     target_arch: "x64",
-    artifact: "electron-app/release/WinOTP-*-linux-x64-setup.AppImage",
+    artifact: "electron-app/release/WinOTP-*-linux-x64-setup.*",
   });
   assert.deepEqual(packageEntryBlock("linux-arm64"), {
     platform: "linux-arm64",
@@ -118,7 +133,7 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
     builder_platform: "linux",
     builder_arch: "arm64",
     target_arch: "arm64",
-    artifact: "electron-app/release/WinOTP-*-linux-arm64-setup.AppImage",
+    artifact: "electron-app/release/WinOTP-*-linux-arm64-setup.*",
   });
   assert.deepEqual(packageEntryBlock("macos"), {
     platform: "macos",
@@ -136,7 +151,11 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
   );
   assert.match(
     workflow,
-    /- name: Set up MSVC developer environment\r?\n        if: matrix\.builder_platform == 'win'\r?\n        uses: ilammy\/msvc-dev-cmd@v1/,
+    /- name: Set up MSVC developer environment\r?\n        if: matrix\.builder_platform == 'win'\r?\n        uses: ilammy\/msvc-dev-cmd@v1\r?\n        with:\r?\n          arch: \$\{\{ matrix\.msvc_arch \}\}/,
+  );
+  assert.match(
+    workflow,
+    /- name: Install Linux packaging tools\r?\n        if: matrix\.builder_platform == 'linux'[\s\S]*?sudo apt-get install --no-install-recommends -y rpm xz-utils/,
   );
   assert.match(
     workflow,
@@ -152,4 +171,52 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
     workflow,
     /--config\.artifactName='WinOTP-\$\{version\}-\$\{os\}-\$\{env\.WINOTP_TARGET_ARCH\}-setup\.\$\{ext\}'/,
   );
+});
+
+test("Linux release jobs build and validate portable and native installers", () => {
+  assert.deepEqual(packageJson.build.linux.target, ["AppImage", "deb", "rpm"]);
+  assert.equal(packageJson.homepage, "https://github.com/xBounceIT/WinOTP-Reborn");
+  assert.equal(
+    packageJson.build.linux.maintainer,
+    "xBounceIT <xBounceIT@users.noreply.github.com>",
+  );
+  assert.deepEqual(packageJson.build.linux.publish, {
+    provider: "github",
+    owner: "xBounceIT",
+    repo: "WinOTP-Reborn",
+  });
+  assert.match(
+    workflow,
+    /- name: Verify Linux installer artifacts\r?\n        if: matrix\.builder_platform == 'linux'\r?\n        shell: bash/,
+  );
+  assert.match(workflow, /for extension in AppImage deb rpm; do/);
+  assert.match(
+    workflow,
+    /compgen -G "release\/WinOTP-\*-linux-\$\{WINOTP_TARGET_ARCH\}-setup\.\$\{extension\}"/,
+  );
+  assert.match(workflow, /if \[\[ "\$\{#installers\[@\]\}" -ne 1 \]\]; then/);
+  assert.match(workflow, /if \[\[ ! -s "\$\{installers\[0\]\}" \]\]; then/);
+});
+
+test("release packages and runtime use branded cross-platform icons", () => {
+  assert.equal(packageJson.build.win.icon, "public/app.ico");
+  assert.equal(packageJson.build.linux.icon, "public/app.png");
+  assert.equal(packageJson.build.mac.icon, "public/app.png");
+  assert.match(indexHtml, /<link rel="icon" href="\.\/app\.png" \/>/);
+
+  for (const iconPath of [
+    "public/app.png",
+    "public/trayTemplate.png",
+    "public/trayTemplate@2x.png",
+  ]) {
+    assert.equal(
+      fs.existsSync(path.resolve(process.cwd(), iconPath)),
+      true,
+      `${iconPath} is missing`,
+    );
+  }
+
+  assert.deepEqual(readPngDimensions("public/app.png"), { width: 1024, height: 1024 });
+  assert.deepEqual(readPngDimensions("public/trayTemplate.png"), { width: 16, height: 16 });
+  assert.deepEqual(readPngDimensions("public/trayTemplate@2x.png"), { width: 32, height: 32 });
 });
