@@ -49,6 +49,6 @@ npm run package -- --linux --x64
 npm run package -- --mac --universal
 ```
 
-Release tags are packaged by the repository workflow into a Windows NSIS setup, Linux AppImage, and universal macOS DMG.
+Release tags are packaged by the repository workflow into Windows NSIS setups, Linux AppImage, DEB, and RPM packages for x64 and arm64, and a universal macOS DMG.
 
 Stack: Electron, React, Shadcn UI components, TypeScript 7, Vite 8, Tailwind CSS 4, Oxlint, and Oxfmt.

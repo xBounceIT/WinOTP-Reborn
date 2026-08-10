@@ -110,6 +110,47 @@ function shouldQuitAfterUpdateInstall(platform, result) {
   return platform === "win32" && result?.success === true;
 }
 
+function getLinuxPackageType({
+  platform = process.platform,
+  environment = process.env,
+  resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
+  readFileSync = fs.readFileSync,
+}: any = {}) {
+  if (platform !== "linux") {
+    return undefined;
+  }
+
+  if (typeof environment?.APPIMAGE === "string" && environment.APPIMAGE.trim()) {
+    return "appimage";
+  }
+
+  if (typeof resourcesPath === "string" && resourcesPath.trim()) {
+    try {
+      const packageType = String(readFileSync(path.join(resourcesPath, "package-type"), "utf8"))
+        .trim()
+        .toLowerCase();
+      if (packageType === "deb" || packageType === "rpm") {
+        return packageType;
+      }
+    } catch {
+      // Development and legacy AppImage builds do not carry a package marker.
+    }
+  }
+
+  return "appimage";
+}
+
+function isLinuxManualInstallReady(platform, environment, result) {
+  return (
+    platform === "linux" &&
+    typeof environment?.APPIMAGE === "string" &&
+    environment.APPIMAGE.trim().length > 0 &&
+    result?.success === true &&
+    typeof result?.state?.downloadedInstallerPath === "string" &&
+    result.state.downloadedInstallerPath.trim().length > 0
+  );
+}
+
 function runUpdater(request, options: any = {}) {
   const {
     app,
@@ -123,8 +164,8 @@ function runUpdater(request, options: any = {}) {
   }
 
   return new Promise<any>((resolve, reject) => {
-    let stdout = "";
-    let stderr = "";
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
@@ -156,30 +197,35 @@ function runUpdater(request, options: any = {}) {
       if (settled) {
         return;
       }
-      const text = chunk.toString();
-      stdoutBytes += Buffer.byteLength(text);
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      stdoutBytes += bytes.length;
       if (stdoutBytes > MAX_UPDATER_OUTPUT_BYTES) {
         settle(reject, new Error("The Rust update bridge returned too much output."));
         child.kill();
         return;
       }
-      stdout += text;
+      stdoutChunks.push(bytes);
     });
     child.stderr?.on("data", (chunk) => {
       if (settled) {
         return;
       }
-      const text = chunk.toString();
-      stderrBytes += Buffer.byteLength(text);
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      stderrBytes += bytes.length;
       if (stderrBytes > MAX_UPDATER_OUTPUT_BYTES) {
         settle(reject, new Error("The Rust update bridge returned too much diagnostic output."));
         child.kill();
         return;
       }
-      stderr += text;
+      stderrChunks.push(bytes);
     });
     child.once("error", (error) => settle(reject, error));
     child.once("close", () => {
+      if (settled) {
+        return;
+      }
+      const stdout = Buffer.concat(stdoutChunks, stdoutBytes).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks, stderrBytes).toString("utf8");
       const serialized = stdout.trim();
       if (!serialized) {
         const detail = stderr.trim();
@@ -218,6 +264,8 @@ function createUpdateService({
   environment = process.env,
   platform = process.platform,
   spawnProcess = spawn,
+  resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
+  readFileSync = fs.readFileSync,
 }: any = {}) {
   const currentVersion = String(app?.getVersion?.() ?? "0.0.0");
   const updatesDirectory = path.join(
@@ -226,6 +274,12 @@ function createUpdateService({
   );
   let state = defaultUpdateState(currentVersion);
   let operationPromise;
+  const linuxPackageType = getLinuxPackageType({
+    platform,
+    environment,
+    resourcesPath,
+    readFileSync,
+  });
 
   function getState() {
     return cloneState(state);
@@ -239,6 +293,7 @@ function createUpdateService({
         channel: options.channel ?? state.selectedChannel,
         platform,
         architecture: process.arch,
+        linuxPackageType,
         updatesDirectory,
         automaticCheckEnabled: options.automaticCheckEnabled ?? state.isAutomaticCheckEnabled,
         update: options.update,
@@ -394,6 +449,8 @@ module.exports = {
   defaultUpdateState,
   getRepositoryRoot,
   getUpdaterCommand,
+  getLinuxPackageType,
+  isLinuxManualInstallReady,
   runUpdater,
   shouldQuitAfterUpdateInstall,
   updaterBinaryName,

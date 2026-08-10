@@ -37,6 +37,7 @@ import type {
   UpdateOperationResult,
   UpdateState,
 } from "@/lib/types";
+import { getUpdateInstallToast } from "@/lib/update-result";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -408,11 +409,7 @@ function useSettingsPage({
   async function handleInstallUpdate() {
     try {
       const result = await onInstallUpdate();
-      if (result.success) {
-        onToast("The update installer was launched.");
-      } else {
-        onToast(result.message ?? "Unable to launch the update installer.");
-      }
+      onToast(getUpdateInstallToast(result));
     } catch {
       onToast("Unable to launch the update installer.");
     }

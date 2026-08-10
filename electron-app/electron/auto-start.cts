@@ -12,7 +12,19 @@ function quoteDesktopExecArgument(value) {
   if ([...argument].some((character) => character.charCodeAt(0) < 0x20 || character === "\u007f")) {
     throw new Error("The Linux auto-start executable path contains control characters.");
   }
-  return `"${argument.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  const escaped = argument.replace(/%/g, "%%").replace(/["\\`$]/g, "\\$&");
+  return `"${escaped}"`;
+}
+
+function getLinuxLaunchExecutable({
+  isPackaged,
+  environment = process.env,
+  execPath = process.execPath,
+}: any = {}) {
+  const appImagePath = environment?.APPIMAGE;
+  return isPackaged && typeof appImagePath === "string" && appImagePath.trim()
+    ? appImagePath
+    : execPath;
 }
 
 function createLoginItemSettings({
@@ -35,6 +47,23 @@ function createLoginItemSettings({
   }
 
   return settings;
+}
+
+function isStartedHidden(app, options: any = {}) {
+  const argv = options.argv ?? process.argv;
+  if (Array.isArray(argv) && argv.includes(hiddenLaunchArgument)) {
+    return true;
+  }
+
+  if ((options.platform ?? process.platform) !== "darwin") {
+    return false;
+  }
+
+  try {
+    return app?.getLoginItemSettings?.().wasOpenedAtLogin === true;
+  } catch {
+    return false;
+  }
 }
 
 function createLinuxAutostartEntry({ enabled, isPackaged, appPath, execPath }: any) {
@@ -72,7 +101,13 @@ function getLinuxAutostartEntry(app, options: any = {}, enabled = true) {
     enabled,
     isPackaged,
     appPath: options.appPath,
-    execPath: options.execPath ?? (isPackaged ? process.env.APPIMAGE : process.execPath),
+    execPath:
+      options.execPath ??
+      getLinuxLaunchExecutable({
+        isPackaged,
+        environment: options.environment,
+        execPath: options.processExecPath,
+      }),
   });
 }
 
@@ -234,7 +269,9 @@ function setAutoStart(app, enabled, options: any = {}) {
 module.exports = {
   createLoginItemSettings,
   createLinuxAutostartEntry,
+  getLinuxLaunchExecutable,
   getLinuxAutostartPath,
   getAutoStartStatus,
+  isStartedHidden,
   setAutoStart,
 };

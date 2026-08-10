@@ -4,6 +4,8 @@
   "private": true,
   "description": "Electron desktop app for WinOTP",
   "author": "xBounceIT",
+  "license": "MIT",
+  "homepage": "https://github.com/xBounceIT/WinOTP-Reborn",
   "desktopName": "WinOTP",
   "main": "electron-dist/electron/main.cjs",
   "type": "module",
@@ -92,11 +94,20 @@
     },
     "linux": {
       "category": "Utility",
+      "icon": "public/app.png",
+      "maintainer": "xBounceIT <xBounceIT@users.noreply.github.com>",
+      "vendor": "xBounceIT",
+      "publish": {
+        "provider": "github",
+        "owner": "xBounceIT",
+        "repo": "WinOTP-Reborn"
+      },
       "syncDesktopName": true,
-      "target": "AppImage"
+      "target": ["AppImage", "deb", "rpm"]
     },
     "mac": {
       "category": "public.app-category.utilities",
+      "icon": "public/app.png",
       "target": "dmg"
     }
   }

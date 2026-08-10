@@ -1,9 +1,9 @@
 //! Operating-system capabilities that cannot belong in the portable core.
 //!
 //! The public functions keep the JSON sidecar contract stable on every
-//! platform. Windows-only integrations are compiled behind `cfg(windows)`;
-//! other platforms return a deliberate unavailable result instead of invoking
-//! a shell or embedding another native language runtime.
+//! platform. Native integrations are compiled behind target-specific cfgs;
+//! unsupported platforms return a deliberate unavailable result instead of
+//! invoking a shell or embedding another native language runtime.
 
 use serde::Serialize;
 
@@ -300,11 +300,6 @@ mod windows_impl {
         Err("Windows session notifications are only available on Windows.".to_string())
     }
 
-    pub fn run_session_notification_watch(
-    ) -> Result<std::sync::mpsc::Receiver<(u32, &'static str)>, String> {
-        Err("Windows session notifications are only available on Windows.".to_string())
-    }
-
     pub fn read_legacy_credentials(
         _resources: &[String],
     ) -> Result<Vec<super::LegacyCredentialEntry>, String> {
@@ -313,6 +308,126 @@ mod windows_impl {
 }
 
 pub use windows_impl::{
-    read_legacy_credentials, register_session_notification, run_session_notification_watch,
-    unregister_session_notification, windows_hello_availability, windows_hello_verify,
+    read_legacy_credentials, register_session_notification, unregister_session_notification,
+    windows_hello_availability, windows_hello_verify,
 };
+
+#[cfg(windows)]
+pub use windows_impl::run_session_notification_watch;
+
+#[cfg(target_os = "linux")]
+mod linux_session_impl {
+    use std::sync::mpsc;
+
+    use zbus::blocking::{fdo::PropertiesProxy, Connection};
+    use zbus::proxy::CacheProperties;
+    use zbus::zvariant::OwnedObjectPath;
+
+    const LOGIN_SERVICE: &str = "org.freedesktop.login1";
+    const SESSION_LOCKED_CODE: u32 = 1;
+    const SESSION_UNLOCKED_CODE: u32 = 2;
+
+    #[zbus::proxy(
+        interface = "org.freedesktop.login1.Manager",
+        default_service = "org.freedesktop.login1",
+        default_path = "/org/freedesktop/login1"
+    )]
+    trait LoginManager {
+        #[zbus(name = "GetSession")]
+        fn get_session(&self, session_id: &str) -> zbus::Result<OwnedObjectPath>;
+
+        #[zbus(name = "GetSessionByPID")]
+        fn get_session_by_pid(&self, pid: u32) -> zbus::Result<OwnedObjectPath>;
+    }
+
+    #[zbus::proxy(
+        interface = "org.freedesktop.login1.Session",
+        default_service = "org.freedesktop.login1"
+    )]
+    trait LoginSession {
+        #[zbus(property)]
+        fn active(&self) -> zbus::Result<bool>;
+
+        #[zbus(property)]
+        fn locked_hint(&self) -> zbus::Result<bool>;
+    }
+
+    fn session_requires_lock(session: &LoginSessionProxyBlocking<'_>) -> Result<bool, String> {
+        let locked = session
+            .locked_hint()
+            .map_err(|error| format!("Unable to read the Linux session lock state: {error}"))?;
+        let active = session
+            .active()
+            .map_err(|error| format!("Unable to read the Linux session activity state: {error}"))?;
+        Ok(locked || !active)
+    }
+
+    fn watch_session(events: mpsc::Sender<(u32, &'static str)>) -> Result<(), String> {
+        let connection = Connection::system()
+            .map_err(|error| format!("Unable to connect to the Linux login manager: {error}"))?;
+        let manager = LoginManagerProxyBlocking::new(&connection)
+            .map_err(|error| format!("Unable to access the Linux login manager: {error}"))?;
+        let session_path = std::env::var("XDG_SESSION_ID")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .and_then(|session_id| manager.get_session(&session_id).ok())
+            .or_else(|| manager.get_session_by_pid(std::process::id()).ok())
+            .ok_or_else(|| "Unable to identify the Linux login session.".to_string())?;
+        let session = LoginSessionProxyBlocking::builder(&connection)
+            .path(session_path.clone())
+            .map_err(|error| format!("The Linux login session path is invalid: {error}"))?
+            .cache_properties(CacheProperties::No)
+            .build()
+            .map_err(|error| format!("Unable to access the Linux login session: {error}"))?;
+        let properties = PropertiesProxy::new(&connection, LOGIN_SERVICE, session_path)
+            .map_err(|error| format!("Unable to monitor the Linux login session: {error}"))?;
+        let changes = properties
+            .receive_properties_changed()
+            .map_err(|error| format!("Unable to subscribe to Linux session changes: {error}"))?;
+
+        let mut requires_lock = session_requires_lock(&session)?;
+        if requires_lock && events.send((SESSION_LOCKED_CODE, "lock-screen")).is_err() {
+            return Ok(());
+        }
+
+        for _ in changes {
+            let next_requires_lock = session_requires_lock(&session)?;
+            if next_requires_lock == requires_lock {
+                continue;
+            }
+            requires_lock = next_requires_lock;
+            let event = if requires_lock {
+                (SESSION_LOCKED_CODE, "lock-screen")
+            } else {
+                (SESSION_UNLOCKED_CODE, "unlock-screen")
+            };
+            if events.send(event).is_err() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn run_session_notification_watch() -> Result<mpsc::Receiver<(u32, &'static str)>, String> {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("winotp-linux-session-watch".to_string())
+            .spawn(move || {
+                if let Err(error) = watch_session(sender) {
+                    println!("{}", serde_json::json!({ "ok": false, "error": error }));
+                }
+            })
+            .map_err(|error| format!("Unable to start the Linux session watcher: {error}"))?;
+        Ok(receiver)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub use linux_session_impl::run_session_notification_watch;
+
+#[cfg(not(any(windows, target_os = "linux")))]
+pub fn run_session_notification_watch(
+) -> Result<std::sync::mpsc::Receiver<(u32, &'static str)>, String> {
+    Err("Session notifications are unavailable on this platform.".to_string())
+}

@@ -1,13 +1,22 @@
 const path = require("node:path");
 
 const WINDOWS_SAFE_STORAGE_PROFILE_NAME = "Electron";
+const WINDOWS_ICON_FILE_NAME = "app.ico";
+const PORTABLE_ICON_FILE_NAME = "app.png";
+const MACOS_TRAY_ICON_FILE_NAME = "trayTemplate.png";
 
 function getAppRoot(dirname) {
   return path.resolve(dirname, "..", "..");
 }
 
-function getIconPath(app, dirname) {
-  return path.join(getAppRoot(dirname), app.isPackaged ? "dist" : "public", "app.ico");
+function getIconPath(app, dirname, { platform = process.platform, usage = "window" }: any = {}) {
+  const fileName =
+    platform === "win32"
+      ? WINDOWS_ICON_FILE_NAME
+      : platform === "darwin" && usage === "tray"
+        ? MACOS_TRAY_ICON_FILE_NAME
+        : PORTABLE_ICON_FILE_NAME;
+  return path.join(getAppRoot(dirname), app.isPackaged ? "dist" : "public", fileName);
 }
 
 function getRendererFilePath(dirname) {

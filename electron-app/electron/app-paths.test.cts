@@ -43,7 +43,7 @@ test("resolves the development icon from Electron's app root", () => {
   const compiledElectronDir = path.join(appRoot, "electron-dist", "electron");
 
   assert.equal(
-    getIconPath(createApp(false), compiledElectronDir),
+    getIconPath(createApp(false), compiledElectronDir, { platform: "win32" }),
     path.join(appRoot, "public", "app.ico"),
   );
 });
@@ -53,8 +53,27 @@ test("resolves the packaged icon from Electron's app root", () => {
   const compiledElectronDir = path.join(appRoot, "electron-dist", "electron");
 
   assert.equal(
-    getIconPath(createApp(true), compiledElectronDir),
+    getIconPath(createApp(true), compiledElectronDir, { platform: "win32" }),
     path.join(appRoot, "dist", "app.ico"),
+  );
+});
+
+test("uses portable PNG icons on Linux and macOS", () => {
+  const appRoot = path.resolve("fixture-app.asar");
+  const compiledElectronDir = path.join(appRoot, "electron-dist", "electron");
+  const app = createApp(true);
+
+  assert.equal(
+    getIconPath(app, compiledElectronDir, { platform: "linux" }),
+    path.join(appRoot, "dist", "app.png"),
+  );
+  assert.equal(
+    getIconPath(app, compiledElectronDir, { platform: "darwin" }),
+    path.join(appRoot, "dist", "app.png"),
+  );
+  assert.equal(
+    getIconPath(app, compiledElectronDir, { platform: "darwin", usage: "tray" }),
+    path.join(appRoot, "dist", "trayTemplate.png"),
   );
 });
 

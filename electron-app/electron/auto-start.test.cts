@@ -8,6 +8,8 @@ const {
   createLinuxAutostartEntry,
   createLoginItemSettings,
   getAutoStartStatus,
+  getLinuxLaunchExecutable,
+  isStartedHidden,
   setAutoStart,
 } = require("./auto-start.cjs");
 
@@ -45,6 +47,28 @@ test("keeps development auto-start pointed at the Electron app", () => {
       name: "WinOTP_Reborn",
     },
   );
+});
+
+test("keeps macOS login launches hidden after openAsHidden became unavailable", () => {
+  const app = {
+    getLoginItemSettings() {
+      return { wasOpenedAtLogin: true };
+    },
+  };
+
+  assert.deepEqual(createLoginItemSettings({ enabled: true, platform: "darwin" }), {
+    openAtLogin: true,
+    openAsHidden: true,
+  });
+  assert.equal(isStartedHidden(app, { platform: "darwin", argv: [] }), true);
+  assert.equal(
+    isStartedHidden(
+      { getLoginItemSettings: () => ({ wasOpenedAtLogin: false }) },
+      { platform: "darwin", argv: [] },
+    ),
+    false,
+  );
+  assert.equal(isStartedHidden({}, { platform: "linux", argv: ["--hidden"] }), true);
 });
 
 test("updates and verifies the operating system auto-start state", () => {
@@ -236,4 +260,60 @@ test("uses the current AppImage path for packaged Linux auto-start", () => {
     }
     fs.rmSync(appDataPath, { recursive: true, force: true });
   }
+});
+
+test("uses the installed executable for native Linux packages", () => {
+  assert.equal(
+    getLinuxLaunchExecutable({
+      isPackaged: true,
+      environment: {},
+      execPath: "/opt/WinOTP/winotp-electron",
+    }),
+    "/opt/WinOTP/winotp-electron",
+  );
+  assert.equal(
+    getLinuxLaunchExecutable({
+      isPackaged: true,
+      environment: { APPIMAGE: " /opt/WinOTP.AppImage " },
+      execPath: "/opt/WinOTP/winotp-electron",
+    }),
+    " /opt/WinOTP.AppImage ",
+  );
+
+  const appDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-native-autostart-"));
+  try {
+    assert.deepEqual(
+      setAutoStart({ isPackaged: true, getPath: () => appDataPath }, true, {
+        platform: "linux",
+        environment: {},
+        processExecPath: "/opt/WinOTP/winotp-electron",
+      }),
+      { success: true, enabled: true },
+    );
+    assert.match(
+      fs.readFileSync(path.join(appDataPath, "autostart", "WinOTP_Reborn.desktop"), "utf8"),
+      /^Exec="\/opt\/WinOTP\/winotp-electron" "--hidden"$/m,
+    );
+  } finally {
+    fs.rmSync(appDataPath, { recursive: true, force: true });
+  }
+});
+
+test("escapes desktop-entry field codes and quoted special characters", () => {
+  const entry = createLinuxAutostartEntry({
+    enabled: true,
+    isPackaged: true,
+    execPath: '/opt/$Win`OTP%20\\"app',
+  });
+
+  assert.match(entry, /^Exec="\/opt\/\\\$Win\\`OTP%%20\\\\\\"app" "--hidden"$/m);
+  assert.throws(
+    () =>
+      createLinuxAutostartEntry({
+        enabled: true,
+        isPackaged: true,
+        execPath: "/opt/WinOTP\nmalformed",
+      }),
+    /control characters/,
+  );
 });

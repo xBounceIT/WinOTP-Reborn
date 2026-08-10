@@ -7,7 +7,7 @@ export function LoadingScreen() {
       aria-busy="true"
       aria-labelledby="loading-screen-title"
     >
-      <img className="loading-screen__logo" src="./app.ico" alt="" aria-hidden="true" />
+      <img className="loading-screen__logo" src="./app.png" alt="" aria-hidden="true" />
       <span id="loading-screen-title" className="loading-screen__label">
         Loading...
       </span>
