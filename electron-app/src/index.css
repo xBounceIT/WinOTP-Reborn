@@ -968,6 +968,10 @@ html:not(.dark) .choice-card:hover {
   width: 100%;
 }
 
+.settings-buttons--fill-single > :only-child {
+  grid-column: 1 / -1;
+}
+
 .credential-dialog,
 .lock-overlay {
   width: auto;

@@ -952,7 +952,7 @@ function useSettingsPage({
                 {updateState.lastError}
               </div>
             )}
-            <div className="settings-buttons">
+            <div className="settings-buttons settings-buttons--fill-single">
               <Button
                 variant="outline"
                 size="sm"
