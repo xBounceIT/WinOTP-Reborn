@@ -859,7 +859,7 @@ function useSettingsPage({
                 onClick={() => void handleBrowseBackupFolder()}
               >
                 <FolderOpen size={14} />
-                Browse
+                Set folder
               </Button>
               <Button
                 variant="outline"
