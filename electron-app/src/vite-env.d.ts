@@ -22,6 +22,7 @@ import type {
   SecurityCredentialKind,
   SecurityOperationResult,
   SecurityStatusResult,
+  SessionChangeReason,
   SettingsRecoveryAuthorization,
   UpdateOperationResult,
   UpdateStatusResult,
@@ -58,15 +59,7 @@ declare global {
   }
 
   interface SessionChangePayload {
-    reason:
-      | "lock-screen"
-      | "unlock-screen"
-      | "suspend"
-      | "resume"
-      | "console-connect"
-      | "console-disconnect"
-      | "remote-connect"
-      | "remote-disconnect";
+    reason: SessionChangeReason;
   }
 
   type ScreenCaptureResult =

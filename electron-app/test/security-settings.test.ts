@@ -7,11 +7,14 @@ import {
   hasConfiguredProtection,
   isSecurityNormalizationReady,
   remoteCredentialKind,
+  remoteSessionDetectedAfterChange,
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
+  shouldActivateRemoteFallback,
   shouldReleaseFailedLock,
   shouldShowStartupLoading,
+  windowsHelloAvailabilityOverrideForRemoteSession,
 } from "../src/lib/security-settings.ts";
 import { defaultSettings } from "../src/lib/types.ts";
 
@@ -70,6 +73,54 @@ test("does not release a previously locked session after a failed recheck", () =
   assert.equal(shouldReleaseFailedLock(false, true), false);
   assert.equal(shouldReleaseFailedLock(true, true), true);
   assert.equal(shouldReleaseFailedLock(false, false), true);
+});
+
+test("treats a detected Remote Desktop connection as authoritative during the transition", () => {
+  const settings = {
+    ...defaultSettings,
+    windowsHello: true,
+    remotePin: true,
+  };
+  const status = {
+    pinSet: false,
+    passwordSet: false,
+    remotePinSet: true,
+    remotePasswordSet: false,
+  };
+
+  let remoteSessionDetected = remoteSessionDetectedAfterChange(false, "remote-connect");
+  assert.equal(remoteSessionDetected, true);
+  for (const reason of [
+    "lock-screen",
+    "unlock-screen",
+    "suspend",
+    "resume",
+    "console-disconnect",
+  ] as const) {
+    remoteSessionDetected = remoteSessionDetectedAfterChange(remoteSessionDetected, reason);
+    assert.equal(remoteSessionDetected, true, `${reason} must preserve the detected RDP session`);
+  }
+  assert.equal(
+    windowsHelloAvailabilityOverrideForRemoteSession(remoteSessionDetected),
+    "remote-session",
+  );
+  assert.equal(shouldActivateRemoteFallback(remoteSessionDetected, settings, status), true);
+  assert.equal(
+    shouldActivateRemoteFallback(remoteSessionDetected, settings, {
+      ...status,
+      remotePinSet: false,
+    }),
+    false,
+  );
+
+  remoteSessionDetected = remoteSessionDetectedAfterChange(
+    remoteSessionDetected,
+    "remote-disconnect",
+  );
+  assert.equal(remoteSessionDetected, false);
+  assert.equal(windowsHelloAvailabilityOverrideForRemoteSession(remoteSessionDetected), undefined);
+  assert.equal(shouldActivateRemoteFallback(remoteSessionDetected, settings, status), false);
+  assert.equal(remoteSessionDetectedAfterChange(true, "console-connect"), false);
 });
 
 test("distinguishes a missing credential from a secure storage failure", () => {
