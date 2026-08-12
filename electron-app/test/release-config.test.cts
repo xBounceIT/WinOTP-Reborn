@@ -110,6 +110,20 @@ test("Electron release packaging covers the supported desktop targets", () => {
     'ReadRegStr $0 HKCU "${WINOTP_LEGACY_UNINSTALL_KEY}" "InstallLocation"',
   );
   assert.match(installerSource, /\$\{FileExists\} "\$0\\WinOTP\.exe"/);
+  assert.match(installerSource, /!include "getProcessInfo\.nsh"/);
+  assert.match(installerSource, /Var \/GLOBAL IsPowerShellAvailable/);
+  assert.match(installerSource, /Var \/GLOBAL pid/);
+  assert.match(installerSource, /!macro customCheckAppRunning/);
+  assertAppearsBefore(
+    installerSource,
+    "StrCpy $IsPowerShellAvailable 1",
+    '!insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0',
+  );
+  assert.match(
+    installerSource,
+    /\$\{If\} \$isWinOtpUpdate == "1"[\s\S]*!insertmacro FIND_PROCESS "\$\{APP_EXECUTABLE_FILENAME\}" \$R0[\s\S]*Sleep 250/,
+  );
+  assertAppearsBefore(installerSource, "${If} $R1 >= 40", "!insertmacro _CHECK_APP_RUNNING");
   assert.match(installerSource, /!macro customInstall/);
   assert.match(installerSource, /DeleteRegKey HKCU "\$\{WINOTP_LEGACY_UNINSTALL_KEY\}"/);
   assert.match(installerSource, /Delete "\$INSTDIR\\unins000\.exe"/);
