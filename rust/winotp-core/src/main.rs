@@ -700,10 +700,17 @@ fn main() {
         // the renderer.
         match platform::run_session_notification_watch() {
             Ok(events) => {
-                for (code, reason) in events {
+                for event in events {
                     println!(
                         "{}",
-                        json!({ "ok": true, "event": { "code": code, "reason": reason } })
+                        json!({
+                            "ok": true,
+                            "event": {
+                                "code": event.code,
+                                "reason": event.reason,
+                                "snapshot": event.snapshot,
+                            }
+                        })
                     );
                 }
             }

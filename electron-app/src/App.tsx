@@ -34,11 +34,14 @@ import {
   isPinCredential,
   isSecurityNormalizationReady,
   remoteCredentialKind,
+  remoteSessionDetectedAfterChange,
   securityVerificationFromResult,
   settingForCredential,
   securityStatusKey,
+  shouldActivateRemoteFallback,
   shouldReleaseFailedLock,
   shouldShowStartupLoading,
+  windowsHelloAvailabilityOverrideForRemoteSession,
 } from "@/lib/security-settings";
 import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
 import { useModalDialog } from "@/lib/use-modal-dialog";
@@ -69,6 +72,7 @@ import { defaultSettings } from "@/lib/types";
 const settingsStorageKey = "winotp-electron.settings";
 const initialActivityAt = Date.now();
 type LockRequestReason = "manual" | "startup" | "inactivity" | "session";
+type RequestLock = (reason: LockRequestReason, remoteSessionDetected?: boolean) => Promise<boolean>;
 type WinOtpCore = NonNullable<NonNullable<Window["winotp"]>["core"]>;
 
 function initialUpdateState(settings: AppSettings): UpdateState {
@@ -410,12 +414,11 @@ function useAppView() {
   const lastActivityAt = useRef(initialActivityAt);
   const startupLockHandled = useRef(false);
   const customOrderPruneVersion = useRef(0);
-  const pendingSessionLock = useRef(false);
+  const pendingSessionLock = useRef<boolean | undefined>(undefined);
+  const remoteSessionDetectedRef = useRef(false);
   const sessionChangeVersion = useRef(0);
   const protectionReconciliationVersion = useRef(0);
-  const requestLockRef = useRef<((reason: LockRequestReason) => Promise<boolean>) | undefined>(
-    undefined,
-  );
+  const requestLockRef = useRef<RequestLock | undefined>(undefined);
   const scheduleAutoLockTimerRef = useRef<(() => void) | undefined>(undefined);
   const backupMutationVersion = useRef(0);
   const autoStartMutationVersion = useRef(0);
@@ -737,12 +740,22 @@ function useAppView() {
       return;
     }
 
-    const unsubscribe = window.winotp?.onSessionChanged(() => {
+    const unsubscribe = window.winotp?.onSessionChanged((change) => {
       sessionChangeVersion.current += 1;
-      setRemoteFallbackActive(false);
+      remoteSessionDetectedRef.current = remoteSessionDetectedAfterChange(
+        remoteSessionDetectedRef.current,
+        change.reason,
+      );
+      setRemoteFallbackActive(
+        shouldActivateRemoteFallback(
+          remoteSessionDetectedRef.current,
+          settingsRef.current,
+          securityStatusRef.current,
+        ),
+      );
       setUnlockValue("");
       setUnlockError("");
-      void requestLockRef.current?.("session");
+      void requestLockRef.current?.("session", remoteSessionDetectedRef.current);
     });
 
     return unsubscribe;
@@ -2096,14 +2109,14 @@ function useAppView() {
     }
   }
 
-  async function requestLock(reason: LockRequestReason) {
+  async function requestLock(reason: LockRequestReason, remoteSessionDetected?: boolean) {
     if (lockedRef.current && reason !== "startup" && reason !== "session") {
       return true;
     }
 
     if (lockBusyRef.current) {
-      if (reason === "session") {
-        pendingSessionLock.current = true;
+      if (reason === "session" && remoteSessionDetected !== undefined) {
+        pendingSessionLock.current = remoteSessionDetected;
       }
       return false;
     }
@@ -2112,6 +2125,7 @@ function useAppView() {
     setLockRequestBusy(true);
     const settingsAtStart = settingsRef.current;
     const securityStatusAtStart = securityStatusRef.current;
+    const sessionChangeVersionAtStart = sessionChangeVersion.current;
     const kind = directCredentialKind(settingsAtStart);
     const protectionConfigured = hasConfiguredProtection(settingsAtStart);
     let lockApplied = false;
@@ -2181,12 +2195,15 @@ function useAppView() {
 
       if (settingsAtStart.windowsHello) {
         applyLock();
-        const availability = await checkWindowsHelloAvailability();
+        const availability =
+          windowsHelloAvailabilityOverrideForRemoteSession(remoteSessionDetected) ??
+          (await checkWindowsHelloAvailability());
         if (
+          sessionChangeVersion.current !== sessionChangeVersionAtStart ||
           settingsRef.current !== settingsAtStart ||
           securityStatusRef.current !== securityStatusAtStart
         ) {
-          showManualLockError("Security settings changed; try locking again.", reason);
+          showManualLockError("Security settings or session changed; try locking again.", reason);
           return false;
         }
 
@@ -2215,10 +2232,10 @@ function useAppView() {
     } finally {
       lockBusyRef.current = false;
       setLockRequestBusy(false);
-      const shouldRetrySessionLock = pendingSessionLock.current;
-      pendingSessionLock.current = false;
-      if (shouldRetrySessionLock) {
-        queueMicrotask(() => void requestLock("session"));
+      const pendingRemoteSessionDetected = pendingSessionLock.current;
+      pendingSessionLock.current = undefined;
+      if (pendingRemoteSessionDetected !== undefined) {
+        queueMicrotask(() => void requestLock("session", pendingRemoteSessionDetected));
       }
     }
   }

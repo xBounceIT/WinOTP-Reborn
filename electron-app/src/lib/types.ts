@@ -12,6 +12,16 @@ export type Route = "home" | "add" | "import" | "manual" | "settings";
 
 export type SecurityCredentialKind = "pin" | "password" | "remotePin" | "remotePassword";
 
+export type SessionChangeReason =
+  | "lock-screen"
+  | "unlock-screen"
+  | "suspend"
+  | "resume"
+  | "console-connect"
+  | "console-disconnect"
+  | "remote-connect"
+  | "remote-disconnect";
+
 export interface OtpAccount {
   id: string;
   issuer: string;

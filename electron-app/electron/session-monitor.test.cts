@@ -95,7 +95,16 @@ test("parses Rust session watcher events", () => {
     parseSessionWatchMessage(
       JSON.stringify({ ok: true, event: { code: 3, reason: "remote-connect" } }),
     ),
-    { reason: "remote-connect" },
+    { reason: "remote-connect", snapshot: false },
+  );
+  assert.deepEqual(
+    parseSessionWatchMessage(
+      JSON.stringify({
+        ok: true,
+        event: { code: 1, reason: "console-connect", snapshot: true },
+      }),
+    ),
+    { reason: "console-connect", snapshot: true },
   );
   assert.deepEqual(parseSessionWatchMessage(JSON.stringify({ ok: false, error: "denied" })), {
     error: "denied",
@@ -189,6 +198,44 @@ test("restarts the Rust watcher after an unexpected exit and stops on demand", a
   watcher.stop();
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(children.length, 2);
+});
+
+test("uses a restart snapshot to resynchronize missed session transitions", async (context) => {
+  const reasons = [];
+  const children = [];
+  const watcher = startSessionChangeWatcher({
+    resolveRustCoreBinary: () => "winotp-core.exe",
+    createChild: () => {
+      const child = createFakeWatcherChild();
+      children.push(child);
+      return child;
+    },
+    onSessionChange: (reason) => reasons.push(reason),
+    restartDelayMs: 1,
+  });
+  context.after(() => watcher.stop());
+
+  children[0].stdout.emit(
+    "data",
+    `${JSON.stringify({
+      ok: true,
+      event: { code: 3, reason: "remote-connect", snapshot: true },
+    })}\n`,
+  );
+  assert.deepEqual(reasons, []);
+
+  children[0].emit("close", 0);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(children.length, 2);
+  children[1].stdout.emit(
+    "data",
+    `${JSON.stringify({
+      ok: true,
+      event: { code: 1, reason: "console-connect", snapshot: true },
+    })}\n`,
+  );
+
+  assert.deepEqual(reasons, ["console-connect"]);
 });
 
 test("terminates a watcher that exceeds its output boundary", (context) => {
