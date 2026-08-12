@@ -1022,7 +1022,7 @@ fn is_https_url(url: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && !rest.contains(char::is_whitespace))
 }
 
-const WINDOWS_INSTALLER_ARGUMENTS: [&str; 3] = ["/S", "/CURRENTUSER", "/LOG"];
+const WINDOWS_INSTALLER_ARGUMENTS: [&str; 4] = ["/S", "/CURRENTUSER", "--updated", "/LOG"];
 
 #[cfg(unix)]
 fn prepare_linux_installer(path: &Path) -> Result<(), String> {
@@ -1110,8 +1110,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_installer_runs_silently_for_per_user_updates() {
-        assert_eq!(WINDOWS_INSTALLER_ARGUMENTS, ["/S", "/CURRENTUSER", "/LOG"]);
+    fn windows_installer_runs_silently_and_waits_for_the_running_app() {
+        assert_eq!(
+            WINDOWS_INSTALLER_ARGUMENTS,
+            ["/S", "/CURRENTUSER", "--updated", "/LOG"]
+        );
     }
 
     #[cfg(unix)]

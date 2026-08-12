@@ -2,7 +2,11 @@
 !define WINOTP_LEGACY_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{9C96A88A-8F18-4B57-9F59-AB4E2A8760D1}_is1"
 !define WINOTP_LEGACY_START_MENU_DIRECTORY "$SMPROGRAMS\WinOTP"
 
+!include "getProcessInfo.nsh"
+
 Var /GLOBAL isWinOtpUpdate
+Var /GLOBAL IsPowerShellAvailable
+Var /GLOBAL pid
 
 ; The v1 updater passes /CURRENTUSER but not NSIS's /S switch. Treat that
 ; legacy invocation as a silent update so users do not see an installer page.
@@ -39,6 +43,42 @@ Var /GLOBAL isWinOtpUpdate
       StrCpy $INSTDIR "${WINOTP_LEGACY_INSTALL_DIRECTORY}"
     ${EndIf}
   ${EndIf}
+!macroend
+
+; Existing v2 clients launch the installer before their updater sidecar has
+; returned and Electron has completed app.quit(). Give both processes time to
+; leave the installation directory before electron-builder runs the old
+; uninstaller. A bounded wait preserves the standard close/kill fallback for
+; a process that does not exit on its own.
+!macro customCheckAppRunning
+  ; electron-builder's PowerShell branch embeds $INSTDIR in a single-quoted
+  ; command. Windows profile paths containing an apostrophe break that command
+  ; and make a running WinOTP process look absent. Force its tasklist/taskkill
+  ; branch, which matches the executable and current user without interpolating
+  ; the installation path.
+  StrCpy $IsPowerShellAvailable 1
+
+  ${If} $isWinOtpUpdate == "1"
+    StrCpy $R1 0
+    waitForWinOtpUpdateExit:
+      !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+      ${If} $R0 != 0
+        Goto winOtpUpdateProcessesExited
+      ${EndIf}
+
+      IntOp $R1 $R1 + 1
+      ${If} $R1 >= 40
+        Goto checkRemainingWinOtpProcesses
+      ${EndIf}
+
+      Sleep 250
+      Goto waitForWinOtpUpdateExit
+  ${EndIf}
+
+  checkRemainingWinOtpProcesses:
+    !insertmacro _CHECK_APP_RUNNING
+
+  winOtpUpdateProcessesExited:
 !macroend
 
 ; Remove the old Inno registration and uninstaller after the new payload has
