@@ -7,6 +7,31 @@
 
 use serde::Serialize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionChangeEvent {
+    pub code: u32,
+    pub reason: &'static str,
+    pub snapshot: bool,
+}
+
+impl SessionChangeEvent {
+    fn transition(code: u32, reason: &'static str) -> Self {
+        Self {
+            code,
+            reason,
+            snapshot: false,
+        }
+    }
+
+    fn snapshot(code: u32, reason: &'static str) -> Self {
+        Self {
+            code,
+            reason,
+            snapshot: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyCredentialEntry {
@@ -44,6 +69,8 @@ mod windows_impl {
         WTS_REMOTE_DISCONNECT,
     };
     use windows_future::IAsyncOperation;
+
+    use super::SessionChangeEvent;
 
     const USER_CONSENT_VERIFIER_CLASS: &str = "Windows.Security.Credentials.UI.UserConsentVerifier";
     const ELEMENT_NOT_FOUND_HRESULT: u32 = 0x8007_0490;
@@ -139,7 +166,7 @@ mod windows_impl {
     }
 
     struct SessionNotificationContext {
-        events: mpsc::Sender<(u32, &'static str)>,
+        events: mpsc::Sender<SessionChangeEvent>,
     }
 
     unsafe extern "system" fn session_change_window_proc(
@@ -153,7 +180,11 @@ mod windows_impl {
             if !context.is_null() {
                 let code = wparam.0 as u32;
                 if let Some(reason) = session_change_reason(code) {
-                    let _ = unsafe { (*context).events.send((code, reason)) };
+                    let _ = unsafe {
+                        (*context)
+                            .events
+                            .send(SessionChangeEvent::transition(code, reason))
+                    };
                 }
             }
             return LRESULT(0);
@@ -162,7 +193,7 @@ mod windows_impl {
     }
 
     fn run_session_notification_watch_thread(
-        events: mpsc::Sender<(u32, &'static str)>,
+        events: mpsc::Sender<SessionChangeEvent>,
     ) -> Result<(), String> {
         unsafe {
             let class_name = "WinOTP.SessionChangeWatcher\0"
@@ -184,6 +215,7 @@ mod windows_impl {
 
             // The context lives for the whole watcher process: the window
             // procedure reads it on every transition and nothing destroys it.
+            let snapshot_events = events.clone();
             let context = Box::new(SessionNotificationContext { events });
             let context_ptr = Box::into_raw(context);
             let window = CreateWindowExW(
@@ -204,6 +236,14 @@ mod windows_impl {
             SetWindowLongPtrW(window, GWLP_USERDATA, context_ptr as isize);
             WTSRegisterSessionNotification(window, NOTIFY_FOR_THIS_SESSION)
                 .map_err(|error| format!("Unable to register session notifications: {error}"))?;
+            let snapshot = if GetSystemMetrics(SM_REMOTESESSION) != 0 {
+                SessionChangeEvent::snapshot(WTS_REMOTE_CONNECT, "remote-connect")
+            } else {
+                SessionChangeEvent::snapshot(WTS_CONSOLE_CONNECT, "console-connect")
+            };
+            if snapshot_events.send(snapshot).is_err() {
+                return Ok(());
+            }
 
             let mut message = MSG::default();
             loop {
@@ -218,7 +258,7 @@ mod windows_impl {
         Ok(())
     }
 
-    pub fn run_session_notification_watch() -> Result<mpsc::Receiver<(u32, &'static str)>, String> {
+    pub fn run_session_notification_watch() -> Result<mpsc::Receiver<SessionChangeEvent>, String> {
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
             if let Err(error) = run_session_notification_watch_thread(sender) {
@@ -323,6 +363,8 @@ mod linux_session_impl {
     use zbus::proxy::CacheProperties;
     use zbus::zvariant::OwnedObjectPath;
 
+    use super::SessionChangeEvent;
+
     const LOGIN_SERVICE: &str = "org.freedesktop.login1";
     const SESSION_LOCKED_CODE: u32 = 1;
     const SESSION_UNLOCKED_CODE: u32 = 2;
@@ -362,7 +404,7 @@ mod linux_session_impl {
         Ok(locked || !active)
     }
 
-    fn watch_session(events: mpsc::Sender<(u32, &'static str)>) -> Result<(), String> {
+    fn watch_session(events: mpsc::Sender<SessionChangeEvent>) -> Result<(), String> {
         let connection = Connection::system()
             .map_err(|error| format!("Unable to connect to the Linux login manager: {error}"))?;
         let manager = LoginManagerProxyBlocking::new(&connection)
@@ -387,7 +429,14 @@ mod linux_session_impl {
             .map_err(|error| format!("Unable to subscribe to Linux session changes: {error}"))?;
 
         let mut requires_lock = session_requires_lock(&session)?;
-        if requires_lock && events.send((SESSION_LOCKED_CODE, "lock-screen")).is_err() {
+        if requires_lock
+            && events
+                .send(SessionChangeEvent::snapshot(
+                    SESSION_LOCKED_CODE,
+                    "lock-screen",
+                ))
+                .is_err()
+        {
             return Ok(());
         }
 
@@ -398,9 +447,9 @@ mod linux_session_impl {
             }
             requires_lock = next_requires_lock;
             let event = if requires_lock {
-                (SESSION_LOCKED_CODE, "lock-screen")
+                SessionChangeEvent::transition(SESSION_LOCKED_CODE, "lock-screen")
             } else {
-                (SESSION_UNLOCKED_CODE, "unlock-screen")
+                SessionChangeEvent::transition(SESSION_UNLOCKED_CODE, "unlock-screen")
             };
             if events.send(event).is_err() {
                 break;
@@ -409,7 +458,7 @@ mod linux_session_impl {
         Ok(())
     }
 
-    pub fn run_session_notification_watch() -> Result<mpsc::Receiver<(u32, &'static str)>, String> {
+    pub fn run_session_notification_watch() -> Result<mpsc::Receiver<SessionChangeEvent>, String> {
         let (sender, receiver) = mpsc::channel();
         std::thread::Builder::new()
             .name("winotp-linux-session-watch".to_string())
@@ -428,6 +477,6 @@ pub use linux_session_impl::run_session_notification_watch;
 
 #[cfg(not(any(windows, target_os = "linux")))]
 pub fn run_session_notification_watch(
-) -> Result<std::sync::mpsc::Receiver<(u32, &'static str)>, String> {
+) -> Result<std::sync::mpsc::Receiver<SessionChangeEvent>, String> {
     Err("Session notifications are unavailable on this platform.".to_string())
 }

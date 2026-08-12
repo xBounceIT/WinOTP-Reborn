@@ -88,7 +88,10 @@ function parseSessionWatchMessage(line) {
   try {
     const event = JSON.parse(line);
     if (event?.ok === true && typeof event.event?.reason === "string") {
-      return { reason: event.event.reason };
+      return {
+        reason: event.event.reason,
+        snapshot: event.event.snapshot === true,
+      };
     }
     if (event?.ok === false && typeof event.error === "string" && event.error.trim()) {
       return { error: event.error.trim() };
@@ -116,6 +119,7 @@ function startSessionChangeWatcher(options: any = {}) {
   let child;
   let restartTimer;
   let stopped = false;
+  let startAttempts = 0;
 
   const stop = () => {
     stopped = true;
@@ -137,6 +141,8 @@ function startSessionChangeWatcher(options: any = {}) {
     if (stopped) {
       return;
     }
+    const suppressInitialSnapshot = startAttempts === 0;
+    startAttempts += 1;
     let stdoutBuffer = "";
     let watcherReportedError = false;
     try {
@@ -177,7 +183,7 @@ function startSessionChangeWatcher(options: any = {}) {
         }
         const line = rawLine.trim();
         const message = parseSessionWatchMessage(line);
-        if (message.reason) {
+        if (message.reason && (!message.snapshot || !suppressInitialSnapshot)) {
           onSessionChange(message.reason);
         } else if (message.error) {
           watcherReportedError = true;
