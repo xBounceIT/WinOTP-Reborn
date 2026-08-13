@@ -95,6 +95,7 @@ jobs:
 
     env:
       WINOTP_TARGET_ARCH: ${{ matrix.target_arch }}
+      WINOTP_CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
       CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
       CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
@@ -137,6 +138,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify Chrome extension registration
+        run: node -e "if (!/^[a-p]{32}$/.test(process.env.WINOTP_CHROME_EXTENSION_ID || '')) throw new Error('CHROME_EXTENSION_ID must be the official 32-character Chrome extension ID')"
 
       - name: Build renderer
         run: npm run build

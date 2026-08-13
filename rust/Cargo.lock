@@ -352,6 +352,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -766,6 +787,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
+name = "libredox"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2026a5056764a10b2bf5d56488cba40da507f5493a6a429340e2004d9ed085fa"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -828,6 +858,12 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "option-ext"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordered-stream"
@@ -959,6 +995,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
+]
+
+[[package]]
+name = "redox_users"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
+dependencies = [
+ "getrandom 0.2.17",
+ "libredox",
+ "thiserror",
 ]
 
 [[package]]
@@ -1675,13 +1722,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "winotp-browser-bridge"
+version = "0.1.0"
+source = "git+https://github.com/xBounceIT/WinOTP-Reborn-WebBridge.git?rev=d65ccdb454e54709720bf1b4eb6995d4148704e3#d65ccdb454e54709720bf1b4eb6995d4148704e3"
+dependencies = [
+ "directories",
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "winotp-browser-bridge-host"
+version = "2.1.0"
+dependencies = [
+ "winotp-browser-bridge",
+]
+
+[[package]]
 name = "winotp-core"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "aes-gcm",
  "base64",
  "chrono",
  "getrandom 0.3.4",
+ "hex",
  "hmac",
  "pbkdf2",
  "percent-encoding",
@@ -1690,6 +1758,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "subtle",
  "tempfile",
  "thiserror",
  "url",
@@ -1701,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "winotp-updater"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "chrono",
  "hex",

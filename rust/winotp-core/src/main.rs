@@ -4,7 +4,8 @@ use std::io::{self, Read};
 use serde_json::{json, Value};
 
 use winotp_core::{
-    backup, import, models, ordering, otp, platform, screen_capture, security, settings,
+    backup, browser_bridge, import, models, ordering, otp, platform, screen_capture, security,
+    settings,
 };
 
 fn error_response(message: impl Into<String>) -> Value {
@@ -27,6 +28,35 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
     let input = request.get("input").unwrap_or(&empty_input);
 
     let result = match operation {
+        "browser-bridge-create-authentication" => {
+            serde_json::to_value(browser_bridge::create_authentication_material()?)
+                .map_err(|error| error.to_string())
+        }
+        "browser-bridge-authenticate" => Ok(browser_bridge::authenticate_request(
+            input
+                .get("body")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            input
+                .get("authToken")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        )
+        .unwrap_or(Value::Null)),
+        "browser-bridge-project-account-ids" => {
+            let account_ids = parse_string_vec(input.get("accountIds"));
+            Ok(json!(browser_bridge::project_account_ids(&account_ids)?))
+        }
+        "browser-bridge-resolve-account-id" => {
+            let account_ids = parse_string_vec(input.get("accountIds"));
+            Ok(json!(browser_bridge::resolve_account_id(
+                input
+                    .get("bridgeAccountId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                &account_ids,
+            )?))
+        }
         "normalize-account" => {
             let fallback_id = input.get("fallbackId").and_then(Value::as_str);
             let legacy_migration = input

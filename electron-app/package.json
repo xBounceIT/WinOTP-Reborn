@@ -1,6 +1,6 @@
 {
   "name": "winotp-electron",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "description": "Electron desktop app for WinOTP",
   "author": "xBounceIT",
@@ -76,7 +76,7 @@
       {
         "from": "native",
         "to": "updater",
-        "filter": ["winotp-updater*", "winotp-core*"]
+        "filter": ["winotp-updater*", "winotp-core*", "winotp-browser-bridge*"]
       }
     ],
     "win": {
@@ -104,6 +104,12 @@
       },
       "syncDesktopName": true,
       "target": ["AppImage", "deb", "rpm"]
+    },
+    "deb": {
+      "afterRemove": "build/linux-after-remove.sh"
+    },
+    "rpm": {
+      "afterRemove": "build/linux-after-remove.sh"
     },
     "mac": {
       "category": "public.app-category.utilities",

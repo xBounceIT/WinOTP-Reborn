@@ -8,3 +8,19 @@ export function shouldHydrateMainSettings(
 ) {
   return !userChangedSettings;
 }
+
+export function shouldShowWebBridgeNotice(
+  locked: boolean,
+  settingsLoaded: boolean,
+  settingsSourceAvailable: boolean,
+  noticeDismissed: boolean,
+  noticeShownThisSession: boolean,
+) {
+  return (
+    !locked &&
+    settingsLoaded &&
+    settingsSourceAvailable &&
+    !noticeDismissed &&
+    !noticeShownThisSession
+  );
+}

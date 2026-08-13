@@ -15,6 +15,8 @@ test("gets new settings defaults from the Rust normalizer", () => {
   assert.equal(settings.accountSortOption, "DateAddedDesc");
   assert.equal(settings.autoLock, "5");
   assert.equal(settings.updateOnStartup, true);
+  assert.equal(settings.webBridgeEnabled, false);
+  assert.equal(settings.webBridgeNoticeDismissed, false);
   assert.equal(settings.theme, "dark");
 });
 
@@ -35,6 +37,8 @@ test("uses the Electron settings file and normalizes saved values", () => {
       minimizeToTray: true,
       updateChannel: "Pre-release",
       theme: "light",
+      webBridgeEnabled: true,
+      webBridgeNoticeDismissed: true,
       customBackupFolderPath: "  C:\\Backups  ",
     });
 
@@ -45,6 +49,8 @@ test("uses the Electron settings file and normalizes saved values", () => {
     assert.deepEqual(result.settings.accountCustomOrderIds, ["acct-2", "acct-1"]);
     assert.equal(result.settings.autoLock, "15");
     assert.equal(result.settings.customBackupFolderPath, "C:\\Backups");
+    assert.equal(result.settings.webBridgeEnabled, true);
+    assert.equal(result.settings.webBridgeNoticeDismissed, true);
     assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).version, 1);
 
     const reopened = new SettingsStore(undefined, { filePath });

@@ -99,3 +99,17 @@ Var /GLOBAL pid
     ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" ""
   ${EndIf}
 !macroend
+
+; Native Messaging is registered per-user only after the user enables the
+; browser bridge. Remove just those host registrations and generated bridge
+; artifacts during uninstall; account data and the rest of WinOTP_Reborn stay.
+!macro customUnInstall
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.xbounceit.winotp"
+  DeleteRegKey HKCU "Software\Chromium\NativeMessagingHosts\com.xbounceit.winotp"
+  DeleteRegKey HKCU "Software\Mozilla\NativeMessagingHosts\com.xbounceit.winotp"
+  Delete "$LOCALAPPDATA\WinOTP_Reborn\native-messaging\com.xbounceit.winotp.chrome.json"
+  Delete "$LOCALAPPDATA\WinOTP_Reborn\native-messaging\com.xbounceit.winotp.firefox.json"
+  RMDir "$LOCALAPPDATA\WinOTP_Reborn\native-messaging"
+  Delete "$LOCALAPPDATA\WinOTP_Reborn\runtime\browser-bridge.json"
+  RMDir "$LOCALAPPDATA\WinOTP_Reborn\runtime"
+!macroend

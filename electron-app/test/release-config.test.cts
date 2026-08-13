@@ -8,6 +8,10 @@ const packageJson = JSON.parse(
 );
 const mainSource = fs.readFileSync(path.resolve(process.cwd(), "electron/main.cts"), "utf8");
 const installerSource = fs.readFileSync(path.resolve(process.cwd(), "build/installer.nsh"), "utf8");
+const linuxAfterRemoveSource = fs.readFileSync(
+  path.resolve(process.cwd(), "build/linux-after-remove.sh"),
+  "utf8",
+);
 
 function assertAppearsBefore(source, earlier, later) {
   const earlierIndex = source.indexOf(earlier);
@@ -60,6 +64,11 @@ test("Electron release packaging covers the supported desktop targets", () => {
   assert.match(packageJson.scripts.electron, /electron \./);
   assert.doesNotMatch(mainSource, /registerSessionNotification/);
   assert.match(mainSource, /registerSessionChangeMonitoring\(\)/);
+  assert.match(mainSource, /webContents\.on\("render-process-gone", clearRendererUnlockState\)/);
+  assert.match(
+    mainSource,
+    /async function generateBrowserBridgeTotp[\s\S]*?await runRustCoreAsync\(\s*"totp-code"/,
+  );
   assert.match(mainSource, /isDevelopment\(\) \|\| app\.requestSingleInstanceLock\(\)/);
   assert.match(mainSource, /setAppUserModelId\("com\.xbounceit\.winotp"\)/);
   assert.equal(packageJson.desktopName, "WinOTP");
@@ -75,7 +84,7 @@ test("Electron release packaging covers the supported desktop targets", () => {
     {
       from: "native",
       to: "updater",
-      filter: ["winotp-updater*", "winotp-core*"],
+      filter: ["winotp-updater*", "winotp-core*", "winotp-browser-bridge*"],
     },
   ]);
   assert.equal(build.win.target, "nsis");
@@ -85,6 +94,19 @@ test("Electron release packaging covers the supported desktop targets", () => {
   assert.equal(build.nsis.include, "build/installer.nsh");
   assert.equal(build.nsis.deleteAppDataOnUninstall, false);
   assert.equal(build.nsis.allowToChangeInstallationDirectory, undefined);
+  assert.match(installerSource, /!macro customUnInstall/);
+  for (const browserRoot of ["Google\\Chrome", "Chromium", "Mozilla"]) {
+    assert.ok(
+      installerSource.includes(
+        `Software\\${browserRoot}\\NativeMessagingHosts\\com.xbounceit.winotp`,
+      ),
+    );
+  }
+  assert.match(
+    installerSource,
+    /Delete "\$LOCALAPPDATA\\WinOTP_Reborn\\runtime\\browser-bridge\.json"/,
+  );
+  assert.doesNotMatch(installerSource, /RMDir \/r "\$LOCALAPPDATA\\WinOTP_Reborn"/);
   assert.match(installerSource, /Var \/GLOBAL isWinOtpUpdate/);
   assert.match(installerSource, /!macro preInit/);
   assert.match(installerSource, /StrCpy \$isWinOtpUpdate "0"/);
@@ -147,5 +169,16 @@ test("Electron release packaging covers the supported desktop targets", () => {
     repo: "WinOTP-Reborn",
   });
   assert.equal(build.linux.syncDesktopName, true);
+  assert.equal(build.deb.afterRemove, "build/linux-after-remove.sh");
+  assert.equal(build.rpm.afterRemove, "build/linux-after-remove.sh");
+  assert.match(linuxAfterRemoveSource, /upgrade \| failed-upgrade/);
+  assert.match(linuxAfterRemoveSource, /1\)\s+exit 0/);
+  for (const directory of ["google-chrome", "chromium", ".mozilla"]) {
+    assert.ok(linuxAfterRemoveSource.includes(directory));
+  }
+  assert.match(linuxAfterRemoveSource, /rm -f -- .*com\.xbounceit\.winotp\.json/);
+  assert.match(linuxAfterRemoveSource, /\[ ! -L "\$manifest_directory" \]/);
+  assert.doesNotMatch(linuxAfterRemoveSource, /\brm\s+-\S*r\S*/);
+  assert.doesNotMatch(linuxAfterRemoveSource, /WinOTP_Reborn/);
   assert.equal(build.mac.target, "dmg");
 });

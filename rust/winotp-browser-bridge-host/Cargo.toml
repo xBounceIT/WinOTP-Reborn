@@ -1,0 +1,13 @@
+[package]
+name = "winotp-browser-bridge-host"
+description = "Packaged Native Messaging host for the WinOTP browser extension"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "winotp-browser-bridge"
+path = "src/main.rs"
+
+[dependencies]
+winotp-browser-bridge = { git = "https://github.com/xBounceIT/WinOTP-Reborn-WebBridge.git", rev = "d65ccdb454e54709720bf1b4eb6995d4148704e3" }
