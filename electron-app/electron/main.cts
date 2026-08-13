@@ -34,6 +34,7 @@ const {
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
 const { configureLinuxWindowing } = require("./linux-windowing.cjs");
+const { createBrowserBridgeBackend } = require("./browser-bridge-backend.cjs");
 const { createBrowserBridgeService } = require("./browser-bridge.cjs");
 const {
   createTotpPreviewRunner,
@@ -802,20 +803,27 @@ function getUpdateService() {
   return updateService;
 }
 
-function listBrowserBridgeAccounts() {
+async function listBrowserBridgeAccounts(backend) {
   const store = accountStoreLoader.get();
   if (!store) {
     throw new Error("The local account database is unavailable.");
   }
-  return store.readAccounts({ includeSecrets: false }).accounts;
+  const accounts = store.readAccounts({ includeSecrets: false }).accounts;
+  const bridgeAccountIds = await backend.projectAccountIds(accounts.map((account) => account.id));
+  return accounts.map((account, index) => ({ ...account, id: bridgeAccountIds[index] }));
 }
 
-function getBrowserBridgeAccount(accountId) {
+async function getBrowserBridgeAccount(backend, bridgeAccountId) {
   const store = accountStoreLoader.get();
   if (!store) {
     throw new Error("The local account database is unavailable.");
   }
-  return store.getPreviewAccounts().find((account) => account.id === accountId);
+  const accounts = store.getPreviewAccounts();
+  const accountId = await backend.resolveAccountId(
+    bridgeAccountId,
+    accounts.map((account) => account.id),
+  );
+  return accountId ? accounts.find((account) => account.id === accountId) : undefined;
 }
 
 async function generateBrowserBridgeTotp(account) {
@@ -839,13 +847,15 @@ async function generateBrowserBridgeTotp(account) {
 
 function getBrowserBridgeService() {
   if (!browserBridgeService) {
+    const backend = createBrowserBridgeBackend();
     browserBridgeService = createBrowserBridgeService({
       app,
+      backend,
       callbacks: {
         getAppVersion: () => String(app.getVersion?.() ?? "0.0.0"),
         isUnlocked: () => isRendererUnlocked(),
-        listAccounts: listBrowserBridgeAccounts,
-        getAccount: getBrowserBridgeAccount,
+        listAccounts: () => listBrowserBridgeAccounts(backend),
+        getAccount: (accountId) => getBrowserBridgeAccount(backend, accountId),
         generateTotp: generateBrowserBridgeTotp,
         onError: (error) => console.error("Browser bridge operation failed.", error),
       },

@@ -8,6 +8,7 @@
 //! so Electron does not need a platform-specific native binding.
 
 pub mod backup;
+pub mod browser_bridge;
 pub mod import;
 pub mod models;
 pub mod ordering;

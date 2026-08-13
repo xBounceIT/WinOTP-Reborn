@@ -13,7 +13,6 @@ const {
   createRateLimiter,
   dispatchBrowserBridgeRequest,
   encodeFrame,
-  parseAuthenticatedRequest,
   projectBrowserAccounts,
 } = require("./browser-bridge.cjs");
 const { resolveBrowserBridgeBinary } = require("./browser-bridge-registration.cjs");
@@ -29,10 +28,6 @@ function authenticatedRequest(request, token = AUTH_TOKEN) {
   };
 }
 
-function parse(value, token = AUTH_TOKEN) {
-  return parseAuthenticatedRequest(Buffer.from(JSON.stringify(value)), token);
-}
-
 function createCallbacks(overrides: any = {}) {
   return {
     getAppVersion: () => "2.1.0",
@@ -45,55 +40,24 @@ function createCallbacks(overrides: any = {}) {
   };
 }
 
-test("authenticates the closed desktop request envelope before dispatch", () => {
-  const request = { version: 1, requestId: "request-1", method: "getStatus" };
-  assert.deepEqual(parse(authenticatedRequest(request)), {
-    ok: true,
-    requestId: "request-1",
-    method: "getStatus",
-  });
-  assert.throws(
-    () => parse(authenticatedRequest(request, "b".repeat(43))),
-    /UnauthorizedBrowserBridgeRequest/,
-  );
-  assert.deepEqual(parse({ ...authenticatedRequest(request), extra: true }), {
-    ok: false,
-    requestId: "request-1",
-  });
-  assert.deepEqual(parse(authenticatedRequest({ ...request, version: 2 })), {
-    ok: false,
-    requestId: "request-1",
-    errorCode: "UNSUPPORTED_PROTOCOL",
-  });
-  assert.deepEqual(
-    parse(
-      authenticatedRequest({
-        version: 1,
-        requestId: "request-2",
-        method: "getTotp",
-        params: { accountId: "account-1", secret: "never" },
-      }),
-    ),
-    { ok: false, requestId: "request-2" },
-  );
-});
-
 test("projects only account id, issuer, and a non-empty name", () => {
+  const firstId = `account-${"1".repeat(64)}`;
+  const secondId = `account-${"2".repeat(64)}`;
   assert.deepEqual(
     projectBrowserAccounts([
       {
-        id: "account-1",
+        id: firstId,
         issuer: "Example",
         accountName: "user@example.test",
         secret: "NEVER",
         createdAt: "2026-01-01T00:00:00Z",
       },
       { id: "bad id", issuer: "Skipped", accountName: "Unsafe" },
-      { id: "account-2", issuer: "Issuer only", accountName: "" },
+      { id: secondId, issuer: "Issuer only", accountName: "" },
     ]),
     [
-      { id: "account-1", issuer: "Example", name: "user@example.test" },
-      { id: "account-2", issuer: "Issuer only", name: "Issuer only" },
+      { id: firstId, issuer: "Example", name: "user@example.test" },
+      { id: secondId, issuer: "Issuer only", name: "Issuer only" },
     ],
   );
 });
@@ -339,7 +303,10 @@ test("drops authenticated in-flight requests when the endpoint token rotates", a
       requestId: "totp-inflight",
       method: "getTotp",
       params: { accountId: "account-1" },
-    });
+    }).then(
+      () => "response",
+      () => "disconnected",
+    );
     await generationStarted;
 
     await service.rotate();
@@ -347,10 +314,7 @@ test("drops authenticated in-flight requests when the endpoint token rotates", a
 
     let timeout;
     const outcome = await Promise.race([
-      response.then(
-        () => "response",
-        () => "disconnected",
-      ),
+      response,
       new Promise((resolve) => {
         timeout = setTimeout(() => resolve("timeout"), 1_000);
       }),
@@ -426,6 +390,13 @@ test("does not republish a descriptor when shutdown races endpoint creation", as
     platform: "win32",
     runtimeDirectory: directoryPath,
     netModule,
+    backend: {
+      createAuthenticationMaterial: async () => ({
+        authToken: AUTH_TOKEN,
+        endpointId: "f".repeat(32),
+      }),
+      authenticateRequest: async () => undefined,
+    },
     registration: {
       install: () => ({ chromeConfigured: false }),
       uninstall: () => undefined,

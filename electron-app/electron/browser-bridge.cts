@@ -1,9 +1,13 @@
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { performance } = require("node:perf_hooks");
+
+const {
+  BRIDGE_ACCOUNT_ID_PATTERN,
+  createBrowserBridgeBackend,
+} = require("./browser-bridge-backend.cjs");
 
 const {
   createNativeMessagingRegistration,
@@ -29,95 +33,6 @@ const SAFE_ERROR_MESSAGES = {
   UNSUPPORTED_PROTOCOL: "Unsupported Native Messaging protocol version",
   INTERNAL_ERROR: "WinOTP could not complete the request",
 };
-
-class UnauthorizedBrowserBridgeRequest extends Error {
-  constructor() {
-    super("Unauthorized browser bridge request.");
-    this.name = "UnauthorizedBrowserBridgeRequest";
-  }
-}
-
-function isObject(value) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function hasExactKeys(value, expected) {
-  return (
-    isObject(value) && Object.keys(value).sort().join("\0") === [...expected].sort().join("\0")
-  );
-}
-
-function validProtocolId(value) {
-  return (
-    typeof value === "string" &&
-    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value) &&
-    Buffer.byteLength(value, "utf8") <= 128
-  );
-}
-
-function tokensMatch(left, right) {
-  if (typeof left !== "string" || typeof right !== "string") {
-    return false;
-  }
-  const leftBytes = Buffer.from(left, "utf8");
-  const rightBytes = Buffer.from(right, "utf8");
-  return leftBytes.length === rightBytes.length && crypto.timingSafeEqual(leftBytes, rightBytes);
-}
-
-function parseAuthenticatedRequest(body, authToken) {
-  let value;
-  try {
-    value = JSON.parse(body.toString("utf8"));
-  } catch {
-    throw new UnauthorizedBrowserBridgeRequest();
-  }
-  if (!isObject(value) || !isObject(value.auth)) {
-    throw new UnauthorizedBrowserBridgeRequest();
-  }
-  if (
-    !hasExactKeys(value.auth, ["scheme", "token"]) ||
-    value.auth.scheme !== "ephemeral-token" ||
-    !tokensMatch(value.auth.token, authToken)
-  ) {
-    throw new UnauthorizedBrowserBridgeRequest();
-  }
-
-  const fallbackRequestId = validProtocolId(value.requestId) ? value.requestId : "invalid-request";
-  if (
-    !hasExactKeys(value, ["version", "requestId", "auth", "request"]) ||
-    !isObject(value.request)
-  ) {
-    return { ok: false, requestId: fallbackRequestId };
-  }
-
-  const request = value.request;
-  const requestId = validProtocolId(request.requestId) ? request.requestId : fallbackRequestId;
-  if (
-    requestId === "invalid-request" ||
-    value.requestId !== request.requestId ||
-    typeof request.method !== "string"
-  ) {
-    return { ok: false, requestId };
-  }
-  if (value.version !== PROTOCOL_VERSION || request.version !== PROTOCOL_VERSION) {
-    return { ok: false, requestId, errorCode: "UNSUPPORTED_PROTOCOL" };
-  }
-
-  if (["getStatus", "listAccounts"].includes(request.method)) {
-    return hasExactKeys(request, ["version", "requestId", "method"])
-      ? { ok: true, requestId, method: request.method }
-      : { ok: false, requestId };
-  }
-  if (request.method === "getTotp") {
-    const accountId = request.params?.accountId;
-    return hasExactKeys(request, ["version", "requestId", "method", "params"]) &&
-      hasExactKeys(request.params, ["accountId"]) &&
-      validProtocolId(accountId)
-      ? { ok: true, requestId, method: request.method, accountId }
-      : { ok: false, requestId };
-  }
-  return { ok: false, requestId };
-}
 
 function successResponse(requestId, result) {
   return { version: PROTOCOL_VERSION, requestId, ok: true, result };
@@ -152,7 +67,7 @@ function projectBrowserAccounts(accounts) {
   const seen = new Set();
   for (const account of Array.isArray(accounts) ? accounts.slice(0, 10_000) : []) {
     const id = String(account?.id ?? "").trim();
-    if (!validProtocolId(id) || seen.has(id)) {
+    if (!BRIDGE_ACCOUNT_ID_PATTERN.test(id) || seen.has(id)) {
       continue;
     }
     const issuer = truncateUtf8(String(account?.issuer ?? "").trim(), 256);
@@ -187,11 +102,11 @@ function createRateLimiter(options: any = {}) {
   };
 }
 
-async function dispatchBrowserBridgeRequest(request, callbacks, rateLimiter) {
+async function dispatchBrowserBridgeRequest(request, callbacks, rateLimiter, options: any = {}) {
   if (!request.ok) {
     return errorResponse(request.requestId, request.errorCode ?? "INVALID_REQUEST");
   }
-  if (!rateLimiter.accept()) {
+  if (options.rateLimitAccepted !== true && !rateLimiter.accept()) {
     return errorResponse(request.requestId, "INTERNAL_ERROR");
   }
 
@@ -268,7 +183,7 @@ function encodeFrame(value) {
   return frame;
 }
 
-function handleSocket(socket, authToken, callbacks, rateLimiter, options: any = {}) {
+function handleSocket(socket, authToken, callbacks, rateLimiter, backend, options: any = {}) {
   let buffer = Buffer.alloc(0);
   let expectedLength;
   let handled = false;
@@ -310,26 +225,29 @@ function handleSocket(socket, authToken, callbacks, rateLimiter, options: any = 
 
     handled = true;
     socket.pause();
-    let request;
-    try {
-      request = parseAuthenticatedRequest(buffer.subarray(4), authToken);
-    } catch (error) {
-      if (error instanceof UnauthorizedBrowserBridgeRequest) {
-        socket.destroy();
-        return;
-      }
+    if (!rateLimiter.accept()) {
       socket.destroy();
       return;
     }
-    void dispatchBrowserBridgeRequest(request, callbacks, rateLimiter)
-      .then((response) => socket.end(encodeFrame(response)))
+    void backend
+      .authenticateRequest(buffer.subarray(4), authToken)
+      .then((request) => {
+        if (!request) {
+          socket.destroy();
+          return undefined;
+        }
+        return dispatchBrowserBridgeRequest(request, callbacks, rateLimiter, {
+          rateLimitAccepted: true,
+        });
+      })
+      .then((response) => {
+        if (response) {
+          socket.end(encodeFrame(response));
+        }
+      })
       .catch((error) => {
         callbacks.onError?.(error);
-        try {
-          socket.end(encodeFrame(errorResponse(request.requestId, "INTERNAL_ERROR")));
-        } catch {
-          socket.destroy();
-        }
+        socket.destroy();
       });
   });
   socket.on("end", () => {
@@ -405,7 +323,7 @@ function createBrowserBridgeService(options: any = {}) {
   const environment = options.environment ?? process.env;
   const fsModule = options.fsModule ?? fs;
   const netModule = options.netModule ?? net;
-  const randomBytes = options.randomBytes ?? crypto.randomBytes;
+  const backend = options.backend ?? createBrowserBridgeBackend(options.backendOptions);
   const runtimeDirectory =
     options.runtimeDirectory ?? browserBridgeRuntimeDirectory(app, { platform, environment });
   const descriptorPath =
@@ -498,8 +416,7 @@ function createBrowserBridgeService(options: any = {}) {
       });
       runtimeDirectorySecured = true;
     }
-    const authToken = randomBytes(32).toString("base64url");
-    const endpointId = randomBytes(16).toString("hex");
+    const { authToken, endpointId } = await backend.createAuthenticationMaterial();
     let endpointPath;
     let descriptor;
     let socketPath;
@@ -527,7 +444,7 @@ function createBrowserBridgeService(options: any = {}) {
       socket.once("close", () => {
         sockets.delete(socket);
       });
-      handleSocket(socket, authToken, callbacks, rateLimiter, {
+      handleSocket(socket, authToken, callbacks, rateLimiter, backend, {
         connectionTimeoutMs: options.connectionTimeoutMs,
       });
     });
@@ -700,15 +617,12 @@ module.exports = {
   MAX_MESSAGE_BYTES,
   MAX_CONCURRENT_CONNECTIONS,
   PROTOCOL_VERSION,
-  UnauthorizedBrowserBridgeRequest,
   browserBridgeRuntimeDirectory,
   createBrowserBridgeService,
   createRateLimiter,
   dispatchBrowserBridgeRequest,
   encodeFrame,
   handleSocket,
-  parseAuthenticatedRequest,
   projectBrowserAccounts,
   unixEndpointDirectory,
-  validProtocolId,
 };
