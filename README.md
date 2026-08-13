@@ -48,15 +48,7 @@ The extension can read only account `id`, `issuer`, and display `name`, then req
 
 On Linux AppImage builds, enabling the bridge installs a private per-user copy of the packaged Native Messaging host so `ping` can still distinguish an installed bridge from an app that is not currently running. Disabling the bridge removes that copy together with its browser manifests.
 
-Firefox uses the extension's stable add-on ID. Chrome and Chromium production packages also require their assigned 32-character store extension ID when building the desktop installers:
-
-```powershell
-$env:WINOTP_CHROME_EXTENSION_ID = "<chrome-extension-id>"
-cd electron-app
-npm run package
-```
-
-The release workflow reads the same value from the `CHROME_EXTENSION_ID` repository secret. Development builds may set either `WINOTP_CHROME_EXTENSION_ID` or `CHROME_EXTENSION_ID` before `npm run build:core`.
+The Native Messaging manifests allow only the official extension identities: `chrome-extension://gomcpjbgmfdggpnbplajohjkjbbjijln/` for Chrome and Chromium, and `{250f3c41-cf5e-4c20-a07c-e99a8532436b}` for Firefox. These identities are built into the desktop app, so development and release builds register the same trusted extensions without build-time secrets.
 
 ## Test the Rust core
 
