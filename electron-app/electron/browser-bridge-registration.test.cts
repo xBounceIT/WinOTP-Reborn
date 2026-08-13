@@ -5,13 +5,13 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const {
+  CHROME_EXTENSION_ORIGIN,
   FIREFOX_EXTENSION_ID,
   NATIVE_HOST_NAME,
   createNativeMessagingRegistration,
   getBrowserBridgeBinaryCandidates,
   installPortableBrowserBridge,
   nativeHostManifest,
-  readBundledChromeExtensionId,
   registrationTargets,
   restrictWindowsPath,
   resolveBrowserBridgeBinary,
@@ -24,13 +24,14 @@ function createDirectory() {
 
 test("builds allow-listed Chrome and Firefox Native Messaging manifests", () => {
   const executablePath = path.resolve("fixture", "winotp-browser-bridge");
-  const chromeId = "abcdefghijklmnopabcdefghijklmnop";
-  assert.deepEqual(nativeHostManifest("chrome", executablePath, chromeId), {
+  assert.equal(CHROME_EXTENSION_ORIGIN, "chrome-extension://gomcpjbgmfdggpnbplajohjkjbbjijln/");
+  assert.equal(FIREFOX_EXTENSION_ID, "{250f3c41-cf5e-4c20-a07c-e99a8532436b}");
+  assert.deepEqual(nativeHostManifest("chrome", executablePath), {
     name: NATIVE_HOST_NAME,
     description: "WinOTP Reborn Browser Bridge",
     path: executablePath,
     type: "stdio",
-    allowed_origins: [`chrome-extension://${chromeId}/`],
+    allowed_origins: [CHROME_EXTENSION_ORIGIN],
   });
   assert.deepEqual(nativeHostManifest("firefox", executablePath), {
     name: NATIVE_HOST_NAME,
@@ -39,7 +40,6 @@ test("builds allow-listed Chrome and Firefox Native Messaging manifests", () => 
     type: "stdio",
     allowed_extensions: [FIREFOX_EXTENSION_ID],
   });
-  assert.throws(() => nativeHostManifest("chrome", executablePath, "invalid"));
   assert.throws(() => nativeHostManifest("firefox", "relative-host"), /absolute/);
 });
 
@@ -73,29 +73,6 @@ test("finds development and packaged browser bridge binaries", () => {
     })[0],
     "relative-host.exe",
   );
-});
-
-test("reads and validates the packaged Chrome extension ID", () => {
-  const directoryPath = createDirectory();
-  const executablePath = path.join(directoryPath, "winotp-browser-bridge");
-  const configPath = path.join(directoryPath, "winotp-browser-bridge-config.json");
-  try {
-    fs.writeFileSync(executablePath, "fixture");
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({ chromeExtensionId: "abcdefghijklmnopabcdefghijklmnop" }),
-    );
-    assert.equal(
-      readBundledChromeExtensionId(executablePath, {
-        environment: { CHROME_EXTENSION_ID: "unrelated-runtime-value" },
-      }),
-      "abcdefghijklmnopabcdefghijklmnop",
-    );
-    fs.writeFileSync(configPath, JSON.stringify({ chromeExtensionId: "invalid" }));
-    assert.throws(() => readBundledChromeExtensionId(executablePath), /invalid/);
-  } finally {
-    fs.rmSync(directoryPath, { recursive: true, force: true });
-  }
 });
 
 test("applies a private Windows ACL before atomically publishing JSON", () => {
@@ -191,14 +168,9 @@ test("installs and removes the allow-listed per-user manifests on Unix", () => {
     const directoryPath = createDirectory();
     const homeDirectory = path.join(directoryPath, "home");
     const executablePath = path.join(directoryPath, "winotp-browser-bridge");
-    const chromeExtensionId = "abcdefghijklmnopabcdefghijklmnop";
     try {
       fs.mkdirSync(homeDirectory, { recursive: true });
       fs.writeFileSync(executablePath, "fixture");
-      fs.writeFileSync(
-        path.join(directoryPath, "winotp-browser-bridge-config.json"),
-        JSON.stringify({ chromeExtensionId }),
-      );
       const registration = createNativeMessagingRegistration({
         platform,
         environment: { HOME: homeDirectory, XDG_DATA_HOME: path.join(directoryPath, "data") },
@@ -211,7 +183,7 @@ test("installs and removes the allow-listed per-user manifests on Unix", () => {
       for (const targetDirectory of targets.chrome) {
         const manifestPath = path.join(targetDirectory, `${NATIVE_HOST_NAME}.json`);
         assert.deepEqual(JSON.parse(fs.readFileSync(manifestPath, "utf8")).allowed_origins, [
-          `chrome-extension://${chromeExtensionId}/`,
+          CHROME_EXTENSION_ORIGIN,
         ]);
       }
       for (const targetDirectory of targets.firefox) {
@@ -284,10 +256,6 @@ test("registers and removes only WinOTP Native Messaging keys on Windows", () =>
   };
   try {
     fs.writeFileSync(executablePath, "fixture");
-    fs.writeFileSync(
-      path.join(directoryPath, "winotp-browser-bridge-config.json"),
-      JSON.stringify({ chromeExtensionId: "abcdefghijklmnopabcdefghijklmnop" }),
-    );
     const registration = createNativeMessagingRegistration({
       platform: "win32",
       environment: {
@@ -300,15 +268,64 @@ test("registers and removes only WinOTP Native Messaging keys on Windows", () =>
     });
     const result = registration.install();
     assert.equal(result.chromeConfigured, true);
-    assert.equal(registryCalls.filter((args) => args[0] === "add").length, 3);
-    assert.ok(
-      registryCalls.every((args) =>
-        args.some((argument) => String(argument).includes(NATIVE_HOST_NAME)),
-      ),
+    const manifestDirectory = path.join(directoryPath, "WinOTP_Reborn", "native-messaging");
+    const chromeManifestPath = path.join(manifestDirectory, `${NATIVE_HOST_NAME}.chrome.json`);
+    const firefoxManifestPath = path.join(manifestDirectory, `${NATIVE_HOST_NAME}.firefox.json`);
+    assert.deepEqual(JSON.parse(fs.readFileSync(chromeManifestPath, "utf8")).allowed_origins, [
+      CHROME_EXTENSION_ORIGIN,
+    ]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(firefoxManifestPath, "utf8")).allowed_extensions, [
+      FIREFOX_EXTENSION_ID,
+    ]);
+    assert.deepEqual(
+      registryCalls.filter((args) => args[0] === "add"),
+      [
+        [
+          "add",
+          `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+          "/ve",
+          "/t",
+          "REG_SZ",
+          "/d",
+          chromeManifestPath,
+          "/f",
+        ],
+        [
+          "add",
+          `HKCU\\Software\\Chromium\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+          "/ve",
+          "/t",
+          "REG_SZ",
+          "/d",
+          chromeManifestPath,
+          "/f",
+        ],
+        [
+          "add",
+          `HKCU\\Software\\Mozilla\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+          "/ve",
+          "/t",
+          "REG_SZ",
+          "/d",
+          firefoxManifestPath,
+          "/f",
+        ],
+      ],
     );
 
     registration.uninstall();
-    assert.equal(registryCalls.filter((args) => args[0] === "delete").length, 3);
+    assert.deepEqual(
+      registryCalls.filter((args) => args[0] === "delete"),
+      [
+        [
+          "delete",
+          `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+          "/f",
+        ],
+        ["delete", `HKCU\\Software\\Chromium\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`, "/f"],
+        ["delete", `HKCU\\Software\\Mozilla\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`, "/f"],
+      ],
+    );
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

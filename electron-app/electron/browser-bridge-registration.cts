@@ -4,9 +4,8 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const NATIVE_HOST_NAME = "com.xbounceit.winotp";
+const CHROME_EXTENSION_ORIGIN = "chrome-extension://gomcpjbgmfdggpnbplajohjkjbbjijln/";
 const FIREFOX_EXTENSION_ID = "{250f3c41-cf5e-4c20-a07c-e99a8532436b}";
-const CHROME_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
-const BRIDGE_CONFIG_FILE_NAME = "winotp-browser-bridge-config.json";
 const PRIVATE_DIRECTORY_ACL_SCRIPT = `
 $targetPath = $env:WINOTP_ACL_TARGET
 $identity = [System.Security.Principal.NTAccount]::new($env:WINOTP_ACL_PRINCIPAL)
@@ -78,37 +77,7 @@ function resolveBrowserBridgeBinary(options: any = {}) {
   });
 }
 
-function readBundledChromeExtensionId(executablePath, options: any = {}) {
-  const fsModule = options.fsModule ?? fs;
-  const environment = options.environment ?? process.env;
-  const configured = String(environment.WINOTP_CHROME_EXTENSION_ID ?? "").trim();
-  if (configured) {
-    if (!CHROME_EXTENSION_ID_PATTERN.test(configured)) {
-      throw new Error("The configured Chrome extension ID is invalid.");
-    }
-    return configured;
-  }
-
-  try {
-    const configPath = path.join(path.dirname(executablePath), BRIDGE_CONFIG_FILE_NAME);
-    if (fsModule.statSync(configPath).size > 4 * 1024) {
-      throw new Error("The browser bridge configuration is too large.");
-    }
-    const parsed = JSON.parse(fsModule.readFileSync(configPath, "utf8"));
-    const extensionId = String(parsed?.chromeExtensionId ?? "").trim();
-    if (extensionId && !CHROME_EXTENSION_ID_PATTERN.test(extensionId)) {
-      throw new Error("The packaged Chrome extension ID is invalid.");
-    }
-    return extensionId;
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      return "";
-    }
-    throw error;
-  }
-}
-
-function nativeHostManifest(browser, executablePath, chromeExtensionId = "") {
+function nativeHostManifest(browser, executablePath) {
   if (!path.isAbsolute(executablePath)) {
     throw new Error("The Native Messaging host path must be absolute.");
   }
@@ -119,10 +88,7 @@ function nativeHostManifest(browser, executablePath, chromeExtensionId = "") {
     type: "stdio",
   };
   if (browser === "chrome") {
-    if (!CHROME_EXTENSION_ID_PATTERN.test(chromeExtensionId)) {
-      throw new Error("A valid Chrome extension ID is required.");
-    }
-    return { ...common, allowed_origins: [`chrome-extension://${chromeExtensionId}/`] };
+    return { ...common, allowed_origins: [CHROME_EXTENSION_ORIGIN] };
   }
   if (browser === "firefox") {
     return { ...common, allowed_extensions: [FIREFOX_EXTENSION_ID] };
@@ -318,18 +284,12 @@ function createNativeMessagingRegistration(options: any = {}) {
     if (!sourceExecutablePath) {
       throw new Error("The WinOTP Native Messaging host is unavailable.");
     }
-    const chromeExtensionId = readBundledChromeExtensionId(sourceExecutablePath, {
-      fsModule,
-      environment,
-    });
     const executablePath =
       platform === "linux" && Boolean(environment.APPIMAGE)
         ? installPortableBrowserBridge(sourceExecutablePath, portableExecutablePath, { fsModule })
         : sourceExecutablePath;
     const firefoxManifest = nativeHostManifest("firefox", executablePath);
-    const chromeManifest = chromeExtensionId
-      ? nativeHostManifest("chrome", executablePath, chromeExtensionId)
-      : undefined;
+    const chromeManifest = nativeHostManifest("chrome", executablePath);
 
     if (platform === "win32") {
       fsModule.mkdirSync(manifestDirectory, { recursive: true });
@@ -345,16 +305,12 @@ function createNativeMessagingRegistration(options: any = {}) {
         environment,
         spawnProcess,
       });
-      if (chromeManifest) {
-        writeJsonAtomically(chromeManifestPath, chromeManifest, {
-          fsModule,
-          platform,
-          environment,
-          spawnProcess,
-        });
-      } else {
-        removeFile(chromeManifestPath);
-      }
+      writeJsonAtomically(chromeManifestPath, chromeManifest, {
+        fsModule,
+        platform,
+        environment,
+        spawnProcess,
+      });
 
       const chromeRoots = [
         "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts",
@@ -362,20 +318,16 @@ function createNativeMessagingRegistration(options: any = {}) {
       ];
       for (const root of chromeRoots) {
         const key = `${root}\\${NATIVE_HOST_NAME}`;
-        if (chromeManifest) {
-          runRegistry(spawnProcess, [
-            "add",
-            key,
-            "/ve",
-            "/t",
-            "REG_SZ",
-            "/d",
-            chromeManifestPath,
-            "/f",
-          ]);
-        } else {
-          runRegistry(spawnProcess, ["delete", key, "/f"], true);
-        }
+        runRegistry(spawnProcess, [
+          "add",
+          key,
+          "/ve",
+          "/t",
+          "REG_SZ",
+          "/d",
+          chromeManifestPath,
+          "/f",
+        ]);
       }
       runRegistry(spawnProcess, [
         "add",
@@ -387,7 +339,7 @@ function createNativeMessagingRegistration(options: any = {}) {
         firefoxManifestPath,
         "/f",
       ]);
-      return { executablePath, chromeConfigured: Boolean(chromeManifest) };
+      return { executablePath, chromeConfigured: true };
     }
 
     const targets = registrationTargets(platform, homeDirectory);
@@ -399,13 +351,9 @@ function createNativeMessagingRegistration(options: any = {}) {
     }
     for (const directory of targets.chrome) {
       const manifestPath = path.join(directory, `${NATIVE_HOST_NAME}.json`);
-      if (chromeManifest) {
-        writeJsonAtomically(manifestPath, chromeManifest, { fsModule, platform });
-      } else {
-        removeFile(manifestPath);
-      }
+      writeJsonAtomically(manifestPath, chromeManifest, { fsModule, platform });
     }
-    return { executablePath, chromeConfigured: Boolean(chromeManifest) };
+    return { executablePath, chromeConfigured: true };
   }
 
   function uninstall() {
@@ -433,8 +381,7 @@ function createNativeMessagingRegistration(options: any = {}) {
 }
 
 module.exports = {
-  BRIDGE_CONFIG_FILE_NAME,
-  CHROME_EXTENSION_ID_PATTERN,
+  CHROME_EXTENSION_ORIGIN,
   FIREFOX_EXTENSION_ID,
   NATIVE_HOST_NAME,
   browserBridgeBinaryName,
@@ -443,7 +390,6 @@ module.exports = {
   installPortableBrowserBridge,
   localDataRoot,
   nativeHostManifest,
-  readBundledChromeExtensionId,
   registrationTargets,
   resolveBrowserBridgeBinary,
   restrictWindowsPath,

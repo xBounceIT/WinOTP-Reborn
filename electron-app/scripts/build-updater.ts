@@ -1,4 +1,4 @@
-import { chmod, mkdir, copyFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -128,19 +128,6 @@ async function buildUpdater() {
 }
 
 await buildUpdater();
-const chromeExtensionId = (
-  process.env.WINOTP_CHROME_EXTENSION_ID ??
-  process.env.CHROME_EXTENSION_ID ??
-  ""
-).trim();
-if (chromeExtensionId && !/^[a-p]{32}$/.test(chromeExtensionId)) {
-  throw new Error("The configured Chrome extension ID must contain 32 letters from a through p.");
-}
-await writeFile(
-  path.join(nativeDirectory, "winotp-browser-bridge-config.json"),
-  `${JSON.stringify({ chromeExtensionId })}\n`,
-  "utf8",
-);
 console.log(
   `Copied ${binaries.map(({ binaryName: name }) => name).join(" and ")} to ${path.relative(repositoryRoot, nativeDirectory)}.`,
 );

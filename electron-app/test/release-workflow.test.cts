@@ -145,13 +145,9 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
   });
 
   assert.match(workflow, /^      WINOTP_TARGET_ARCH: \$\{\{ matrix\.target_arch \}\}/m);
-  assert.match(
+  assert.doesNotMatch(
     workflow,
-    /^      WINOTP_CHROME_EXTENSION_ID: \$\{\{ secrets\.CHROME_EXTENSION_ID \}\}/m,
-  );
-  assert.match(
-    workflow,
-    /- name: Verify Chrome extension registration[\s\S]*?WINOTP_CHROME_EXTENSION_ID/,
+    /WINOTP_CHROME_EXTENSION_ID|secrets\.CHROME_EXTENSION_ID|Verify Chrome extension registration/,
   );
   assert.match(
     workflow,
