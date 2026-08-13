@@ -211,10 +211,12 @@ pub struct GitHubReleaseAssetInfo {
     pub digest: Option<String>,
 }
 
+pub type InstallerProcessStarter = Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>;
+
 pub struct UpdateService {
     config: UpdateConfig,
     transport: Arc<dyn HttpTransport>,
-    process_starter: Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>,
+    process_starter: InstallerProcessStarter,
     state: Mutex<UpdateState>,
 }
 
@@ -222,7 +224,7 @@ impl UpdateService {
     pub fn new(
         config: UpdateConfig,
         transport: Arc<dyn HttpTransport>,
-        process_starter: Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>,
+        process_starter: InstallerProcessStarter,
     ) -> Self {
         let enabled = config.automatic_check_enabled;
         let state = UpdateState {
