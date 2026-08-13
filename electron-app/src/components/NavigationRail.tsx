@@ -8,10 +8,11 @@ import { cn } from "@/lib/utils";
 
 interface NavigationRailProps {
   route: Route;
+  isUpdateAvailable: boolean;
   onNavigate: (route: Route) => void;
 }
 
-export function NavigationRail({ route, onNavigate }: NavigationRailProps) {
+export function NavigationRail({ route, isUpdateAvailable, onNavigate }: NavigationRailProps) {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -93,15 +94,20 @@ export function NavigationRail({ route, onNavigate }: NavigationRailProps) {
                   variant="ghost"
                   size="icon-sm"
                   className={cn("nav-button", route === "settings" && "nav-button--active")}
-                  aria-label="Settings"
+                  aria-label={isUpdateAvailable ? "Settings, update available" : "Settings"}
                   aria-current={route === "settings" ? "page" : undefined}
                   onClick={() => navigate("settings")}
                 >
                   <Settings size={17} strokeWidth={1.8} />
                   <span className="nav-button__label">Settings</span>
+                  {isUpdateAvailable && (
+                    <span className="nav-button__update-dot" aria-hidden="true" />
+                  )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
+              <TooltipContent>
+                {isUpdateAvailable ? "Settings — update available" : "Settings"}
+              </TooltipContent>
             </Tooltip>
           </div>
         </aside>

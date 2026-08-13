@@ -2537,7 +2537,11 @@ function useAppView() {
               <LoadingScreen />
             ) : (
               <>
-                <NavigationRail route={route} onNavigate={navigate} />
+                <NavigationRail
+                  route={route}
+                  isUpdateAvailable={updateState.isUpdateAvailable}
+                  onNavigate={navigate}
+                />
                 <main className="content-frame">{renderPage()}</main>
               </>
             )}
