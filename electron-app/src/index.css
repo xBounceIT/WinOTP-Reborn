@@ -303,6 +303,17 @@ html:not(.dark) .toolbar-icon-button:hover {
     opacity 120ms ease;
 }
 
+.nav-button__update-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--background);
+  border-radius: 50%;
+  background: var(--primary);
+}
+
 .nav-rail--expanded .nav-button {
   width: 100%;
   justify-content: flex-start;
@@ -313,6 +324,12 @@ html:not(.dark) .toolbar-icon-button:hover {
 .nav-rail--expanded .nav-button__label {
   max-width: 160px;
   opacity: 1;
+}
+
+.nav-rail--expanded .nav-button__update-dot {
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
 }
 
 .nav-button:hover {

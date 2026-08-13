@@ -1,10 +1,10 @@
 import {
-  Check,
   ExternalLink,
   FolderOpen,
   GitBranch,
   Archive,
   LockKeyhole,
+  RefreshCw,
   RotateCcw,
   Save,
 } from "lucide-react";
@@ -956,7 +956,7 @@ function useSettingsPage({
                 disabled={updateState.isBusy || Boolean(busyAction)}
                 onClick={() => void handleCheckForUpdates()}
               >
-                <Check size={14} />
+                <RefreshCw size={14} />
                 {updateState.isBusy ? "Checking…" : "Check now"}
               </Button>
               {updateState.isUpdateAvailable && (
