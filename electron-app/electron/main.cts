@@ -34,6 +34,7 @@ const {
 const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./app-paths.cjs");
 const { configureLinuxWindowing } = require("./linux-windowing.cjs");
+const { createBrowserBridgeService } = require("./browser-bridge.cjs");
 const {
   createTotpPreviewRunner,
   generateTotpCode,
@@ -76,6 +77,8 @@ let screenCaptureCancellationVersion = 0;
 let securityStore;
 let updateService;
 let settingsStore;
+let browserBridgeService;
+let browserBridgeAuthorizationState = false;
 let legacySettingsMigrationFailed = false;
 let legacyAppLockMigrationPending = false;
 let settingsRecoveryRequired = false;
@@ -265,9 +268,13 @@ function updateTrayState(event, state) {
   trayController?.setState(
     canShowUnlockedState ? nextState : { ...nextState, locked: true, accounts: [] },
   );
+  synchronizeBrowserBridgeAuthorizationState();
 }
 
 function isRendererUnlocked() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return false;
+  }
   const trayState = trayController?.getState();
   return (
     isRendererUnlockedState(rendererUnlocked, trayState) ||
@@ -296,6 +303,7 @@ function clearRendererUnlockState() {
   if (trayState) {
     trayController.setState({ ...trayState, locked: true, accounts: [] });
   }
+  synchronizeBrowserBridgeAuthorizationState();
 }
 
 function notifyRendererOfSessionChange(reason) {
@@ -794,6 +802,71 @@ function getUpdateService() {
   return updateService;
 }
 
+function listBrowserBridgeAccounts() {
+  const store = accountStoreLoader.get();
+  if (!store) {
+    throw new Error("The local account database is unavailable.");
+  }
+  return store.readAccounts({ includeSecrets: false }).accounts;
+}
+
+function getBrowserBridgeAccount(accountId) {
+  const store = accountStoreLoader.get();
+  if (!store) {
+    throw new Error("The local account database is unavailable.");
+  }
+  return store.getPreviewAccounts().find((account) => account.id === accountId);
+}
+
+async function generateBrowserBridgeTotp(account) {
+  const period = Number(account?.period);
+  const result = await runRustCoreAsync(
+    "totp-code",
+    {
+      account,
+      unixSeconds: Math.floor(Date.now() / 1000),
+    },
+    {
+      timeoutMs: 2_500,
+    },
+  );
+  return {
+    code: result?.code,
+    expiresIn: result?.remainingSeconds,
+    period,
+  };
+}
+
+function getBrowserBridgeService() {
+  if (!browserBridgeService) {
+    browserBridgeService = createBrowserBridgeService({
+      app,
+      callbacks: {
+        getAppVersion: () => String(app.getVersion?.() ?? "0.0.0"),
+        isUnlocked: () => isRendererUnlocked(),
+        listAccounts: listBrowserBridgeAccounts,
+        getAccount: getBrowserBridgeAccount,
+        generateTotp: generateBrowserBridgeTotp,
+        onError: (error) => console.error("Browser bridge operation failed.", error),
+      },
+    });
+  }
+  return browserBridgeService;
+}
+
+function synchronizeBrowserBridgeAuthorizationState() {
+  const unlocked = isRendererUnlocked();
+  if (unlocked === browserBridgeAuthorizationState) {
+    return;
+  }
+  browserBridgeAuthorizationState = unlocked;
+  if (browserBridgeService?.getStatus().enabled) {
+    void browserBridgeService
+      .rotate()
+      .catch((error) => console.error("Failed to rotate the browser bridge endpoint.", error));
+  }
+}
+
 function updateUnavailableResult(message = "The Rust update bridge is unavailable.") {
   return {
     success: false,
@@ -1142,6 +1215,11 @@ function registerSettingsIpc() {
       } catch (error) {
         console.error("Failed to clear inactive credentials after settings recovery.", error);
       }
+      try {
+        await getBrowserBridgeService().configure(result.settings.webBridgeEnabled === true);
+      } catch (error) {
+        console.error("Failed to reset the browser bridge after settings recovery.", error);
+      }
       return {
         ...result,
         persistable: !legacySettingsMigrationFailed,
@@ -1181,7 +1259,37 @@ function registerSettingsIpc() {
       }
 
       const protectionSettingsChanged = !hasSameProtectionSettings(currentSettings, nextSettings);
-      const result = store.saveSettings(nextSettings);
+      const bridge = getBrowserBridgeService();
+      const bridgeStatus = bridge.getStatus();
+      const bridgeNeedsConfiguration =
+        currentSettings.webBridgeEnabled !== nextSettings.webBridgeEnabled ||
+        bridgeStatus.enabled !== nextSettings.webBridgeEnabled ||
+        (nextSettings.webBridgeEnabled === true && !bridgeStatus.ready);
+      if (bridgeNeedsConfiguration) {
+        try {
+          await bridge.configure(nextSettings.webBridgeEnabled === true);
+        } catch (error) {
+          console.error("Failed to configure the browser bridge.", error);
+          return {
+            success: false,
+            message: "The browser extension bridge could not be configured.",
+          };
+        }
+      }
+
+      let result;
+      try {
+        result = store.saveSettings(nextSettings);
+      } catch (error) {
+        if (bridgeNeedsConfiguration) {
+          try {
+            await bridge.configure(currentSettings.webBridgeEnabled === true);
+          } catch (rollbackError) {
+            console.error("Failed to restore the previous browser bridge state.", rollbackError);
+          }
+        }
+        throw error;
+      }
       if (protectionSettingsChanged) {
         try {
           await clearInactiveSecurityCredentials(nextSettings);
@@ -2123,6 +2231,7 @@ function createWindow() {
   mainWindow.webContents.on("will-navigate", rejectUnexpectedNavigation);
   mainWindow.webContents.on("will-redirect", rejectUnexpectedNavigation);
   mainWindow.webContents.on("did-start-loading", clearRendererUnlockState);
+  mainWindow.webContents.on("render-process-gone", clearRendererUnlockState);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.on("close", (event) => {
     if (isQuitting) {
@@ -2171,12 +2280,18 @@ if (!hasSingleInstanceLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     app.setName("WinOTP");
     app.setAppUserModelId("com.xbounceit.winotp");
 
     initializeLegacyMigration();
     accountStoreLoader.get();
+    try {
+      const settings = getSettingsStore().getSettings();
+      await getBrowserBridgeService().configure(settings.webBridgeEnabled === true);
+    } catch (error) {
+      console.error("Failed to initialize the browser bridge.", error);
+    }
     registerSettingsIpc();
     registerAccountIpc();
     registerBackupIpc();
@@ -2250,6 +2365,7 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  browserBridgeService?.dispose();
   sessionChangeWatcher?.stop();
   trayController?.dispose();
   accountStoreLoader.close();

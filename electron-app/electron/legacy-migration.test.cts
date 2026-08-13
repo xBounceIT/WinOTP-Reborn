@@ -61,6 +61,8 @@ test("maps every persisted v1 preference to its v2 equivalent", () => {
       minimizeOnClose: false,
       minimizeToTray: true,
       showTotpInTray: true,
+      webBridgeEnabled: false,
+      webBridgeNoticeDismissed: false,
       automaticBackup: true,
       customBackupFolderPath: "C:\\WinOTP Backups",
       updateOnStartup: false,

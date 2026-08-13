@@ -1,4 +1,4 @@
-import { LockKeyhole, ScanFace } from "lucide-react";
+import { ArrowRight, LockKeyhole, Puzzle, ScanFace, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { NavigationRail } from "@/components/NavigationRail";
@@ -43,7 +43,11 @@ import {
   shouldShowStartupLoading,
   windowsHelloAvailabilityOverrideForRemoteSession,
 } from "@/lib/security-settings";
-import { isPersistedSettingsValue, shouldHydrateMainSettings } from "@/lib/settings-storage";
+import {
+  isPersistedSettingsValue,
+  shouldHydrateMainSettings,
+  shouldShowWebBridgeNotice,
+} from "@/lib/settings-storage";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import type {
   AppSettings,
@@ -158,6 +162,8 @@ function readAppSettings(): AppSettings {
       savedSettings.minimizeOnClose === true && savedSettings.minimizeToTray !== true,
     minimizeToTray: savedSettings.minimizeToTray === true,
     showTotpInTray: savedSettings.showTotpInTray === true,
+    webBridgeEnabled: savedSettings.webBridgeEnabled === true,
+    webBridgeNoticeDismissed: savedSettings.webBridgeNoticeDismissed === true,
     automaticBackup: savedSettings.automaticBackup === true,
     customBackupFolderPath:
       typeof savedSettings.customBackupFolderPath === "string"
@@ -384,6 +390,7 @@ function useAppView() {
   const [settingsPersistenceReady, setSettingsPersistenceReady] = useState(false);
   const [securityMigrationPending, setSecurityMigrationPending] = useState(false);
   const [settingsRecoveryRequired, setSettingsRecoveryRequired] = useState(false);
+  const [webBridgeNoticeOpen, setWebBridgeNoticeOpen] = useState(false);
   const [securityStorageAvailable, setSecurityStorageAvailable] = useState(true);
   const [startupProtectionReady, setStartupProtectionReady] = useState(false);
   const [startupProtectionAttempt, setStartupProtectionAttempt] = useState(0);
@@ -405,6 +412,7 @@ function useAppView() {
   const unlockBusyRef = useRef(false);
   const lockBusyRef = useRef(false);
   const lockOverlayRef = useModalDialog(locked && !startupLoading);
+  const webBridgeNoticeRef = useModalDialog(webBridgeNoticeOpen);
   const toastTimer = useRef<number | undefined>(undefined);
   const settingsSaveQueueRef = useRef<Promise<boolean> | undefined>(undefined);
   const settingsPersistenceVersionRef = useRef(0);
@@ -415,6 +423,7 @@ function useAppView() {
   const startupLockHandled = useRef(false);
   const customOrderPruneVersion = useRef(0);
   const pendingSessionLock = useRef<boolean | undefined>(undefined);
+  const webBridgeNoticeShown = useRef(false);
   const remoteSessionDetectedRef = useRef(false);
   const sessionChangeVersion = useRef(0);
   const protectionReconciliationVersion = useRef(0);
@@ -1062,6 +1071,21 @@ function useAppView() {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
   }, [settings.theme]);
 
+  useEffect(() => {
+    if (
+      shouldShowWebBridgeNotice(
+        locked,
+        settingsLoaded,
+        settingsSourceAvailable,
+        settings.webBridgeNoticeDismissed,
+        webBridgeNoticeShown.current,
+      )
+    ) {
+      webBridgeNoticeShown.current = true;
+      setWebBridgeNoticeOpen(true);
+    }
+  }, [locked, settings.webBridgeNoticeDismissed, settingsLoaded, settingsSourceAvailable]);
+
   // The cancellation/version guards protect reconciliation from stale security responses.
   // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
@@ -1534,6 +1558,15 @@ function useAppView() {
             ? "Automatic checks are off."
             : current.statusMessage,
       }));
+    }
+  }
+
+  function dismissWebBridgeNotice(openSettings: boolean) {
+    setWebBridgeNoticeOpen(false);
+    markSettingsChanged();
+    setSettings((current) => ({ ...current, webBridgeNoticeDismissed: true }));
+    if (openSettings) {
+      setRoute("settings");
     }
   }
 
@@ -2520,7 +2553,12 @@ function useAppView() {
   return (
     <TooltipProvider>
       <div className="app-shell">
-        <div className="window-titlebar" aria-label="WinOTP" aria-hidden={locked} inert={locked}>
+        <div
+          className="window-titlebar"
+          aria-label="WinOTP"
+          aria-hidden={locked || webBridgeNoticeOpen}
+          inert={locked || webBridgeNoticeOpen}
+        >
           <img className="window-titlebar__icon" src="./app.png" alt="" aria-hidden="true" />
           <span className="window-titlebar__title">WinOTP</span>
         </div>
@@ -2649,6 +2687,55 @@ function useAppView() {
                   {lockRequestBusy ? "Locking…" : unlockBusy ? "Checking…" : "Use Windows Hello"}
                 </Button>
               )}
+            </div>
+          </dialog>
+        )}
+
+        {webBridgeNoticeOpen && !locked && !startupLoading && (
+          <dialog
+            ref={webBridgeNoticeRef}
+            className="web-bridge-notice"
+            aria-labelledby="web-bridge-notice-title"
+            onCancel={(event) => {
+              event.preventDefault();
+              dismissWebBridgeNotice(false);
+            }}
+          >
+            <div className="web-bridge-notice__panel">
+              <div className="web-bridge-notice__eyebrow">
+                <Puzzle size={14} aria-hidden="true" />
+                New in WinOTP 2.1
+              </div>
+              <h1 id="web-bridge-notice-title" className="web-bridge-notice__title">
+                Your codes can meet you in the browser
+              </h1>
+              <p className="web-bridge-notice__detail">
+                The new browser extension connects directly to this device. There is no cloud
+                account, network API, telemetry, or access to the pages you visit.
+              </p>
+              <div className="web-bridge-notice__trust-path" aria-label="Local protected link">
+                <span className="web-bridge-notice__node">
+                  <Puzzle size={20} aria-hidden="true" />
+                  Browser
+                </span>
+                <span className="web-bridge-notice__connector" aria-hidden="true">
+                  <ArrowRight size={16} />
+                </span>
+                <span className="web-bridge-notice__node web-bridge-notice__node--trusted">
+                  <ShieldCheck size={20} aria-hidden="true" />
+                  WinOTP
+                </span>
+              </div>
+              <p className="web-bridge-notice__privacy">
+                Only account labels and a code you explicitly request can cross this link, and only
+                while WinOTP is unlocked.
+              </p>
+              <div className="web-bridge-notice__actions">
+                <Button variant="outline" onClick={() => dismissWebBridgeNotice(false)}>
+                  Not now
+                </Button>
+                <Button onClick={() => dismissWebBridgeNotice(true)}>Open settings</Button>
+              </div>
             </div>
           </dialog>
         )}

@@ -10,6 +10,7 @@ WinOTP is a secure, cross-platform TOTP authenticator with a TypeScript-only des
 - `electron-app/electron-dist/` — ignored generated CommonJS runtime output compiled from `.cts` sources; it is never a source directory.
 - `rust/winotp-core/` — portable account model, OTP generation, URI/import mapping, backup cryptography, ordering, settings, and protection policy.
 - `rust/winotp-updater/` — platform-neutral update discovery and installer verification sidecar.
+- `rust/winotp-browser-bridge-host/` — the packaged Native Messaging transport pinned to the official [WinOTP Reborn WebBridge](https://github.com/xBounceIT/WinOTP-Reborn-WebBridge).
 
 The Electron main process stores accounts in its per-user `WinOTP_Reborn/accounts.db` directory. TOTP secrets and security credentials are encrypted with Electron `safeStorage` before they are written to disk; Electron maps that API to DPAPI, Keychain, or the Linux secret-service backend as appropriate. On Windows, valid entries from the previous Credential Manager store are imported once. The same launch migrates the legacy settings and credentials when they are available.
 
@@ -39,6 +40,24 @@ npm run build
 
 The app currently supports the home, add-account, manual-entry, import, settings, multi-display QR screen-capture, backup, protection, and update flows. Portable behavior is implemented in Rust and exposed through a narrow JSON sidecar bridge; Electron IPC exposes only renderer-safe operations.
 
+## Browser extension bridge
+
+Browser access is disabled by default. After the user explicitly enables **Allow browser extension access** in Settings, WinOTP registers the per-user Native Messaging host and publishes the authenticated local endpoint defined by the WebBridge Desktop trusted contract. Disabling the option removes the endpoint and registrations without touching account data.
+
+The extension can read only account `id`, `issuer`, and display `name`, then request a current TOTP for one selected account while the desktop app is unlocked. Secrets, OTP URIs, backups, encryption material, protection credentials, and page contents never cross the bridge. Every request re-checks the live lock state and passes TOTP generation through `winotp-core`.
+
+On Linux AppImage builds, enabling the bridge installs a private per-user copy of the packaged Native Messaging host so `ping` can still distinguish an installed bridge from an app that is not currently running. Disabling the bridge removes that copy together with its browser manifests.
+
+Firefox uses the extension's stable add-on ID. Chrome and Chromium production packages also require their assigned 32-character store extension ID when building the desktop installers:
+
+```powershell
+$env:WINOTP_CHROME_EXTENSION_ID = "<chrome-extension-id>"
+cd electron-app
+npm run package
+```
+
+The release workflow reads the same value from the `CHROME_EXTENSION_ID` repository secret. Development builds may set either `WINOTP_CHROME_EXTENSION_ID` or `CHROME_EXTENSION_ID` before `npm run build:core`.
+
 ## Test the Rust core
 
 ```powershell
@@ -64,6 +83,6 @@ npm run package -- --win --x64
 
 ## Project status
 
-The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging is now handled by `.github/workflows/release.yml`, which builds Windows NSIS setups, Linux AppImage, DEB, and RPM packages for x64 and arm64, and a universal macOS DMG for version tags such as `v2.0.0`.
+The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging is now handled by `.github/workflows/release.yml`, which builds Windows NSIS setups, Linux AppImage, DEB, and RPM packages for x64 and arm64, and a universal macOS DMG for version tags such as `v2.1.0`.
 
 WinOTP is licensed under the MIT License.

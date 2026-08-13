@@ -1,4 +1,4 @@
-import { chmod, mkdir, copyFile } from "node:fs/promises";
+import { chmod, mkdir, copyFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -8,9 +8,13 @@ const electronDirectory = path.resolve(scriptDirectory, "..");
 const repositoryRoot = path.resolve(electronDirectory, "..");
 const manifestPath = path.join(repositoryRoot, "rust", "Cargo.toml");
 const nativeDirectory = path.join(electronDirectory, "native");
+const runtimeBinaries = [
+  { packageName: "winotp-core", binaryName: "winotp-core" },
+  { packageName: "winotp-browser-bridge-host", binaryName: "winotp-browser-bridge" },
+];
 const binaries = process.argv.includes("--core-only")
-  ? ["winotp-core"]
-  : ["winotp-updater", "winotp-core"];
+  ? runtimeBinaries
+  : [{ packageName: "winotp-updater", binaryName: "winotp-updater" }, ...runtimeBinaries];
 const requestedTargetArchitecture = process.env.WINOTP_TARGET_ARCH?.trim().toLowerCase();
 
 function binaryName(name: string, platform = process.platform) {
@@ -81,9 +85,9 @@ async function buildUpdater() {
       if (target) {
         cargoArguments.push("--target", target);
       }
-      cargoArguments.push("--manifest-path", manifestPath, "--package", binary);
+      cargoArguments.push("--manifest-path", manifestPath, "--package", binary.packageName);
       await runCommand("cargo", cargoArguments);
-      const name = binaryName(binary);
+      const name = binaryName(binary.binaryName);
       const packagedBinaryPath = path.join(nativeDirectory, name);
       await copyFile(path.join(targetReleaseDirectory, name), packagedBinaryPath);
       await makeExecutable(packagedBinaryPath);
@@ -103,13 +107,13 @@ async function buildUpdater() {
         "--manifest-path",
         manifestPath,
         "--package",
-        binary,
+        binary.packageName,
       ]);
     }
   }
 
   for (const binary of binaries) {
-    const name = binaryName(binary, "darwin");
+    const name = binaryName(binary.binaryName, "darwin");
     const packagedBinaryPath = path.join(nativeDirectory, name);
     await runCommand("lipo", [
       "-create",
@@ -124,6 +128,19 @@ async function buildUpdater() {
 }
 
 await buildUpdater();
+const chromeExtensionId = (
+  process.env.WINOTP_CHROME_EXTENSION_ID ??
+  process.env.CHROME_EXTENSION_ID ??
+  ""
+).trim();
+if (chromeExtensionId && !/^[a-p]{32}$/.test(chromeExtensionId)) {
+  throw new Error("The configured Chrome extension ID must contain 32 letters from a through p.");
+}
+await writeFile(
+  path.join(nativeDirectory, "winotp-browser-bridge-config.json"),
+  `${JSON.stringify({ chromeExtensionId })}\n`,
+  "utf8",
+);
 console.log(
-  `Copied ${binaries.join(" and ")} to ${path.relative(repositoryRoot, nativeDirectory)}.`,
+  `Copied ${binaries.map(({ binaryName: name }) => name).join(" and ")} to ${path.relative(repositoryRoot, nativeDirectory)}.`,
 );

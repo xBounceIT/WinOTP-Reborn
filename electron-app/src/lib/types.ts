@@ -279,6 +279,8 @@ export interface AppSettings {
   minimizeOnClose: boolean;
   minimizeToTray: boolean;
   showTotpInTray: boolean;
+  webBridgeEnabled: boolean;
+  webBridgeNoticeDismissed: boolean;
   automaticBackup: boolean;
   customBackupFolderPath: string;
   updateOnStartup: boolean;
@@ -366,6 +368,8 @@ export const defaultSettings: AppSettings = {
   minimizeOnClose: false,
   minimizeToTray: false,
   showTotpInTray: false,
+  webBridgeEnabled: false,
+  webBridgeNoticeDismissed: false,
   automaticBackup: false,
   customBackupFolderPath: "",
   updateOnStartup: true,

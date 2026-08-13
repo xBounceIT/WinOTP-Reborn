@@ -484,6 +484,15 @@ function useSettingsPage({
     }
   }
 
+  async function openWebBridgeRepository() {
+    const opened = await window.winotp?.openExternal(
+      "https://github.com/xBounceIT/WinOTP-Reborn-WebBridge",
+    );
+    if (!opened) {
+      onToast("Extension setup is available once the Electron shell is running.");
+    }
+  }
+
   function openCredentialDialog(kind: SecurityCredentialKind, mode: "setup" | "verify") {
     if (
       !securityReady ||
@@ -784,6 +793,28 @@ function useSettingsPage({
                 Lock preview now
               </Button>
             )}
+          </Card>
+
+          <Card className="settings-card">
+            <div className="settings-card__title-row">
+              <CardTitle className="settings-card__title">Browser extension</CardTitle>
+            </div>
+            <p className="settings-card__description">
+              Connect the official Chrome, Chromium, or Firefox extension directly to this app. The
+              local bridge has no cloud service and never shares account secrets.
+            </p>
+            <ToggleRow
+              label="Allow browser extension access"
+              hint="Registers the local Native Messaging host. Account labels and requested codes are available only while WinOTP is unlocked."
+              checked={settings.webBridgeEnabled}
+              onCheckedChange={(checked) => onChange("webBridgeEnabled", checked)}
+            />
+            <div className="settings-buttons settings-buttons--fill-single">
+              <Button variant="outline" size="sm" onClick={() => void openWebBridgeRepository()}>
+                <ExternalLink size={13} />
+                View extension and setup
+              </Button>
+            </div>
           </Card>
 
           <Card className="settings-card">

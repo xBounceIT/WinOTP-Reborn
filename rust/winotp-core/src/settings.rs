@@ -30,6 +30,8 @@ pub struct AppSettings {
     pub minimize_on_close: bool,
     pub minimize_to_tray: bool,
     pub show_totp_in_tray: bool,
+    pub web_bridge_enabled: bool,
+    pub web_bridge_notice_dismissed: bool,
     pub automatic_backup: bool,
     pub custom_backup_folder_path: String,
     pub update_on_startup: bool,
@@ -53,6 +55,8 @@ impl Default for AppSettings {
             minimize_on_close: false,
             minimize_to_tray: false,
             show_totp_in_tray: false,
+            web_bridge_enabled: false,
+            web_bridge_notice_dismissed: false,
             automatic_backup: false,
             custom_backup_folder_path: String::new(),
             update_on_startup: true,
@@ -171,6 +175,12 @@ pub fn normalize_settings(source: &Value) -> AppSettings {
             && !minimize_to_tray,
         minimize_to_tray,
         show_totp_in_tray: bool_value(source, "showTotpInTray", defaults.show_totp_in_tray),
+        web_bridge_enabled: bool_value(source, "webBridgeEnabled", defaults.web_bridge_enabled),
+        web_bridge_notice_dismissed: bool_value(
+            source,
+            "webBridgeNoticeDismissed",
+            defaults.web_bridge_notice_dismissed,
+        ),
         automatic_backup: bool_value(source, "automaticBackup", defaults.automatic_backup),
         custom_backup_folder_path: string_value(
             source,
@@ -295,11 +305,15 @@ mod tests {
             "minimizeToTray": true,
             "updateChannel": "Pre-release",
             "theme": "light",
+            "webBridgeEnabled": true,
+            "webBridgeNoticeDismissed": true,
         }));
         assert_eq!(settings.account_sort_option, SortOption::CustomOrder);
         assert_eq!(settings.account_custom_order_ids, ["a"]);
         assert!(!settings.minimize_on_close);
         assert_eq!(settings.update_channel, UpdateChannel::PreRelease);
+        assert!(settings.web_bridge_enabled);
+        assert!(settings.web_bridge_notice_dismissed);
 
         let numeric_settings = normalize_settings(&serde_json::json!({
             "autoLock": 15,
