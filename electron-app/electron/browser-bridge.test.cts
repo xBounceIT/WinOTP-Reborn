@@ -132,6 +132,18 @@ test("returns a selected current TOTP without exposing the account", async () =>
   assert.equal("result" in relocked, false);
 });
 
+test("accepts every Rust-valid TOTP period", async () => {
+  const response = await dispatchBrowserBridgeRequest(
+    { ok: true, requestId: "totp-long-period", method: "getTotp", accountId: "account-1" },
+    createCallbacks({
+      getAccount: () => ({ id: "account-1", secret: "NEVER", period: 600 }),
+      generateTotp: () => ({ code: "123456", expiresIn: 599, period: 600 }),
+    }),
+    createRateLimiter(),
+  );
+  assert.deepEqual(response.result, { code: "123456", expiresIn: 599, period: 600 });
+});
+
 test("rate-limits abusive same-user requests", () => {
   let current = 1_000;
   const limiter = createRateLimiter({ now: () => current, windowMs: 1_000, maximumRequests: 2 });

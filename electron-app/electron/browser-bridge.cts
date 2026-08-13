@@ -153,11 +153,10 @@ async function dispatchBrowserBridgeRequest(request, callbacks, rateLimiter, opt
       const period = Number(result?.period);
       if (
         !/^\d{4,10}$/.test(code) ||
-        !Number.isInteger(expiresIn) ||
-        !Number.isInteger(period) ||
+        !Number.isSafeInteger(expiresIn) ||
+        !Number.isSafeInteger(period) ||
         expiresIn < 1 ||
         period < 1 ||
-        period > 300 ||
         expiresIn > period
       ) {
         throw new Error("The Rust core returned invalid browser TOTP data.");
