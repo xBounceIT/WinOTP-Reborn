@@ -171,6 +171,7 @@ export function HomePage({
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [visibleAccounts, setVisibleAccounts] = useState<OtpAccount[]>(accounts);
   const [orderProjectionPending, setOrderProjectionPending] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const orderProjectionPendingRef = useRef(false);
   const isCustomOrder = sort === "CustomOrder";
   const canReorder = isCustomOrder && search.trim().length === 0;
@@ -290,6 +291,11 @@ export function HomePage({
     setDropTargetId(null);
   }
 
+  function clearSearch() {
+    setSearch("");
+    searchInputRef.current?.focus();
+  }
+
   return (
     <div className="page-scroll">
       <div className="page-shell page-shell--home">
@@ -297,11 +303,29 @@ export function HomePage({
           <div className="search-field">
             <Search className="search-icon" size={15} strokeWidth={1.8} />
             <Input
+              ref={searchInputRef}
               aria-label="Search accounts"
               placeholder="Search accounts..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
+            {search && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    className="search-clear-button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Clear search"
+                    onClick={clearSearch}
+                  >
+                    <X size={14} strokeWidth={1.8} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Clear search</TooltipContent>
+              </Tooltip>
+            )}
           </div>
           <div className="toolbar-actions">
             <DropdownMenu>
@@ -401,7 +425,7 @@ export function HomePage({
               {search ? "Try a different search term" : "Click Add Account to get started"}
             </div>
             {search && (
-              <Button variant="ghost" size="sm" onClick={() => setSearch("")}>
+              <Button variant="ghost" size="sm" onClick={clearSearch}>
                 <X size={14} />
                 Clear search
               </Button>

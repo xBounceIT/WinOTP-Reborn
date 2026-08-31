@@ -459,9 +459,23 @@ html:not(.dark) .toolbar-icon-button:hover {
 .search-field input {
   height: 32px;
   padding-left: 32px;
+  padding-right: 34px;
   border-radius: 6px;
   border: 0;
   background: var(--surface-elevated);
+}
+
+.search-field .search-clear-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 1;
+  color: var(--text-subtle);
+  transform: translateY(-50%);
+}
+
+.search-field .search-clear-button:hover {
+  color: var(--foreground);
 }
 
 .search-field input:focus-visible {
