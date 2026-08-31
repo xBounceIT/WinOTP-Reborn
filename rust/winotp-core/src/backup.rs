@@ -202,9 +202,16 @@ mod tests {
 
     #[test]
     fn validates_passwords_with_the_portable_policy() {
-        assert!(!is_valid_backup_password("short"));
-        assert!(!is_valid_backup_password("        "));
-        assert!(is_valid_backup_password(&random_test_password()));
+        let valid_password = random_test_password();
+        let too_short_password = valid_password
+            .chars()
+            .take(MINIMUM_PASSWORD_LENGTH - 1)
+            .collect::<String>();
+        let whitespace_only_password = " ".repeat(MINIMUM_PASSWORD_LENGTH);
+
+        assert!(!is_valid_backup_password(&too_short_password));
+        assert!(!is_valid_backup_password(&whitespace_only_password));
+        assert!(is_valid_backup_password(&valid_password));
     }
 
     #[test]
