@@ -1736,14 +1736,14 @@ dependencies = [
 
 [[package]]
 name = "winotp-browser-bridge-host"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "winotp-browser-bridge",
 ]
 
 [[package]]
 name = "winotp-core"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "winotp-updater"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "chrono",
  "hex",
