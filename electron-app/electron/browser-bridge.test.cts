@@ -208,7 +208,7 @@ async function sendRequest(descriptor, request) {
     socket.once("error", reject);
   });
   const response = readFrame(socket);
-  socket.end(encodeFrame(authenticatedRequest(request, descriptor.authToken)));
+  socket.write(encodeFrame(authenticatedRequest(request, descriptor.authToken)));
   return response;
 }
 
@@ -400,6 +400,7 @@ test("does not republish a descriptor when shutdown races endpoint creation", as
   };
   const service = createBrowserBridgeService({
     platform: "win32",
+    environment: { USERDOMAIN: "TEST", USERNAME: "tester" },
     runtimeDirectory: directoryPath,
     netModule,
     backend: {
@@ -446,6 +447,7 @@ test("removes a stale descriptor when the active endpoint closes unexpectedly", 
   };
   const service = createBrowserBridgeService({
     platform: "win32",
+    environment: { USERDOMAIN: "TEST", USERNAME: "tester" },
     runtimeDirectory: directoryPath,
     netModule,
     registration: {
