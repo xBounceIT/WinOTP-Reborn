@@ -36,7 +36,7 @@ interface HomePageProps {
   onCustomOrderChange: (orderIds: string[]) => void;
   onCopy: (account: OtpAccount) => Promise<boolean>;
   onEdit: (account: OtpAccount) => void;
-  onDelete: (account: OtpAccount) => void;
+  onDelete: (account: OtpAccount, trigger: HTMLButtonElement) => void;
 }
 
 const sortLabels: Record<SortOption, string> = {
