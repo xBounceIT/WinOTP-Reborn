@@ -3,6 +3,16 @@ import { useEffect, useRef, useState } from "react";
 
 import { NavigationRail } from "@/components/NavigationRail";
 import { LoadingScreen } from "@/components/LoadingScreen";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -377,6 +387,7 @@ function useAppView() {
   const [backupStatus, setBackupStatus] = useState<BackupConfigurationResult>();
   const [updateState, setUpdateState] = useState<UpdateState>(() => initialUpdateState(settings));
   const [editingAccount, setEditingAccount] = useState<OtpAccount>();
+  const [accountPendingDeletion, setAccountPendingDeletion] = useState<OtpAccount>();
   const [toast, setToast] = useState("");
   const [locked, setLocked] = useState(true);
   const [remoteFallbackActive, setRemoteFallbackActive] = useState(false);
@@ -402,6 +413,7 @@ function useAppView() {
     startupProtectionReady,
   );
   const accountMutationVersion = useRef(0);
+  const accountDeletionTriggerRef = useRef<HTMLElement | null>(null);
   const routeRef = useRef(route);
   const settingsRef = useRef(settings);
   const lockedRef = useRef(locked);
@@ -1299,6 +1311,7 @@ function useAppView() {
     });
     if (nextLocked) {
       setEditingAccount(undefined);
+      setAccountPendingDeletion(undefined);
       setUnlockValue("");
       setUnlockError("");
     }
@@ -1486,30 +1499,34 @@ function useAppView() {
 
   async function deleteAccount(account: OtpAccount) {
     const label = account.issuer || account.accountName;
-    if (window.confirm(`Are you sure you want to delete '${label}'?`)) {
-      try {
-        const result = await window.winotp?.accounts.delete(account.id);
-        if (!result?.success) {
-          showToast(result?.message ?? "Unable to delete the account.");
-          return;
-        }
-
-        setAccounts((current) => current.filter((item) => item.id !== account.id));
-        markSettingsChanged();
-        setSettings((current) => ({
-          ...current,
-          accountCustomOrderIds: current.accountCustomOrderIds.filter((id) => id !== account.id),
-        }));
-        accountMutationVersion.current += 1;
-        showToast(
-          result.automaticBackup?.success === false
-            ? `${label} removed; automatic backup failed: ${result.automaticBackup.message ?? "unknown error"}`
-            : `${label} removed`,
-        );
-      } catch {
-        showToast("Unable to delete the account.");
+    try {
+      const result = await window.winotp?.accounts.delete(account.id);
+      if (!result?.success) {
+        showToast(result?.message ?? "Unable to delete the account.");
+        return;
       }
+
+      setAccounts((current) => current.filter((item) => item.id !== account.id));
+      markSettingsChanged();
+      setSettings((current) => ({
+        ...current,
+        accountCustomOrderIds: current.accountCustomOrderIds.filter((id) => id !== account.id),
+      }));
+      accountMutationVersion.current += 1;
+      showToast(
+        result.automaticBackup?.success === false
+          ? `${label} removed; automatic backup failed: ${result.automaticBackup.message ?? "unknown error"}`
+          : `${label} removed`,
+      );
+    } catch {
+      showToast("Unable to delete the account.");
     }
+  }
+
+  function requestAccountDeletion(account: OtpAccount) {
+    accountDeletionTriggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAccountPendingDeletion(account);
   }
 
   function changeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
@@ -2480,7 +2497,7 @@ function useAppView() {
           onCustomOrderChange={(value) => changeSetting("accountCustomOrderIds", value)}
           onCopy={copyCode}
           onEdit={editAccount}
-          onDelete={deleteAccount}
+          onDelete={requestAccountDeletion}
         />
       );
     }
@@ -2739,6 +2756,48 @@ function useAppView() {
             </div>
           </dialog>
         )}
+
+        <AlertDialog
+          open={Boolean(accountPendingDeletion)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAccountPendingDeletion(undefined);
+            }
+          }}
+        >
+          <AlertDialogContent
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              const trigger = accountDeletionTriggerRef.current;
+              accountDeletionTriggerRef.current = null;
+              if (!lockedRef.current && trigger?.isConnected) {
+                trigger.focus();
+              }
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete “
+                {accountPendingDeletion?.issuer || accountPendingDeletion?.accountName}”? This
+                action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => {
+                  if (accountPendingDeletion) {
+                    void deleteAccount(accountPendingDeletion);
+                  }
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {toast && (
           <div className="toast" role="status">
