@@ -12,6 +12,10 @@ const buttonSource = fs.readFileSync(
   path.resolve(process.cwd(), "src/components/ui/button.tsx"),
   "utf8",
 );
+const accountCardSource = fs.readFileSync(
+  path.resolve(process.cwd(), "src/components/AccountCard.tsx"),
+  "utf8",
+);
 
 function sourceBetween(source, start, end) {
   const startIndex = source.indexOf(start);
@@ -33,11 +37,13 @@ test("account deletion uses the in-app shadcn confirmation dialog", () => {
 test("closing the dialog restores focus to its invoking delete button", () => {
   const requestSource = sourceBetween(
     appSource,
-    "function requestAccountDeletion(account: OtpAccount)",
+    "function requestAccountDeletion(account: OtpAccount, trigger: HTMLButtonElement)",
     "function changeSetting",
   );
 
-  assert.match(requestSource, /document\.activeElement instanceof HTMLElement/);
+  assert.match(requestSource, /accountDeletionTriggerRef\.current = trigger/);
+  assert.match(accountCardSource, /onDelete\(account, event\.currentTarget\)/);
+  assert.doesNotMatch(requestSource, /document\.activeElement/);
   assert.match(appSource, /onCloseAutoFocus=\{\(event\) =>/);
   assert.match(appSource, /!lockedRef\.current && trigger\?\.isConnected/);
   assert.match(appSource, /trigger\.focus\(\)/);

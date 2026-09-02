@@ -1523,9 +1523,8 @@ function useAppView() {
     }
   }
 
-  function requestAccountDeletion(account: OtpAccount) {
-    accountDeletionTriggerRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  function requestAccountDeletion(account: OtpAccount, trigger: HTMLButtonElement) {
+    accountDeletionTriggerRef.current = trigger;
     setAccountPendingDeletion(account);
   }
 

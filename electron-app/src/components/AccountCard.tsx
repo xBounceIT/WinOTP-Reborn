@@ -32,7 +32,7 @@ interface AccountCardProps {
   onDragEnd: () => void;
   onCopy: (account: OtpAccount) => Promise<boolean>;
   onEdit: (account: OtpAccount) => void;
-  onDelete: (account: OtpAccount) => void;
+  onDelete: (account: OtpAccount, trigger: HTMLButtonElement) => void;
 }
 
 interface CodeTransition {
@@ -276,7 +276,7 @@ export function AccountCard({
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Delete ${accountLabel}`}
-                onClick={() => onDelete(account)}
+                onClick={(event) => onDelete(account, event.currentTarget)}
               >
                 <Trash2 size={14} />
               </Button>
