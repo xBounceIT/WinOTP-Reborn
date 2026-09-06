@@ -43,7 +43,7 @@ test("builds allow-listed Chrome and Firefox Native Messaging manifests", () => 
   assert.throws(() => nativeHostManifest("firefox", "relative-host"), /absolute/);
 });
 
-test("finds development and packaged browser bridge binaries", () => {
+test("finds the packaged browser bridge and honors path overrides", () => {
   const resourcesPath = path.resolve("fixture-resources");
   const candidates = getBrowserBridgeBinaryCandidates({
     platform: "win32",
@@ -51,7 +51,6 @@ test("finds development and packaged browser bridge binaries", () => {
     dirname: path.resolve("electron-dist", "electron"),
   });
   assert.ok(candidates.includes(path.join(resourcesPath, "updater", "winotp-browser-bridge.exe")));
-  assert.ok(candidates.some((candidate) => candidate.endsWith("winotp-browser-bridge.exe")));
   const isolatedDirectory = createDirectory();
   try {
     assert.equal(

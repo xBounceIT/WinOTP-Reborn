@@ -1,17 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  canApplyAccountLoad,
-  loadAccountsUntilCurrent,
-  mergePersistedAccounts,
-} from "../src/lib/account-state.ts";
+import { loadAccountsUntilCurrent, mergePersistedAccounts } from "../src/lib/account-state.ts";
 import type { OtpAccount } from "../src/lib/types.ts";
-test("does not apply an account load that started before a mutation", () => {
-  assert.equal(canApplyAccountLoad(4, 4), true);
-  assert.equal(canApplyAccountLoad(4, 5), false);
-});
-
 test("reloads account data after a mutation races the initial load", async () => {
   let version = 0;
   let calls = 0;

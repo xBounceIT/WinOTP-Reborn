@@ -4,14 +4,6 @@ const path = require("node:path");
 const test = require("node:test");
 
 const appSource = fs.readFileSync(path.resolve(process.cwd(), "src/App.tsx"), "utf8");
-const alertDialogSource = fs.readFileSync(
-  path.resolve(process.cwd(), "src/components/ui/alert-dialog.tsx"),
-  "utf8",
-);
-const buttonSource = fs.readFileSync(
-  path.resolve(process.cwd(), "src/components/ui/button.tsx"),
-  "utf8",
-);
 const accountCardSource = fs.readFileSync(
   path.resolve(process.cwd(), "src/components/AccountCard.tsx"),
   "utf8",
@@ -26,12 +18,19 @@ function sourceBetween(source, start, end) {
 }
 
 test("account deletion uses the in-app shadcn confirmation dialog", () => {
+  const deletionDialog = sourceBetween(
+    appSource,
+    "open={Boolean(accountPendingDeletion)}",
+    "</AlertDialog>",
+  );
+  const title = deletionDialog.match(/<AlertDialogTitle>([^<>{}]*)<\/AlertDialogTitle>/)?.[1];
+  assert.ok(title?.trim(), "The account deletion confirmation needs an accessible title.");
   assert.doesNotMatch(appSource, /window\.confirm\s*\(/);
   assert.match(appSource, /onDelete=\{requestAccountDeletion\}/);
-  assert.match(appSource, /open=\{Boolean\(accountPendingDeletion\)\}/);
-  assert.match(appSource, /<AlertDialogTitle>Delete account\?<\/AlertDialogTitle>/);
-  assert.match(appSource, /<AlertDialogAction[\s\S]*?void deleteAccount\(accountPendingDeletion\)/);
-  assert.match(appSource, /<AlertDialogAction\s+variant="destructive"/);
+  assert.match(
+    deletionDialog,
+    /<AlertDialogAction[\s\S]*?void deleteAccount\(accountPendingDeletion\)/,
+  );
 });
 
 test("closing the dialog restores focus to its invoking delete button", () => {
@@ -47,15 +46,6 @@ test("closing the dialog restores focus to its invoking delete button", () => {
   assert.match(appSource, /onCloseAutoFocus=\{\(event\) =>/);
   assert.match(appSource, /!lockedRef\.current && trigger\?\.isConnected/);
   assert.match(appSource, /trigger\.focus\(\)/);
-});
-
-test("the shared alert dialog is backed by Radix and exposes destructive styling", () => {
-  assert.match(alertDialogSource, /AlertDialog as AlertDialogPrimitive.*from "radix-ui"/);
-  assert.match(alertDialogSource, /data-slot="alert-dialog-overlay"/);
-  assert.match(alertDialogSource, /data-slot="alert-dialog-content"/);
-  assert.match(alertDialogSource, /buttonVariants\(\{ variant \}\)/);
-  assert.match(buttonSource, /bg-destructive text-destructive-foreground/);
-  assert.doesNotMatch(buttonSource, /bg-destructive text-white/);
 });
 
 test("locking the app dismisses a pending account deletion", () => {

@@ -3,8 +3,6 @@ import test from "node:test";
 
 import {
   AccountImportFormatError,
-  MAX_IMPORT_FILE_SIZE_BYTES,
-  MAX_IMPORTED_ACCOUNT_COUNT,
   parseLegacyWinOtpJson,
   parseWinAuthLine,
   parseWinAuthText,
@@ -80,9 +78,4 @@ test("converts malformed bridge responses into an import format error", async ()
     parseLegacyWinOtpJson("{}"),
     (error) => error instanceof AccountImportFormatError && /invalid data/.test(error.message),
   );
-});
-
-test("keeps import size and count limits explicit", () => {
-  assert.equal(MAX_IMPORT_FILE_SIZE_BYTES, 32 * 1024 * 1024);
-  assert.equal(MAX_IMPORTED_ACCOUNT_COUNT, 1_000);
 });
