@@ -1024,8 +1024,6 @@ fn is_https_url(url: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && !rest.contains(char::is_whitespace))
 }
 
-const WINDOWS_INSTALLER_ARGUMENTS: [&str; 4] = ["/S", "/CURRENTUSER", "--updated", "/LOG"];
-
 #[cfg(unix)]
 fn prepare_linux_installer(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
@@ -1057,6 +1055,12 @@ fn linux_package_type_from_path(path: &Path) -> Result<LinuxPackageType, String>
     }
 }
 
+fn windows_installer_command(path: &Path) -> Command {
+    let mut command = Command::new(path);
+    command.args(["/S", "/CURRENTUSER", "--updated", "/LOG"]);
+    command
+}
+
 fn linux_native_package_command(path: &Path) -> Command {
     let mut command = Command::new("xdg-open");
     command.arg(path);
@@ -1065,11 +1069,7 @@ fn linux_native_package_command(path: &Path) -> Command {
 
 fn launch_installer_process(path: &Path, platform: AppPlatform) -> Result<(), String> {
     match platform {
-        AppPlatform::Windows => {
-            let mut command = Command::new(path);
-            command.args(WINDOWS_INSTALLER_ARGUMENTS);
-            launch_process(command)
-        }
+        AppPlatform::Windows => launch_process(windows_installer_command(path)),
         AppPlatform::Linux => {
             match linux_package_type_from_path(path)? {
                 LinuxPackageType::AppImage => {
@@ -1112,10 +1112,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_installer_runs_silently_and_waits_for_the_running_app() {
+    fn windows_installer_command_preserves_path_and_update_arguments() {
+        let path = Path::new(r"C:\Users\O'Brien\My Updates\WinOTP setup.exe");
+        let command = windows_installer_command(path);
+
+        assert_eq!(command.get_program(), path.as_os_str());
         assert_eq!(
-            WINDOWS_INSTALLER_ARGUMENTS,
-            ["/S", "/CURRENTUSER", "--updated", "/LOG"]
+            command.get_args().collect::<Vec<_>>(),
+            ["/S", "/CURRENTUSER", "--updated", "/LOG"].map(std::ffi::OsStr::new)
         );
     }
 

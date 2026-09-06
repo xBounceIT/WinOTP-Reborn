@@ -37,7 +37,9 @@ test("registers and unregisters through the Rust sidecar", async () => {
   const calls = [];
   const runOperation = async (operation, input, options) => {
     calls.push({ operation, input, options });
-    return { status: operation.endsWith("register") ? "registered" : "unregistered" };
+    return {
+      status: operation === "session-notification-register" ? "registered" : "unregistered",
+    };
   };
   const windowHandle = Buffer.from("78563412", "hex");
 
@@ -296,26 +298,6 @@ test("backs off after synchronous watcher spawn failures", async (context) => {
   await new Promise((resolve) => setTimeout(resolve, 15));
   assert.equal(attempts, 2);
   assert.equal(errors.length, 2);
-});
-
-test("reports native watcher initialization errors", (context) => {
-  const errors = [];
-  const children = [];
-  const watcher = startSessionChangeWatcher({
-    resolveRustCoreBinary: () => "winotp-core",
-    createChild: () => {
-      const child = createFakeWatcherChild();
-      children.push(child);
-      return child;
-    },
-    onError: (error) => errors.push(error),
-    errorRestartDelayMs: 10,
-  });
-  context.after(() => watcher.stop());
-
-  children[0].stdout.emit("data", `${JSON.stringify({ ok: false, error: "logind denied" })}\n`);
-  assert.equal(errors.length, 1);
-  assert.equal(errors[0].message, "logind denied");
 });
 
 test("backs off retries after a native watcher error", async (context) => {

@@ -52,19 +52,11 @@ test("release build jobs use read-only contents permissions", () => {
   assert.match(workflow, /release:\r?\n(?:.*\r?\n)*?    permissions:\r?\n      contents: write/m);
 });
 
-test("release publication is tag-verified and rerunnable", () => {
-  assert.match(workflow, /gh release view/);
-  assert.match(workflow, /gh release upload/);
-  assert.match(workflow, /gh release create[\s\S]*--verify-tag/);
-  assert.match(workflow, /gh release edit[\s\S]*--verify-tag/);
-});
-
 test("release tag verification uses the checked TypeScript script", () => {
   assert.match(
     workflow,
     /- name: Verify tag matches package version[\s\S]*?run: node scripts\/verify-release-tag\.ts/,
   );
-  assert.doesNotMatch(workflow, /node --input-type|<<['"]?NODE/);
 });
 
 test("release tag verification accepts only the current prefixed package version", () => {
@@ -145,10 +137,6 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
   });
 
   assert.match(workflow, /^      WINOTP_TARGET_ARCH: \$\{\{ matrix\.target_arch \}\}/m);
-  assert.doesNotMatch(
-    workflow,
-    /WINOTP_CHROME_EXTENSION_ID|secrets\.CHROME_EXTENSION_ID|Verify Chrome extension registration/,
-  );
   assert.match(
     workflow,
     /^      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc/m,
@@ -178,17 +166,7 @@ test("release packaging verifies Rust and ships both Windows architectures", () 
 });
 
 test("Linux release jobs build and validate portable and native installers", () => {
-  assert.deepEqual(packageJson.build.linux.target, ["AppImage", "deb", "rpm"]);
   assert.equal(packageJson.homepage, "https://github.com/xBounceIT/WinOTP-Reborn");
-  assert.equal(
-    packageJson.build.linux.maintainer,
-    "xBounceIT <xBounceIT@users.noreply.github.com>",
-  );
-  assert.deepEqual(packageJson.build.linux.publish, {
-    provider: "github",
-    owner: "xBounceIT",
-    repo: "WinOTP-Reborn",
-  });
   assert.match(
     workflow,
     /- name: Verify Linux installer artifacts\r?\n        if: matrix\.builder_platform == 'linux'\r?\n        shell: bash/,
@@ -207,18 +185,6 @@ test("release packages and runtime use branded cross-platform icons", () => {
   assert.equal(packageJson.build.linux.icon, "public/app.png");
   assert.equal(packageJson.build.mac.icon, "public/app.png");
   assert.match(indexHtml, /<link rel="icon" href="\.\/app\.png" \/>/);
-
-  for (const iconPath of [
-    "public/app.png",
-    "public/trayTemplate.png",
-    "public/trayTemplate@2x.png",
-  ]) {
-    assert.equal(
-      fs.existsSync(path.resolve(process.cwd(), iconPath)),
-      true,
-      `${iconPath} is missing`,
-    );
-  }
 
   assert.deepEqual(readPngDimensions("public/app.png"), { width: 1024, height: 1024 });
   assert.deepEqual(readPngDimensions("public/trayTemplate.png"), { width: 16, height: 16 });

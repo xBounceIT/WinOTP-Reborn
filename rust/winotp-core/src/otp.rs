@@ -161,7 +161,7 @@ mod tests {
     fn invalid_digit_count_uses_the_six_digit_placeholder() {
         let account = OtpAccount {
             digits: 4,
-            ..Default::default()
+            ..rfc_account()
         };
         assert_eq!(generate_totp_code(&account, 1_700_000_000), "000000");
     }

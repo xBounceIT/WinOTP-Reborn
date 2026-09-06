@@ -13,6 +13,7 @@ const {
   createRateLimiter,
   dispatchBrowserBridgeRequest,
   encodeFrame,
+  handleSocket,
   projectBrowserAccounts,
 } = require("./browser-bridge.cjs");
 const { resolveBrowserBridgeBinary } = require("./browser-bridge-registration.cjs");
@@ -132,7 +133,7 @@ test("returns a selected current TOTP without exposing the account", async () =>
   assert.equal("result" in relocked, false);
 });
 
-test("accepts every Rust-valid TOTP period", async () => {
+test("accepts TOTP periods longer than five minutes", async () => {
   const response = await dispatchBrowserBridgeRequest(
     { ok: true, requestId: "totp-long-period", method: "getTotp", accountId: "account-1" },
     createCallbacks({
@@ -339,50 +340,37 @@ test("drops authenticated in-flight requests when the endpoint token rotates", a
   }
 });
 
-test("enforces an absolute connection deadline against slow unauthenticated clients", async () => {
-  const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-browser-slow-client-"));
-  const service = createBrowserBridgeService({
-    runtimeDirectory: directoryPath,
-    temporaryDirectory: directoryPath,
-    connectionTimeoutMs: 50,
-    registration: {
-      install: () => ({ chromeConfigured: false }),
-      uninstall: () => undefined,
-    },
-    spawnProcess: () => ({ status: 0 }),
-    callbacks: createCallbacks(),
-  });
-  let dripTimer;
-  try {
-    await service.configure(true);
-    const descriptor = JSON.parse(
-      fs.readFileSync(path.join(directoryPath, "browser-bridge.json"), "utf8"),
-    );
-    const endpointPath = descriptor.endpoint.name ?? descriptor.endpoint.path;
-    const socket = net.createConnection(endpointPath);
-    await new Promise<void>((resolve, reject) => {
-      socket.once("connect", resolve);
-      socket.once("error", reject);
-    });
-    socket.write(Buffer.from([1]));
-    let bytesSent = 1;
-    dripTimer = setInterval(() => {
-      if (bytesSent < 3 && !socket.destroyed) {
-        socket.write(Buffer.from([1]));
-        bytesSent += 1;
-      }
-    }, 20);
+test("enforces an absolute connection deadline against slow unauthenticated clients", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
 
-    const outcome = await Promise.race([
-      new Promise((resolve) => socket.once("close", () => resolve("closed"))),
-      new Promise((resolve) => setTimeout(() => resolve("timeout"), 75)),
-    ]);
-    assert.equal(outcome, "closed");
-  } finally {
-    clearInterval(dripTimer);
-    service.dispose();
-    fs.rmSync(directoryPath, { recursive: true, force: true });
-  }
+  const socket = new EventEmitter();
+  socket.destroyed = false;
+  socket.destroy = () => {
+    socket.destroyed = true;
+    socket.emit("close");
+  };
+  const authenticateRequest = context.mock.fn(async () => undefined);
+
+  handleSocket(
+    socket,
+    AUTH_TOKEN,
+    createCallbacks(),
+    createRateLimiter(),
+    { authenticateRequest },
+    { connectionTimeoutMs: 50 },
+  );
+
+  socket.emit("data", Buffer.from([1]));
+  context.mock.timers.tick(20);
+  socket.emit("data", Buffer.from([1]));
+  context.mock.timers.tick(20);
+  socket.emit("data", Buffer.from([1]));
+  context.mock.timers.tick(9);
+
+  assert.equal(socket.destroyed, false);
+  context.mock.timers.tick(1);
+  assert.equal(socket.destroyed, true);
+  assert.equal(authenticateRequest.mock.callCount(), 0);
 });
 
 test("does not republish a descriptor when shutdown races endpoint creation", async () => {
@@ -549,10 +537,7 @@ test(
   { skip: process.platform !== "linux" },
   async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-native-host-"));
-    const environment =
-      process.platform === "win32"
-        ? { ...process.env, LOCALAPPDATA: dataRoot }
-        : { ...process.env, XDG_RUNTIME_DIR: dataRoot };
+    const environment = { ...process.env, XDG_RUNTIME_DIR: dataRoot };
     const executablePath = resolveBrowserBridgeBinary();
     assert.ok(executablePath, "The pretest build must provide the Native Messaging host.");
     const service = createBrowserBridgeService({

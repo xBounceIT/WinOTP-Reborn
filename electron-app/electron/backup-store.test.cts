@@ -105,32 +105,6 @@ const account = {
   usageCount: 3,
 };
 
-test("exports and imports encrypted backup files", () => {
-  const directoryPath = createTemporaryDirectory();
-  const exportPath = path.join(directoryPath, "round-trip.wotpbackup");
-  const sourceStore = createBackupStore(directoryPath, createAccountStore([account]));
-  const destinationAccountStore = createAccountStore();
-  const destinationStore = createBackupStore(directoryPath, destinationAccountStore);
-
-  try {
-    const exportResult = sourceStore.exportBackup(exportPath, "backup-pass-1");
-    const envelope = JSON.parse(fs.readFileSync(exportPath, "utf8"));
-    const importResult = destinationStore.importBackup(exportPath, "backup-pass-1");
-    const imported = destinationAccountStore.readAccounts().accounts;
-
-    assert.equal(exportResult.success, true);
-    assert.equal(envelope.format, "winotp-backup");
-    assert.equal(envelope.version, 1);
-    assert.equal(typeof envelope.encryption.iterations, "number");
-    assert.equal(envelope.ciphertext.includes(account.secret), false);
-    assert.equal(importResult.success, true);
-    assert.equal(importResult.importedCount, 1);
-    assert.deepEqual(imported[0], account);
-  } finally {
-    fs.rmSync(directoryPath, { recursive: true, force: true });
-  }
-});
-
 test("uses the stored password when the export override is blank", () => {
   const directoryPath = createTemporaryDirectory();
   const exportPath = path.join(directoryPath, "stored-password.wotpbackup");
@@ -214,7 +188,15 @@ test("round-trips accounts through the Electron SQLite account store", () => {
     );
 
     assert.equal(sourceBackupStore.exportBackup(exportPath, "backup-pass-1").success, true);
-    assert.equal(destinationBackupStore.importBackup(exportPath, "backup-pass-1").success, true);
+    const envelope = JSON.parse(fs.readFileSync(exportPath, "utf8"));
+    assert.equal(envelope.format, "winotp-backup");
+    assert.equal(envelope.version, 1);
+    assert.equal(typeof envelope.encryption.iterations, "number");
+    assert.equal(envelope.ciphertext.includes(account.secret), false);
+
+    const importResult = destinationBackupStore.importBackup(exportPath, "backup-pass-1");
+    assert.equal(importResult.success, true);
+    assert.equal(importResult.importedCount, 1);
     assert.deepEqual(destinationAccountStore.readAccounts().accounts, [account]);
   } finally {
     sourceAccountStore?.close();
@@ -443,7 +425,7 @@ test("can defer automatic-backup repair while a legacy password migration is ret
   }
 });
 
-test("rejects oversized backup files before parsing them", () => {
+test("rejects oversized backup files before reading them", (context) => {
   const directoryPath = createTemporaryDirectory();
   const sourcePath = path.join(directoryPath, "oversized.wotpbackup");
   const store = createBackupStore(directoryPath, createAccountStore());
@@ -451,11 +433,17 @@ test("rejects oversized backup files before parsing them", () => {
   try {
     fs.writeFileSync(sourcePath, "{}");
     fs.truncateSync(sourcePath, MAX_BACKUP_FILE_SIZE_BYTES + 1);
+    const readFile = context.mock.method(fs, "readFileSync");
 
     const result = store.importBackup(sourcePath, "backup-pass-1");
 
     assert.equal(result.success, false);
     assert.equal(result.errorCode, "InvalidFormat");
+    assert.equal(result.message, "The backup file is too large to import.");
+    assert.equal(
+      readFile.mock.calls.some(({ arguments: args }) => args[0] === sourcePath),
+      false,
+    );
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

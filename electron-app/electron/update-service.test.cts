@@ -226,7 +226,7 @@ test("falls back to cargo in an unpackaged checkout and refuses a missing packag
   assert.equal(packagedCommand, undefined);
 });
 
-test("updates the service state from a real Rust bridge response", async () => {
+test("updates the service state from an updater bridge response", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-update-service-"));
   try {
     const updateState = createState({
