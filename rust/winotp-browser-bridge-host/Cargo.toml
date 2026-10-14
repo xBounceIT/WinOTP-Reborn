@@ -10,4 +10,4 @@ name = "winotp-browser-bridge"
 path = "src/main.rs"
 
 [dependencies]
-winotp-browser-bridge = { git = "https://github.com/xBounceIT/WinOTP-Reborn-WebBridge.git", rev = "d65ccdb454e54709720bf1b4eb6995d4148704e3" }
+winotp-browser-bridge = { git = "https://github.com/xBounceIT/WinOTP-Reborn-WebBridge.git", rev = "31a0fa4277316f5d0c4c2c497bf9a5c8e8671186" }

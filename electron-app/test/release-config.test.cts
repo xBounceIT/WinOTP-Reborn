@@ -95,6 +95,7 @@ test("Electron release packaging covers the supported desktop targets", () => {
     "dist/**/*",
     "electron-dist/**/*.cjs",
     "!electron-dist/**/*.test.cjs",
+    "!electron-dist/test/**/*",
     "package.json",
   ]);
   assert.deepEqual(build.extraResources, [

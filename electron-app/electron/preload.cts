@@ -101,6 +101,16 @@ contextBridge.exposeInMainWorld("winotp", {
     delete: (id) => ipcRenderer.invoke("accounts:delete", id),
     recordUsage: (id) => ipcRenderer.invoke("accounts:record-usage", id),
   },
+  browserQr: {
+    current: () => ipcRenderer.invoke("browser-qr:current"),
+    confirm: (id) => ipcRenderer.invoke("browser-qr:confirm", id),
+    cancel: (id) => ipcRenderer.invoke("browser-qr:cancel", id),
+    onChanged: (listener) => {
+      const handler = (_event, state) => listener(state);
+      ipcRenderer.on("browser-qr-changed", handler);
+      return () => ipcRenderer.removeListener("browser-qr-changed", handler);
+    },
+  },
   backup: {
     status: () => ipcRenderer.invoke("backup:status"),
     configure: (settings) => ipcRenderer.invoke("backup:configure", settings),

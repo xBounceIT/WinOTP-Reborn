@@ -81,6 +81,9 @@ function createBrowserBridgeBackend(options: any = {}) {
   }
 
   return {
+    // Keep authentication plus parsing below the local socket's four-second deadline.
+    parseQr: (text) =>
+      runCore("parse-qr-import", { uri: text }, { ...coreOptions, timeoutMs: 1_000 }),
     authenticateRequest,
     createAuthenticationMaterial,
     projectAccountIds,

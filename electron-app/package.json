@@ -70,6 +70,7 @@
       "dist/**/*",
       "electron-dist/**/*.cjs",
       "!electron-dist/**/*.test.cjs",
+      "!electron-dist/test/**/*",
       "package.json"
     ],
     "extraResources": [

@@ -735,6 +735,18 @@ class AccountStore {
     return { success: true, account };
   }
 
+  saveNormalizedImportAccount(account) {
+    this.ensureOpen();
+    // Keep comparison and the write synchronous so another save cannot interleave.
+    const existing = runRustCore("find-qr-import-duplicate", {
+      account,
+      accounts: this.getPreviewAccounts(),
+    });
+    return existing
+      ? { success: true, account: existing, alreadyExists: true }
+      : this.saveNormalizedAccount(account);
+  }
+
   saveAccount(source) {
     this.ensureOpen();
     const normalized = normalizeAccount(source, source?.id);

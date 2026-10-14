@@ -2,6 +2,7 @@
 
 import type {
   AccountDeleteResult,
+  BrowserQrState,
   AccountBatchSaveResult,
   AccountLoadResult,
   AccountSaveResult,
@@ -174,6 +175,12 @@ declare global {
         saveBatch: (accounts: OtpAccount[]) => Promise<AccountBatchSaveResult>;
         delete: (id: string) => Promise<AccountDeleteResult>;
         recordUsage: (id: string) => Promise<AccountUsageResult>;
+      };
+      browserQr: {
+        current: () => Promise<BrowserQrState | undefined>;
+        confirm: (id: string) => Promise<AccountBatchSaveResult>;
+        cancel: (id: string) => Promise<void>;
+        onChanged: (listener: (state: BrowserQrState) => void) => () => void;
       };
       backup: {
         status: () => Promise<BackupConfigurationResult>;

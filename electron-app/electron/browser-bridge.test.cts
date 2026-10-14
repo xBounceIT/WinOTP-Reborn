@@ -41,6 +41,99 @@ function createCallbacks(overrides: any = {}) {
   };
 }
 
+test("does not dispatch QR requests whose connection was revoked during authentication", async () => {
+  let finishAuthentication;
+  let imports = 0;
+  const socket = new EventEmitter();
+  socket.destroyed = false;
+  socket.pause = () => undefined;
+  socket.end = () => undefined;
+  socket.destroy = () => {
+    socket.destroyed = true;
+    socket.emit("close");
+  };
+  handleSocket(
+    socket,
+    AUTH_TOKEN,
+    createCallbacks({
+      importQr: () => {
+        imports++;
+        return { accepted: true };
+      },
+    }),
+    createRateLimiter(),
+    {
+      authenticateRequest: () =>
+        new Promise((resolve) => {
+          finishAuthentication = resolve;
+        }),
+    },
+  );
+  socket.emit(
+    "data",
+    encodeFrame(
+      authenticatedRequest({
+        version: 1,
+        requestId: "revoked",
+        method: "importQr",
+        params: { text: "otpauth://totp/A?secret=JBSWY3DPEHPK3PXP" },
+      }),
+    ),
+  );
+  socket.destroy();
+  finishAuthentication({ ok: true, requestId: "revoked", method: "importQr" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(imports, 0);
+});
+
+test("rejects an old authorization epoch even if the app unlocked before authentication finished", async () => {
+  let epoch = 1;
+  let finishAuthentication;
+  let imports = 0;
+  const socket = new EventEmitter();
+  socket.destroyed = false;
+  socket.pause = () => undefined;
+  socket.end = () => undefined;
+  socket.destroy = () => {
+    socket.destroyed = true;
+    socket.emit("close");
+  };
+  handleSocket(
+    socket,
+    AUTH_TOKEN,
+    createCallbacks({
+      getAuthorizationEpoch: () => epoch,
+      importQr: () => {
+        imports++;
+        return { accepted: true };
+      },
+    }),
+    createRateLimiter(),
+    {
+      authenticateRequest: () =>
+        new Promise((resolve) => {
+          finishAuthentication = resolve;
+        }),
+    },
+  );
+  socket.emit(
+    "data",
+    encodeFrame(
+      authenticatedRequest({
+        version: 1,
+        requestId: "old-epoch",
+        method: "importQr",
+        params: { text: "otpauth://totp/A?secret=JBSWY3DPEHPK3PXP" },
+      }),
+    ),
+  );
+  epoch += 2; // Lock and unlock happened while endpoint rotation was still queued.
+  finishAuthentication({ ok: true, requestId: "old-epoch", method: "importQr" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(imports, 0);
+  assert.equal(socket.destroyed, true);
+});
+
 test("projects only account id, issuer, and a non-empty name", () => {
   const firstId = `account-${"1".repeat(64)}`;
   const secondId = `account-${"2".repeat(64)}`;
@@ -528,7 +621,7 @@ test("the pinned Native Messaging host answers ping without desktop access", asy
     version: 1,
     requestId: "ping-interop",
     ok: true,
-    result: { protocolVersion: 1, bridgeVersion: "0.1.0" },
+    result: { protocolVersion: 1, bridgeVersion: "1.0.0" },
   });
 });
 
@@ -547,7 +640,7 @@ test(
         install: () => ({ chromeConfigured: false }),
         uninstall: () => undefined,
       },
-      callbacks: createCallbacks(),
+      callbacks: createCallbacks({ importQr: () => ({ accepted: true }) }),
       descriptorRefreshMs: 60_000,
     });
     try {
@@ -559,6 +652,18 @@ test(
       });
       assert.equal(response.ok, true, JSON.stringify(response));
       assert.deepEqual(response.result, { state: "unlocked", appVersion: "2.1.0" });
+      const imported = await runNativeHostRequest(executablePath, environment, {
+        version: 1,
+        requestId: "qr-interop",
+        method: "importQr",
+        params: { text: "otpauth://totp/Example?secret=JBSWY3DPEHPK3PXP" },
+      });
+      assert.deepEqual(imported, {
+        version: 1,
+        requestId: "qr-interop",
+        ok: true,
+        result: { accepted: true },
+      });
     } finally {
       service.dispose();
       fs.rmSync(dataRoot, { recursive: true, force: true });
