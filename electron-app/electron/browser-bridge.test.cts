@@ -26,6 +26,14 @@ test("Unix endpoints keep short runtime paths and validate every fallback in UTF
   const socketName = `browser-${"f".repeat(32)}.sock`;
   const shortRuntime = "/run/user/1000/winotp-reborn";
   assert.equal(unixEndpointDirectory(shortRuntime), shortRuntime);
+  const boundaryRuntime = `/${"x".repeat(90 - socketName.length - 2)}`;
+  assert.equal(unixEndpointDirectory(boundaryRuntime), boundaryRuntime);
+  for (const runtime of [`${boundaryRuntime}x`, `/${"é".repeat(25)}`]) {
+    assert.equal(
+      unixEndpointDirectory(runtime, { temporaryDirectory: "/short" }),
+      `/short/winotp-reborn-${userId}`,
+    );
+  }
 
   const longRuntime = `/Users/test/${"application-support/".repeat(10)}`;
   assert.equal(
@@ -649,16 +657,18 @@ test("the pinned Native Messaging host answers ping without desktop access", asy
 });
 
 test(
-  "interoperates with the pinned WebBridge Native Messaging host",
-  { skip: process.platform !== "linux" },
+  "the pinned Unix Native Messaging host reaches, rotates, and removes the short socket fallback",
+  { skip: process.platform === "win32" },
   async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-native-host-"));
-    const environment = { ...process.env, XDG_RUNTIME_DIR: dataRoot };
+    const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-native-host-"));
+    const dataRoot = path.join(testRoot, `long-runtime-${"x".repeat(60)}`);
+    const environment = { ...process.env, HOME: dataRoot, XDG_RUNTIME_DIR: dataRoot };
     const executablePath = resolveBrowserBridgeBinary();
     assert.ok(executablePath, "The pretest build must provide the Native Messaging host.");
     const service = createBrowserBridgeService({
       app: { getVersion: () => "2.1.0" },
       environment,
+      temporaryDirectory: dataRoot,
       registration: {
         install: () => ({ chromeConfigured: false }),
         uninstall: () => undefined,
@@ -668,6 +678,12 @@ test(
     });
     try {
       await service.configure(true);
+      const descriptorPath = service.getStatus().descriptorPath;
+      const first = JSON.parse(fs.readFileSync(descriptorPath, "utf8"));
+      assert.equal(path.dirname(first.endpoint.path), `/tmp/winotp-reborn-${process.getuid()}`);
+      assert.ok(Buffer.byteLength(first.endpoint.path, "utf8") <= 90);
+      assert.equal(fs.statSync(path.dirname(first.endpoint.path)).mode & 0o777, 0o700);
+      assert.equal(fs.statSync(first.endpoint.path).mode & 0o777, 0o600);
       const response = await runNativeHostRequest(executablePath, environment, {
         version: 1,
         requestId: "status-interop",
@@ -687,9 +703,23 @@ test(
         ok: true,
         result: { accepted: true },
       });
+      await service.rotate();
+      const second = JSON.parse(fs.readFileSync(descriptorPath, "utf8"));
+      assert.notEqual(second.endpoint.path, first.endpoint.path);
+      assert.equal(fs.existsSync(first.endpoint.path), false);
+      const rotated = await runNativeHostRequest(executablePath, environment, {
+        version: 1,
+        requestId: "status-after-rotation",
+        method: "getStatus",
+      });
+      assert.equal(rotated.ok, true, JSON.stringify(rotated));
+      assert.deepEqual(rotated.result, { state: "unlocked", appVersion: "2.1.0" });
+      await service.configure(false);
+      assert.equal(fs.existsSync(descriptorPath), false);
+      assert.equal(fs.existsSync(second.endpoint.path), false);
     } finally {
       service.dispose();
-      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(testRoot, { recursive: true, force: true });
     }
   },
 );

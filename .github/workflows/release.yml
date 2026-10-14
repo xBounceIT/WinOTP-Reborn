@@ -1,6 +1,12 @@
 name: Release Electron app
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'electron-app/**'
+      - 'rust/**'
   push:
     tags: ['v*.*.*']
   workflow_dispatch:
@@ -57,9 +63,11 @@ jobs:
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
       - name: Verify tag matches package version
+        if: github.event_name != 'pull_request'
         run: node scripts/verify-release-tag.ts
 
       - name: Verify source includes the existing release tag
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -85,6 +93,7 @@ jobs:
 
   package:
     name: Package ${{ matrix.platform }}
+    if: github.event_name != 'pull_request'
     needs: checks
     runs-on: ${{ matrix.runner }}
     strategy:
