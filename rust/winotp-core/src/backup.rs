@@ -4,7 +4,7 @@ use aes_gcm::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use getrandom::fill_uninit as random_fill_uninit;
-use pbkdf2::pbkdf2_hmac;
+use pbkdf2::pbkdf2_hmac_array;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::mem::MaybeUninit;
@@ -70,9 +70,7 @@ pub fn is_valid_backup_password(password: &str) -> bool {
 }
 
 fn derive_key(password: &str, salt: &[u8]) -> [u8; KEY_SIZE_BYTES] {
-    let mut key = [0u8; KEY_SIZE_BYTES];
-    pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key);
-    key
+    pbkdf2_hmac_array::<Sha256, KEY_SIZE_BYTES>(password.as_bytes(), salt, PBKDF2_ITERATIONS)
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], BackupError> {
@@ -198,6 +196,27 @@ mod tests {
 
     fn random_test_password() -> String {
         BASE64.encode(random_bytes::<KEY_SIZE_BYTES>().unwrap())
+    }
+
+    #[test]
+    fn derived_key_preserves_existing_backups_and_depends_on_password_and_salt() {
+        let password = random_test_password();
+        let salt = random_bytes::<SALT_SIZE_BYTES>().unwrap();
+        let mut legacy_key = random_bytes::<KEY_SIZE_BYTES>().unwrap();
+        pbkdf2::pbkdf2_hmac::<Sha256>(
+            password.as_bytes(),
+            &salt,
+            PBKDF2_ITERATIONS,
+            &mut legacy_key,
+        );
+
+        let key = derive_key(&password, &salt);
+        assert_eq!(key, legacy_key);
+        assert_ne!(key, derive_key(&random_test_password(), &salt));
+        assert_ne!(
+            key,
+            derive_key(&password, &random_bytes::<SALT_SIZE_BYTES>().unwrap())
+        );
     }
 
     #[test]
