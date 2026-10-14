@@ -15,10 +15,33 @@ const {
   encodeFrame,
   handleSocket,
   projectBrowserAccounts,
+  unixEndpointDirectory,
 } = require("./browser-bridge.cjs");
 const { resolveBrowserBridgeBinary } = require("./browser-bridge-registration.cjs");
 
 const AUTH_TOKEN = "a".repeat(43);
+
+test("Unix endpoints keep short runtime paths and validate every fallback in UTF-8 bytes", () => {
+  const userId = typeof process.getuid === "function" ? process.getuid() : "user";
+  const socketName = `browser-${"f".repeat(32)}.sock`;
+  const shortRuntime = "/run/user/1000/winotp-reborn";
+  assert.equal(unixEndpointDirectory(shortRuntime), shortRuntime);
+
+  const longRuntime = `/Users/test/${"application-support/".repeat(10)}`;
+  assert.equal(
+    unixEndpointDirectory(longRuntime, { temporaryDirectory: "/short" }),
+    `/short/winotp-reborn-${userId}`,
+  );
+
+  for (const temporaryDirectory of [
+    "/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/winotp-browser-bridge-dDhrbT",
+    `/tmp/${"é".repeat(30)}`,
+  ]) {
+    const directory = unixEndpointDirectory(longRuntime, { temporaryDirectory });
+    assert.equal(directory, `/tmp/winotp-reborn-${userId}`);
+    assert.ok(Buffer.byteLength(path.posix.join(directory, socketName), "utf8") <= 90);
+  }
+});
 
 function authenticatedRequest(request, token = AUTH_TOKEN) {
   return {

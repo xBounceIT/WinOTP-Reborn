@@ -59,6 +59,28 @@ test("release tag verification uses the checked TypeScript script", () => {
   );
 });
 
+test("release recovery uses an existing tag without changing the workflow source revision", () => {
+  assert.match(workflow, /workflow_dispatch:\r?\n    inputs:\r?\n      release_tag:/);
+  assert.match(workflow, /^  RELEASE_TAG: \$\{\{ inputs\.release_tag \|\| github\.ref_name \}\}$/m);
+  assert.match(
+    workflow,
+    /^  group: release-\$\{\{ inputs\.release_tag \|\| github\.ref_name \}\}$/m,
+  );
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(workflow, /git rev-parse --verify "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}"/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$tag_commit" HEAD/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG: \$\{\{ github\.ref_name \}\}/);
+  assert.doesNotMatch(workflow, /ref: \$\{\{ inputs\.release_tag \}\}/);
+  assert.match(workflow, /gh release create "\$RELEASE_TAG"[\s\S]*?--verify-tag/);
+});
+
+test("Linux graphical release tests configure the installed Electron sandbox before running", () => {
+  assert.match(
+    workflow,
+    /- name: Install Electron before parallel tests[\s\S]*?- name: Configure Linux Electron sandbox\r?\n        if: runner\.os == 'Linux'[\s\S]*?sudo chown root:root node_modules\/electron\/dist\/chrome-sandbox\r?\n          sudo chmod 4755 node_modules\/electron\/dist\/chrome-sandbox[\s\S]*?run: xvfb-run -a npm test/,
+  );
+});
+
 test("release tag verification accepts only the current prefixed package version", () => {
   const scriptPath = path.resolve(process.cwd(), "scripts/verify-release-tag.ts");
   const run = (releaseTag) =>

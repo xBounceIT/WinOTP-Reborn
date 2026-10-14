@@ -309,12 +309,22 @@ function ensureRuntimeDirectory(directoryPath, options: any = {}) {
 }
 
 function unixEndpointDirectory(runtimeDirectory, options: any = {}) {
-  const candidate = path.join(runtimeDirectory, `browser-${"f".repeat(32)}.sock`);
-  if (Buffer.byteLength(candidate, "utf8") <= 90) {
-    return runtimeDirectory;
-  }
   const userId = typeof process.getuid === "function" ? process.getuid() : "user";
-  return path.join(options.temporaryDirectory ?? os.tmpdir(), `winotp-reborn-${userId}`);
+  const directoryName = `winotp-reborn-${userId}`;
+  // macOS temporary paths can also exceed the Unix socket path limit.
+  const directories = [
+    runtimeDirectory,
+    path.posix.join(options.temporaryDirectory ?? os.tmpdir(), directoryName),
+    path.posix.join("/tmp", directoryName),
+  ];
+  const directory = directories.find((candidate) => {
+    const socketPath = path.posix.join(candidate, `browser-${"f".repeat(32)}.sock`);
+    return Buffer.byteLength(socketPath, "utf8") <= 90;
+  });
+  if (!directory) {
+    throw new Error("No browser bridge directory fits the Unix socket path limit.");
+  }
+  return directory;
 }
 
 function listen(server, endpointPath, platform) {
