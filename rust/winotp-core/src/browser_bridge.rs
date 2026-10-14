@@ -83,11 +83,13 @@ pub fn authenticate_request(encoded_body: &str, expected_token: &str) -> Option<
     let Some(request) = object.get("request").and_then(Value::as_object) else {
         return Some(invalid(fallback_request_id));
     };
-    let request_id = request
+    let Some(request_id) = request
         .get("requestId")
         .and_then(Value::as_str)
         .filter(|value| valid_protocol_id(value))
-        .unwrap_or(fallback_request_id);
+    else {
+        return Some(invalid(INVALID_REQUEST_ID));
+    };
     if request_id == INVALID_REQUEST_ID
         || object.get("requestId").and_then(Value::as_str) != Some(request_id)
         || request.get("method").and_then(Value::as_str).is_none()
@@ -135,7 +137,36 @@ pub fn authenticate_request(encoded_body: &str, expected_token: &str) -> Option<
             },
         );
     }
+    if method == "importQr" {
+        let params = request.get("params").and_then(Value::as_object);
+        let text = params
+            .and_then(|value| value.get("text"))
+            .and_then(Value::as_str);
+        return Some(
+            if exact_keys(request, &["version", "requestId", "method", "params"])
+                && params.is_some_and(|value| exact_keys(value, &["text"]))
+                && text.is_some_and(valid_qr_text)
+            {
+                let text = text.unwrap();
+                json!({
+                    "ok": true, "requestId": request_id, "method": method,
+                    "text": text, "fingerprint": hex::encode(Sha256::digest(text.as_bytes())),
+                })
+            } else {
+                invalid(request_id)
+            },
+        );
+    }
     Some(invalid(request_id))
+}
+
+fn valid_qr_text(text: &str) -> bool {
+    text.len() <= 8192
+        && !text.bytes().any(|byte| byte.is_ascii_control())
+        && ["otpauth://", "otpauth-migration://"].iter().any(|prefix| {
+            text.get(..prefix.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+        })
 }
 
 pub fn project_account_id(account_id: &str) -> Result<String, String> {
@@ -178,6 +209,94 @@ pub fn resolve_account_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn qr_request(text: Value) -> Value {
+        json!({
+            "version": 1, "requestId": "scan-1",
+            "auth": { "scheme": "ephemeral-token", "token": "a".repeat(43) },
+            "request": { "version": 1, "requestId": "scan-1", "method": "importQr", "params": { "text": text } },
+        })
+    }
+
+    fn authenticate(value: &Value) -> Value {
+        authenticate_request(
+            &BASE64.encode(serde_json::to_vec(value).unwrap()),
+            &"a".repeat(43),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn qr_transport_is_closed_authenticated_and_byte_bounded() {
+        for prefix in [
+            "otpauth://",
+            "OtPaUtH://",
+            "otpauth-migration://",
+            "OTPAUTH-MIGRATION://",
+        ] {
+            let text = format!("{prefix}{}", "a".repeat(8192 - prefix.len()));
+            let value = qr_request(json!(text));
+            let result = authenticate(&value);
+            assert_eq!(result["ok"], true);
+            assert_eq!(result["text"], text);
+            assert_eq!(result["fingerprint"].as_str().unwrap().len(), 64);
+            assert_eq!(result, authenticate(&value));
+            let too_long = qr_request(json!(format!("{text}a")));
+            assert_eq!(authenticate(&too_long)["ok"], false);
+        }
+        for text in [
+            json!(null),
+            json!(true),
+            json!(42),
+            json!([]),
+            json!({}),
+            json!(""),
+            json!("https://example.test"),
+            json!(" otpauth://test"),
+            json!(format!("otpauth://{}", "é".repeat(4092))),
+        ] {
+            assert_eq!(authenticate(&qr_request(text))["ok"], false);
+        }
+        for byte in (0u8..=31).chain(std::iter::once(127)) {
+            assert_eq!(
+                authenticate(&qr_request(json!(format!(
+                    "otpauth://a{}b",
+                    char::from(byte)
+                ))))["ok"],
+                false
+            );
+        }
+        let valid = qr_request(json!("otpauth://totp/A?secret=JBSWY3DPEHPK3PXP"));
+        for (path, key) in [
+            ("", "extra"),
+            ("/request", "extra"),
+            ("/request/params", "extra"),
+        ] {
+            let mut value = valid.clone();
+            value.pointer_mut(path).unwrap()[key] = json!("never");
+            let rejected = authenticate(&value);
+            assert_eq!(rejected, json!({ "ok": false, "requestId": "scan-1" }));
+        }
+        for params in [Value::Null, json!("text"), json!([]), json!({})] {
+            let mut value = valid.clone();
+            value["request"]["params"] = params;
+            assert_eq!(authenticate(&value)["ok"], false);
+        }
+        let mut value = valid.clone();
+        value["request"]["requestId"] = json!("invalid id");
+        assert_eq!(
+            authenticate(&value),
+            json!({ "ok": false, "requestId": "invalid-request" })
+        );
+        value = valid.clone();
+        value["request"]["requestId"] = json!("other-id");
+        assert_eq!(authenticate(&value)["ok"], false);
+        value = valid.clone();
+        value["request"]["version"] = json!(2);
+        assert_eq!(authenticate(&value)["errorCode"], "UNSUPPORTED_PROTOCOL");
+        let body = BASE64.encode(serde_json::to_vec(&valid).unwrap());
+        assert!(authenticate_request(&body, &"b".repeat(43)).is_none());
+    }
 
     #[test]
     fn generates_private_authentication_material() {

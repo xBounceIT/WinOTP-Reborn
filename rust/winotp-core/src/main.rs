@@ -113,6 +113,28 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                 .map(|account| serde_json::to_value(account).unwrap())
                 .ok_or_else(|| "The OTP URI is invalid or unsupported.".to_string())
         }
+        "parse-qr-import" => {
+            // A nullable result distinguishes unsupported input from a sidecar failure.
+            match import::parse_otp_uri(
+                input.get("uri").and_then(Value::as_str).unwrap_or_default(),
+            ) {
+                Some(account) => Ok(
+                    json!({ "identity": import::qr_account_identity(&account)?, "account": account }),
+                ),
+                None => Ok(Value::Null),
+            }
+        }
+        "find-qr-import-duplicate" => {
+            let account = serde_json::from_value::<models::OtpAccount>(input["account"].clone())
+                .map_err(|_| "Invalid imported account.".to_string())?;
+            let accounts =
+                serde_json::from_value::<Vec<models::OtpAccount>>(input["accounts"].clone())
+                    .map_err(|_| "Invalid stored accounts.".to_string())?;
+            Ok(
+                serde_json::to_value(import::find_qr_import_duplicate(&account, &accounts)?)
+                    .unwrap(),
+            )
+        }
         "parse-winauth-line" => {
             import::parse_winauth_line(input.get("line").and_then(Value::as_str))
                 .map(|account| serde_json::to_value(account).unwrap())

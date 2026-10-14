@@ -14,7 +14,11 @@ concurrency:
 jobs:
   checks:
     name: Verify Electron app
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     defaults:
       run:
@@ -32,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Electron before parallel tests
+        run: node node_modules/electron/install.js
+
       - name: Verify tag matches package version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -41,6 +48,9 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm test
+        if: runner.os != 'Linux'
+      - run: xvfb-run -a npm test
+        if: runner.os == 'Linux'
       - run: npm run build
 
       - name: Test Rust workspace

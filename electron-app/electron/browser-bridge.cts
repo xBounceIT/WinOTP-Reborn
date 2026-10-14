@@ -122,6 +122,21 @@ async function dispatchBrowserBridgeRequest(request, callbacks, rateLimiter, opt
     return errorResponse(request.requestId, "APP_LOCKED");
   }
 
+  if (request.method === "importQr") {
+    try {
+      const result = await callbacks.importQr(request);
+      if (!callbacks.isUnlocked()) {
+        return errorResponse(request.requestId, "APP_LOCKED");
+      }
+      return result.accepted === true
+        ? successResponse(request.requestId, { accepted: true })
+        : errorResponse(request.requestId, result.errorCode ?? "INTERNAL_ERROR");
+    } catch {
+      // Never log exceptions from operations handling QR text or account secrets.
+      return errorResponse(request.requestId, "INTERNAL_ERROR");
+    }
+  }
+
   if (request.method === "listAccounts") {
     try {
       const accounts = await callbacks.listAccounts();
@@ -228,10 +243,16 @@ function handleSocket(socket, authToken, callbacks, rateLimiter, backend, option
       socket.destroy();
       return;
     }
+    const authorizationEpoch = callbacks.getAuthorizationEpoch?.();
     void backend
       .authenticateRequest(buffer.subarray(4), authToken)
       .then((request) => {
-        if (!request) {
+        if (
+          !request ||
+          socket.destroyed ||
+          options.isCurrent?.() === false ||
+          callbacks.getAuthorizationEpoch?.() !== authorizationEpoch
+        ) {
           socket.destroy();
           return undefined;
         }
@@ -240,7 +261,7 @@ function handleSocket(socket, authToken, callbacks, rateLimiter, backend, option
         });
       })
       .then((response) => {
-        if (response) {
+        if (response && !socket.destroyed) {
           socket.end(encodeFrame(response));
         }
       })
@@ -445,12 +466,14 @@ function createBrowserBridgeService(options: any = {}) {
       });
       handleSocket(socket, authToken, callbacks, rateLimiter, backend, {
         connectionTimeoutMs: options.connectionTimeoutMs,
+        isCurrent: () => enabled && currentEndpoint === endpoint,
       });
     });
     endpoint.server = server;
     server.on("error", (error) => callbacks.onError?.(error));
     server.on("close", () => {
       if (!disposed && enabled && currentEndpoint === endpoint) {
+        callbacks.onDisabled?.();
         currentEndpoint = undefined;
         safeRemove(descriptorPath, "file");
         for (const socket of endpoint.sockets) {
@@ -557,6 +580,7 @@ function createBrowserBridgeService(options: any = {}) {
       }
 
       enabled = false;
+      callbacks.onDisabled?.();
       lifecycleGeneration += 1;
       chromeConfigured = false;
       if (refreshTimer) {
@@ -587,6 +611,7 @@ function createBrowserBridgeService(options: any = {}) {
   function dispose() {
     disposed = true;
     enabled = false;
+    callbacks.onDisabled?.();
     lifecycleGeneration += 1;
     if (refreshTimer) {
       clearInterval(refreshTimer);

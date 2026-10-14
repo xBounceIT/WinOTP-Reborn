@@ -3,12 +3,94 @@ import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   AccountImportFormatError,
   MAX_IMPORT_FILE_SIZE_BYTES,
   parseLegacyWinOtpJson,
   parseWinAuthText,
 } from "@/lib/account-import";
-import type { AccountImportResult, OtpAccount } from "@/lib/types";
+import type { AccountImportResult, BrowserQrReview, OtpAccount } from "@/lib/types";
+
+export function BrowserQrReviewDialog({
+  review,
+  onConfirm,
+  onCancel,
+}: {
+  review: BrowserQrReview;
+  onConfirm: () => Promise<void>;
+  onCancel: () => Promise<void>;
+}) {
+  const busy = useRef(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+
+  async function act(operation: () => Promise<void>) {
+    if (busy.current) return;
+    busy.current = true;
+    setWorking(true);
+    setError("");
+    try {
+      await operation();
+    } catch {
+      setError("Unable to complete the import request. Try again.");
+    } finally {
+      busy.current = false;
+      setWorking(false);
+    }
+  }
+
+  return (
+    <AlertDialog open>
+      <AlertDialogContent className="max-h-[calc(100dvh-4rem)] overflow-y-auto">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Review QR import</AlertDialogTitle>
+          <AlertDialogDescription>
+            Sent by WinOTP Reborn WebBridge. Confirm to save this account on this device.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <dl className="grid gap-2 break-all">
+          <div>
+            <dt>Issuer</dt>
+            <dd>{review.issuer || "—"}</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd>{review.accountName || "—"}</dd>
+          </div>
+          <div>
+            <dt>One-time code</dt>
+            <dd>
+              {review.algorithm}, {review.digits} digits, {review.period} seconds
+            </dd>
+          </div>
+        </dl>
+        {review.queuedCount > 1 && (
+          <p>{review.queuedCount - 1} more QR imports waiting for review.</p>
+        )}
+        {(review.error || error) && <p role="alert">{review.error || error}</p>}
+        <AlertDialogFooter>
+          <Button
+            variant="outline"
+            disabled={working || review.saving}
+            onClick={() => void act(onCancel)}
+          >
+            Cancel
+          </Button>
+          <Button disabled={working || review.saving} onClick={() => void act(onConfirm)}>
+            {working || review.saving ? "Please wait…" : "Confirm import"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 interface ImportPageProps {
   onToast: (message: string) => void;

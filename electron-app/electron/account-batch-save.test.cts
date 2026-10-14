@@ -66,3 +66,16 @@ test("does not create an automatic backup when every save fails", async () => {
   assert.equal(backupCount, 0);
   assert.equal(result.automaticBackup, undefined);
 });
+
+test("an existing imported account does not trigger another backup", async () => {
+  let backups = 0;
+  const result = await saveAccountBatch([{ id: "existing" }], {
+    saveAccount: (account) => ({ success: true, alreadyExists: true, account }),
+    createAutomaticBackup: () => {
+      backups++;
+      return { success: true };
+    },
+  });
+  assert.equal(result.results[0].alreadyExists, true);
+  assert.equal(backups, 0);
+});

@@ -36,6 +36,7 @@ const { configureUserDataPath, getIconPath, getRendererFilePath } = require("./a
 const { configureLinuxWindowing } = require("./linux-windowing.cjs");
 const { createBrowserBridgeBackend } = require("./browser-bridge-backend.cjs");
 const { createBrowserBridgeService } = require("./browser-bridge.cjs");
+const { createBrowserQrImport } = require("./browser-qr-import.cjs");
 const {
   createTotpPreviewRunner,
   generateTotpCode,
@@ -79,7 +80,9 @@ let securityStore;
 let updateService;
 let settingsStore;
 let browserBridgeService;
+let browserQrImport;
 let browserBridgeAuthorizationState = false;
+let browserBridgeAuthorizationEpoch = 0;
 let legacySettingsMigrationFailed = false;
 let legacyAppLockMigrationPending = false;
 let settingsRecoveryRequired = false;
@@ -848,16 +851,30 @@ async function generateBrowserBridgeTotp(account) {
 function getBrowserBridgeService() {
   if (!browserBridgeService) {
     const backend = createBrowserBridgeBackend();
+    browserQrImport = createBrowserQrImport({
+      isUnlocked: isRendererUnlocked,
+      parseQr: backend.parseQr,
+      saveAccounts: (accounts) => saveImportedAccounts(accounts, { deduplicate: true }),
+      activate: restoreMainWindow,
+      onChanged: (state) => {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send("browser-qr-changed", state);
+        }
+      },
+    });
     browserBridgeService = createBrowserBridgeService({
       app,
       backend,
       callbacks: {
         getAppVersion: () => String(app.getVersion?.() ?? "0.0.0"),
         isUnlocked: () => isRendererUnlocked(),
+        getAuthorizationEpoch: () => browserBridgeAuthorizationEpoch,
+        onDisabled: () => browserQrImport.clear(),
         listAccounts: () => listBrowserBridgeAccounts(backend),
         getAccount: (accountId) => getBrowserBridgeAccount(backend, accountId),
         generateTotp: generateBrowserBridgeTotp,
-        onError: (error) => console.error("Browser bridge operation failed.", error),
+        importQr: (request) => browserQrImport.enqueue(request),
+        onError: () => console.error("Browser bridge operation failed."),
       },
     });
   }
@@ -866,10 +883,12 @@ function getBrowserBridgeService() {
 
 function synchronizeBrowserBridgeAuthorizationState() {
   const unlocked = isRendererUnlocked();
+  if (!unlocked) browserQrImport?.clear();
   if (unlocked === browserBridgeAuthorizationState) {
     return;
   }
   browserBridgeAuthorizationState = unlocked;
+  browserBridgeAuthorizationEpoch += 1;
   if (browserBridgeService?.getStatus().enabled) {
     void browserBridgeService
       .rotate()
@@ -1557,7 +1576,85 @@ async function attachAutomaticBackupResult(result, options: any = {}) {
   }
 }
 
+async function saveImportedAccounts(accounts, options: { deduplicate?: boolean } = {}) {
+  if (!isRendererUnlocked()) {
+    return { results: [] };
+  }
+
+  const store = accountStoreLoader.get();
+  if (!store) {
+    return { results: [] };
+  }
+
+  const boundedAccounts = Array.isArray(accounts) ? accounts.slice(0, 1_000) : [];
+  const normalizationResults = Array.from({ length: boundedAccounts.length });
+  const normalizationEntries = [];
+  const normalizationIndexes = [];
+
+  for (const [index, account] of boundedAccounts.entries()) {
+    try {
+      const bounded = boundedAccountInput(account);
+      normalizationEntries.push({ source: bounded, fallbackId: bounded.id });
+      normalizationIndexes.push(index);
+    } catch (error) {
+      normalizationResults[index] = {
+        ok: false,
+        error: error instanceof Error ? error.message : "Account data is invalid.",
+      };
+    }
+  }
+
+  if (normalizationEntries.length > 0) {
+    try {
+      const normalized = normalizeAccounts(normalizationEntries);
+      for (const [offset, result] of normalized.entries()) {
+        normalizationResults[normalizationIndexes[offset]] = result;
+      }
+    } catch {
+      console.error("Failed to normalize imported accounts through the Rust core.");
+      for (const index of normalizationIndexes) {
+        normalizationResults[index] = {
+          ok: false,
+          error: "Unable to normalize the account.",
+        };
+      }
+    }
+  }
+
+  return saveAccountBatch(normalizationResults, {
+    saveAccount: (normalized) => {
+      if (!isRendererUnlocked())
+        return { success: false, message: "Unlock WinOTP before changing accounts." };
+      if (!normalized?.ok) {
+        return { success: false, message: normalized?.error ?? "Account data is invalid." };
+      }
+      const result = options.deduplicate
+        ? store.saveNormalizedImportAccount(normalized.account)
+        : store.saveNormalizedAccount(normalized.account);
+      return result?.account ? { ...result, account: sanitizeAccount(result.account) } : result;
+    },
+    createAutomaticBackup: () => getBackupStore().createAutomaticBackup(),
+    onSaveError: () => {
+      console.error("Failed to save an imported account to the local database.");
+    },
+    onBackupError: () => {
+      console.error("Automatic backup failed after an account import.");
+    },
+  });
+}
+
 function registerAccountIpc() {
+  ipcMain.handle("browser-qr:current", (event) => {
+    if (!isTrustedRendererEvent(event, mainWindow) || !isRendererUnlocked()) return undefined;
+    return browserQrImport?.snapshot();
+  });
+  ipcMain.handle("browser-qr:confirm", (event, id) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) return { results: [] };
+    return browserQrImport?.confirm(id) ?? { results: [] };
+  });
+  ipcMain.handle("browser-qr:cancel", (event, id) => {
+    if (isTrustedRendererEvent(event, mainWindow)) browserQrImport?.cancel(id);
+  });
   ipcMain.handle("accounts:list", (event) => {
     if (!isTrustedRendererEvent(event, mainWindow)) {
       return accountStoreUnavailableResult();
@@ -1648,70 +1745,9 @@ function registerAccountIpc() {
     }
   });
 
-  ipcMain.handle("accounts:save-batch", async (event, accounts) => {
-    if (!isTrustedRendererEvent(event, mainWindow)) {
-      return { results: [] };
-    }
-    if (!isRendererUnlocked()) {
-      return { results: [] };
-    }
-
-    const store = accountStoreLoader.get();
-    if (!store) {
-      return { results: [] };
-    }
-
-    const boundedAccounts = Array.isArray(accounts) ? accounts.slice(0, 1_000) : [];
-    const normalizationResults = Array.from({ length: boundedAccounts.length });
-    const normalizationEntries = [];
-    const normalizationIndexes = [];
-
-    for (const [index, account] of boundedAccounts.entries()) {
-      try {
-        const bounded = boundedAccountInput(account);
-        normalizationEntries.push({ source: bounded, fallbackId: bounded.id });
-        normalizationIndexes.push(index);
-      } catch (error) {
-        normalizationResults[index] = {
-          ok: false,
-          error: error instanceof Error ? error.message : "Account data is invalid.",
-        };
-      }
-    }
-
-    if (normalizationEntries.length > 0) {
-      try {
-        const normalized = normalizeAccounts(normalizationEntries);
-        for (const [offset, result] of normalized.entries()) {
-          normalizationResults[normalizationIndexes[offset]] = result;
-        }
-      } catch (error) {
-        console.error("Failed to normalize imported accounts through the Rust core.", error);
-        for (const index of normalizationIndexes) {
-          normalizationResults[index] = {
-            ok: false,
-            error: "Unable to normalize the account.",
-          };
-        }
-      }
-    }
-
-    return saveAccountBatch(normalizationResults, {
-      saveAccount: (normalized) => {
-        if (!normalized?.ok) {
-          return { success: false, message: normalized?.error ?? "Account data is invalid." };
-        }
-        const result = store.saveNormalizedAccount(normalized.account);
-        return result?.account ? { ...result, account: sanitizeAccount(result.account) } : result;
-      },
-      createAutomaticBackup: () => getBackupStore().createAutomaticBackup(),
-      onSaveError: (error) => {
-        console.error("Failed to save an imported account to the local database.", error);
-      },
-      onBackupError: (error) => {
-        console.error("Automatic backup failed after an account import.", error);
-      },
-    });
+  ipcMain.handle("accounts:save-batch", (event, accounts) => {
+    if (!isTrustedRendererEvent(event, mainWindow)) return { results: [] };
+    return saveImportedAccounts(accounts);
   });
 
   ipcMain.handle("accounts:delete", async (event, id) => {

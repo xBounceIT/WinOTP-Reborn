@@ -1,6 +1,7 @@
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use url::Url;
 use uuid::Uuid;
 
@@ -17,6 +18,34 @@ const MAX_IMPORTED_ACCOUNT_COUNT_LABEL: &str = "1,000";
 pub struct ParsedAccountImport {
     pub accounts: Vec<OtpAccount>,
     pub skipped_count: usize,
+}
+
+// Compare the portable account identity, not URI spelling, UUIDs or usage metadata.
+pub fn qr_account_identity(account: &OtpAccount) -> Result<String, String> {
+    let secret = crate::otp::decode_base32(&account.secret)?;
+    let identity = serde_json::to_vec(&(
+        account.issuer.trim(),
+        account.account_name.trim(),
+        secret,
+        account.algorithm,
+        account.digits,
+        account.period,
+    ))
+    .map_err(|_| "Unable to compare imported accounts.".to_string())?;
+    Ok(hex::encode(Sha256::digest(identity)))
+}
+
+pub fn find_qr_import_duplicate<'a>(
+    account: &OtpAccount,
+    existing: &'a [OtpAccount],
+) -> Result<Option<&'a OtpAccount>, String> {
+    let identity = qr_account_identity(account)?;
+    for candidate in existing {
+        if qr_account_identity(candidate)? == identity {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
 }
 
 fn decode_component(value: &str) -> Option<String> {
@@ -291,6 +320,51 @@ pub fn legacy_account_to_value(entry_id: &str, source: &Value) -> Result<Value, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qr_identity_matches_equivalent_uris_and_keeps_existing_account_metadata() {
+        let first =
+            parse_otp_uri("otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&issuer=Example")
+                .unwrap();
+        let second =
+            parse_otp_uri("OTPAUTH://totp/Example:alice?issuer=Example&secret=jbswy3dpehpk3pxp==")
+                .unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(qr_account_identity(&first), qr_account_identity(&second));
+        let existing = vec![first.clone()];
+        assert_eq!(
+            find_qr_import_duplicate(&second, &existing).unwrap(),
+            Some(&first)
+        );
+        for variant in [
+            OtpAccount {
+                issuer: "Other".to_string(),
+                ..second.clone()
+            },
+            OtpAccount {
+                account_name: "bob".to_string(),
+                ..second.clone()
+            },
+            OtpAccount {
+                algorithm: OtpAlgorithm::Sha256,
+                ..second.clone()
+            },
+            OtpAccount {
+                digits: 8,
+                ..second.clone()
+            },
+            OtpAccount {
+                period: 60,
+                ..second.clone()
+            },
+            OtpAccount {
+                secret: "MFRGGZDFMZTWQ2LK".to_string(),
+                ..second.clone()
+            },
+        ] {
+            assert_eq!(find_qr_import_duplicate(&variant, &existing).unwrap(), None);
+        }
+    }
 
     #[test]
     fn parses_otp_uri_without_treating_plus_as_space() {

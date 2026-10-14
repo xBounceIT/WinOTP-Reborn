@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AddAccountPage } from "@/pages/AddAccountPage";
 import { HomePage } from "@/pages/HomePage";
-import { ImportPage } from "@/pages/ImportPage";
+import { BrowserQrReviewDialog, ImportPage } from "@/pages/ImportPage";
 import { ManualEntryPage } from "@/pages/ManualEntryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import {
@@ -63,6 +63,8 @@ import type {
   AppSettings,
   AutoStartResult,
   AccountImportResult,
+  AccountBatchSaveResult,
+  BrowserQrState,
   BackupConfigurationResult,
   BackupImportResult,
   BackupOperationResult,
@@ -379,6 +381,7 @@ export default function App() {
 }
 
 function useAppView() {
+  const [browserQrState, setBrowserQrState] = useState<BrowserQrState>({ revision: -1 });
   const [route, setRoute] = useState<Route>("home");
   const [accounts, setAccounts] = useState<OtpAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
@@ -450,6 +453,28 @@ function useAppView() {
     loading: totpLoading,
   } = useTotp(accounts, settingsLoaded && settingsSourceAvailable && securityReady && !locked);
   const [orderedAccounts, setOrderedAccounts] = useState<OtpAccount[]>(accounts);
+
+  useEffect(() => {
+    const bridge = window.winotp?.browserQr;
+    if (!bridge) return;
+    let active = true;
+    let revision = -1;
+    const receive = (state: BrowserQrState | undefined) => {
+      if (!active || !state || state.revision <= revision) return;
+      revision = state.revision;
+      setBrowserQrState(state);
+      if (state.review && !lockedRef.current) setRoute("import");
+    };
+    const unsubscribe = bridge.onChanged(receive);
+    void bridge
+      .current()
+      .then(receive)
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     routeRef.current = route;
@@ -1310,6 +1335,7 @@ function useAppView() {
       accounts: [],
     });
     if (nextLocked) {
+      setBrowserQrState((current) => ({ revision: current.revision }));
       setEditingAccount(undefined);
       setAccountPendingDeletion(undefined);
       setUnlockValue("");
@@ -1436,11 +1462,20 @@ function useAppView() {
       };
     }
 
+    return applyAccountImportResult(batchResult, accountsToImport.length);
+  }
+
+  function applyAccountImportResult(
+    batchResult: AccountBatchSaveResult,
+    requestedCount: number,
+  ): AccountImportResult {
     const persistedAccounts = batchResult.results.flatMap((result) =>
       result.success && result.account ? [sanitizeAccountForRenderer(result.account)] : [],
     );
-    const importedCount = persistedAccounts.length;
-    const failedCount = accountsToImport.length - importedCount;
+    const importedCount = batchResult.results.filter(
+      (result) => result.success && result.account && !result.alreadyExists,
+    ).length;
+    const failedCount = requestedCount - persistedAccounts.length;
     const automaticBackupFailed = batchResult.automaticBackup?.success === false;
 
     if (persistedAccounts.length > 0) {
@@ -1453,6 +1488,22 @@ function useAppView() {
     }
 
     return { importedCount, failedCount, automaticBackupFailed };
+  }
+
+  async function confirmBrowserQr(id: string) {
+    if (lockedRef.current) return;
+    const batch = await window.winotp?.browserQr.confirm(id);
+    if (!batch) throw new Error("The import bridge is unavailable.");
+    const result = applyAccountImportResult(batch, 1);
+    if (batch.results[0]?.alreadyExists) {
+      showToast("Account already exists. No duplicate was added.");
+    } else if (result.importedCount > 0) {
+      showToast(
+        result.automaticBackupFailed
+          ? "Account imported; automatic backup failed."
+          : "Account imported",
+      );
+    }
   }
 
   async function copyCode(account: OtpAccount): Promise<boolean> {
@@ -2797,6 +2848,17 @@ function useAppView() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {!locked && !startupLoading && browserQrState.review && (
+          <BrowserQrReviewDialog
+            key={browserQrState.review.id}
+            review={browserQrState.review}
+            onConfirm={() => confirmBrowserQr(browserQrState.review!.id)}
+            onCancel={async () => {
+              await window.winotp?.browserQr.cancel(browserQrState.review!.id);
+            }}
+          />
+        )}
 
         {toast && (
           <div className="toast" role="status">

@@ -40,6 +40,23 @@ export interface ParsedAccountImport {
   skippedCount: number;
 }
 
+export interface BrowserQrReview {
+  id: string;
+  issuer: string;
+  accountName: string;
+  algorithm: OtpAlgorithm;
+  digits: number;
+  period: number;
+  saving: boolean;
+  error?: string;
+  queuedCount: number;
+}
+
+export interface BrowserQrState {
+  revision: number;
+  review?: BrowserQrReview;
+}
+
 export interface TotpPreview {
   code: string;
   nextCode: string;
@@ -139,6 +156,7 @@ export interface AccountLoadResult {
 
 export interface AccountSaveResult {
   success: boolean;
+  alreadyExists?: boolean;
   account?: OtpAccount;
   message?: string;
   automaticBackup?: BackupOperationResult;

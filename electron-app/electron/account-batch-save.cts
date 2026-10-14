@@ -16,7 +16,7 @@ async function saveAccountBatch(accounts, options) {
     }
   }
 
-  if (!results.some((result) => result?.success && result.account)) {
+  if (!results.some((result) => result?.success && result.account && !result.alreadyExists)) {
     return { results };
   }
 

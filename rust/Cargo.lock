@@ -1723,8 +1723,8 @@ dependencies = [
 
 [[package]]
 name = "winotp-browser-bridge"
-version = "0.1.0"
-source = "git+https://github.com/xBounceIT/WinOTP-Reborn-WebBridge.git?rev=d65ccdb454e54709720bf1b4eb6995d4148704e3#d65ccdb454e54709720bf1b4eb6995d4148704e3"
+version = "1.0.0"
+source = "git+https://github.com/xBounceIT/WinOTP-Reborn-WebBridge.git?rev=31a0fa4277316f5d0c4c2c497bf9a5c8e8671186#31a0fa4277316f5d0c4c2c497bf9a5c8e8671186"
 dependencies = [
  "directories",
  "libc",
