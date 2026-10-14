@@ -74,6 +74,25 @@ test("release recovery uses an existing tag without changing the workflow source
   assert.match(workflow, /gh release create "\$RELEASE_TAG"[\s\S]*?--verify-tag/);
 });
 
+test("pull requests verify every desktop platform without publishing installers", () => {
+  assert.match(workflow, /pull_request:\r?\n    branches: \[main\]/);
+  assert.match(workflow, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
+  for (const name of [
+    "Verify tag matches package version",
+    "Verify source includes the existing release tag",
+  ]) {
+    assert.match(
+      workflow,
+      new RegExp(`- name: ${name}\\r?\\n        if: github\\.event_name != 'pull_request'`),
+    );
+  }
+  assert.match(
+    workflow,
+    /package:\r?\n    name: Package \$\{\{ matrix\.platform \}\}\r?\n    if: github\.event_name != 'pull_request'\r?\n    needs: checks/,
+  );
+  assert.match(workflow, /release:\r?\n    name: Publish GitHub release\r?\n    needs: package/);
+});
+
 test("Linux graphical release tests configure the installed Electron sandbox before running", () => {
   assert.match(
     workflow,
