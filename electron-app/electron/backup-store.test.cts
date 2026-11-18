@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { createCipheriv, pbkdf2Sync, randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -201,6 +202,50 @@ test("round-trips accounts through the Electron SQLite account store", () => {
   } finally {
     sourceAccountStore?.close();
     destinationAccountStore?.close();
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+  }
+});
+
+test("imports a version 1 backup encrypted outside WinOTP", () => {
+  const password = randomBytes(24).toString("base64url");
+  const salt = randomBytes(16);
+  const nonce = randomBytes(12);
+  const iterations = 150_000;
+  const key = pbkdf2Sync(password, salt, iterations, 32, "sha256");
+  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  const exportedAtUtc = "2023-11-14T22:13:20.000Z";
+  const payload = { source: "WinOTP-Reborn", exportedAtUtc, accounts: [account] };
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(payload)), cipher.final()]);
+  const envelope = {
+    format: "winotp-backup",
+    version: 1,
+    createdAtUtc: exportedAtUtc,
+    accountCount: 1,
+    encryption: {
+      scheme: "PBKDF2-SHA256-AES-256-GCM",
+      iterations,
+      salt: salt.toString("base64"),
+      nonce: nonce.toString("base64"),
+      tag: cipher.getAuthTag().toString("base64"),
+    },
+    ciphertext: ciphertext.toString("base64"),
+  };
+
+  const directoryPath = createTemporaryDirectory();
+  const backupPath = path.join(directoryPath, "external.wotpbackup");
+  let accountStore;
+  try {
+    accountStore = createRealAccountStore(directoryPath);
+    const backupStore = createBackupStore(directoryPath, accountStore);
+    fs.writeFileSync(backupPath, JSON.stringify(envelope));
+
+    const result = backupStore.importBackup(backupPath, password);
+
+    assert.equal(result.success, true, result.message);
+    assert.equal(result.importedCount, 1);
+    assert.deepEqual(accountStore.readAccounts().accounts, [account]);
+  } finally {
+    accountStore?.close();
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }
 });

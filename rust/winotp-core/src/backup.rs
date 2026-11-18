@@ -198,35 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn opens_a_version_one_backup_created_outside_winotp() {
-        // This fixed envelope was produced with Node's PBKDF2 and AES-GCM APIs.
-        let envelope = serde_json::from_str(r#"
-        {
-          "format": "winotp-backup",
-          "version": 1,
-          "createdAtUtc": "2023-11-14T22:13:20.000Z",
-          "accountCount": 1,
-          "encryption": {
-            "scheme": "PBKDF2-SHA256-AES-256-GCM",
-            "iterations": 150000,
-            "salt": "MDEyMzQ1Njc4OWFiY2RlZg==",
-            "nonce": "MDEyMzQ1Njc4OWFi",
-            "tag": "AoTu2Oi0k9m7iMSDfdgOCA=="
-          },
-          "ciphertext": "qHhuAfpeHHxq8/DS4gdHnnla9LBYCDhoXyliqcZ31QyhQneYHz09o+YX4jZR/N/ZJM+QAoWCKYJQxQfuqRSb+KYtFBvNiOrYYulPNDTdAc98C0vJLLwemJLwiT+iYyBUcia4uhKAOCvVi7GUgKO6ORtHSetqvDuPdAo9Ci/708JNwba1bq/tGuu4Um/9DIJxi1CFnwXq3nlAxfNGPuZw7PaC0941lYMg3Lj83FL2HhepkdC0tRmFgphDdUxavB8SmHYdayZRxZpI1aE2vgd9qMkXqJR/Qro380UEANfGHs4GFKxIQq8ozBJ/HKdIG8vuKixw0prix2UWWEBf+h++/kmgz0NWOk/GNJFucSaktgJB"
-        }
-        "#).unwrap();
-        let payload = decrypt_payload(&envelope, "fixture password").unwrap();
-        let [account] = payload.accounts.as_slice() else {
-            panic!("Expected one account");
-        };
-        assert_eq!(account.id, "legacy-1");
-        assert_eq!(account.issuer, "ACME");
-        assert_eq!(account.account_name, "jdoe@example.com");
-        assert_eq!(account.secret, "JBSWY3DPEHPK3PXP");
-    }
-
-    #[test]
     fn rejects_short_and_blank_backup_passwords() {
         let sample = random_test_password();
         assert!(!is_valid_backup_password(&sample[..7]));
