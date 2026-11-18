@@ -6,21 +6,28 @@ const test = require("node:test");
 
 const {
   RustCoreUnavailableError,
-  getCoreBinaryCandidates,
   resolveRustCoreBinary,
   runRustCoreAsync,
   tryRunRustCore,
 } = require("./rust-core.cjs");
 
 test("finds the unpackaged core from the compiled Electron layout", () => {
-  const appRoot = path.resolve("fixture-unpackaged-app");
-  const candidates = getCoreBinaryCandidates({
-    platform: "win32",
-    environment: {},
-    dirname: path.join(appRoot, "electron-dist", "electron"),
-  });
-
-  assert.ok(candidates.includes(path.join(appRoot, "native", "winotp-core.exe")));
+  const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-unpackaged-app-"));
+  const binaryPath = path.join(appRoot, "native", "winotp-core.exe");
+  try {
+    fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+    fs.writeFileSync(binaryPath, "test");
+    assert.equal(
+      resolveRustCoreBinary({
+        platform: "win32",
+        environment: {},
+        dirname: path.join(appRoot, "electron-dist", "electron"),
+      }),
+      binaryPath,
+    );
+  } finally {
+    fs.rmSync(appRoot, { recursive: true, force: true });
+  }
 });
 
 test("resolves the packaged core from the resource directory", () => {
@@ -79,8 +86,7 @@ test("does not hide a Rust operation failure behind a bridge fallback", () => {
 });
 
 function resolveCoreBinary() {
-  const candidates = getCoreBinaryCandidates();
-  const binary = candidates.find((candidate) => fs.existsSync(candidate));
+  const binary = resolveRustCoreBinary();
   assert.ok(binary, "the test core binary must be built before Electron tests run");
   return binary;
 }

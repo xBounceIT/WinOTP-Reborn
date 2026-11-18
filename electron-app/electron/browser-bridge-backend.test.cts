@@ -1,10 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const {
-  BRIDGE_ACCOUNT_ID_PATTERN,
-  createBrowserBridgeBackend,
-} = require("./browser-bridge-backend.cjs");
+const { createBrowserBridgeBackend } = require("./browser-bridge-backend.cjs");
 
 function authenticatedRequest(request, token) {
   return {
@@ -82,7 +79,7 @@ test("maps every backend-valid account id to a stable transport id", async () =>
   const sourceId = ` migrated account 🔐 ${"x".repeat(200)} `;
   const [first] = await backend.projectAccountIds([sourceId]);
   const [second] = await backend.projectAccountIds([sourceId]);
-  assert.match(first, BRIDGE_ACCOUNT_ID_PATTERN);
+  assert.match(first, /^account-[a-f0-9]{64}$/);
   assert.equal(second, first);
   assert.equal(await backend.resolveAccountId(first, [sourceId]), sourceId.trim());
   assert.equal(await backend.resolveAccountId(`${first}0`, [sourceId]), undefined);

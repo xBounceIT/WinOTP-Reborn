@@ -70,7 +70,6 @@ contextBridge.exposeInMainWorld("winotp", {
   core: {
     parseOtpUri: (uri) =>
       ipcRenderer.invoke("core:parse-otp-uri", uri).then((result) => result ?? undefined),
-    parseWinAuthLine: (line) => ipcRenderer.invoke("core:parse-winauth-line", line),
     parseLegacyJson: (content) => ipcRenderer.invoke("core:parse-legacy-json", content),
     parseWinAuthText: (content) => ipcRenderer.invoke("core:parse-winauth-text", content),
     sortAccounts: (input) => ipcRenderer.invoke("core:sort-accounts", input),

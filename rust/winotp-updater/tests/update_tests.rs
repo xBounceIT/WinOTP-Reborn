@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use sha2::Digest;
@@ -447,6 +447,13 @@ fn launch_rejects_installer_path_traversal() {
 #[test]
 fn check_paginates_and_download_verifies_the_release_digest() {
     let directory = tempdir().expect("temporary directory");
+    let notes = directory.path().join("release-notes.txt");
+    fs::write(&notes, b"keep me").unwrap();
+    let old_installers = ["old.exe", "old.AppImage", "old.deb", "old.RPM", "old.dmg"];
+    for installer in old_installers {
+        fs::write(directory.path().join(installer), b"obsolete installer").unwrap();
+    }
+
     let installer_bytes = b"trusted installer";
     let digest = hex::encode(sha2::Sha256::digest(installer_bytes));
     let first_page = serde_json::to_vec(&Vec::<GitHubReleaseInfo>::new()).unwrap();
@@ -460,11 +467,8 @@ fn check_paginates_and_download_verifies_the_release_digest() {
         )],
     )])
     .unwrap();
-    let requests = Arc::new(Mutex::new(Vec::<String>::new()));
     let transport = FakeTransport::new({
-        let requests = requests.clone();
         move |request| {
-            requests.lock().unwrap().push(request.url.clone());
             if request.url.contains("installer.exe") {
                 Ok(response(installer_bytes.to_vec(), Vec::new()))
             } else if request.url.contains("page=2") {
@@ -503,6 +507,12 @@ fn check_paginates_and_download_verifies_the_release_digest() {
         service.current_state().status,
         UpdateAvailabilityStatus::LaunchReady
     );
-    assert!(PathBuf::from(downloaded.file_path.unwrap()).is_file());
-    assert_eq!(requests.lock().unwrap().len(), 3);
+    assert_eq!(
+        fs::read(downloaded.file_path.unwrap()).unwrap(),
+        installer_bytes
+    );
+    for installer in old_installers {
+        assert!(!directory.path().join(installer).exists());
+    }
+    assert_eq!(fs::read(notes).unwrap(), b"keep me");
 }

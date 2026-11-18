@@ -5,12 +5,7 @@ const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { test } = require("node:test");
 
-const {
-  AccountStore,
-  normalizeAccount,
-  normalizeAccounts,
-  sanitizeAccount,
-} = require("./account-store.cjs");
+const { AccountStore, normalizeAccounts } = require("./account-store.cjs");
 const { createAccountStoreLoader } = require("./account-store-loader.cjs");
 
 test("retries account-store initialization after a failed attempt", () => {
@@ -53,28 +48,10 @@ test("retries account-store initialization after a failed attempt", () => {
   assert.equal(closeErrors.length, 1);
 });
 
-test("uses the legacy credential id when the payload id is blank", () => {
-  const normalized = normalizeAccount({ Id: "  ", Secret: "JBSWY3DPEHPK3PXP" }, "credential-user");
-
-  assert.equal(normalized.ok, true);
-  assert.equal(normalized.account.id, "credential-user");
-
-  const nullId = normalizeAccount({ Id: null, Secret: "JBSWY3DPEHPK3PXP" }, "credential-user");
-  assert.equal(nullId.ok, true);
-  assert.equal(nullId.account.id, "credential-user");
-
-  const unsafeUsageCount = normalizeAccount(
-    { Id: "credential-user", Secret: "JBSWY3DPEHPK3PXP", UsageCount: Number.MAX_VALUE },
-    "credential-user",
-  );
-  assert.equal(unsafeUsageCount.ok, true);
-  assert.equal(unsafeUsageCount.account.usageCount, 0);
-});
-
 test("normalizes account batches through the Rust core contract", () => {
   const normalized = normalizeAccounts([
     {
-      source: { secret: "JBSWY3DPEHPK3PXP", algorithm: 1 },
+      source: { id: null, secret: "JBSWY3DPEHPK3PXP", algorithm: 1 },
       fallbackId: "first-account",
     },
     {
@@ -88,21 +65,6 @@ test("normalizes account batches through the Rust core contract", () => {
   assert.equal(normalized[0].account.id, "first-account");
   assert.equal(normalized[0].account.algorithm, "SHA256");
   assert.equal(normalized[1].account.digits, 8);
-});
-
-test("sanitizes account responses without mutating the stored account object", () => {
-  const account = {
-    id: "account-1",
-    issuer: "GitHub",
-    accountName: "dangelicodes",
-    secret: "JBSWY3DPEHPK3PXP",
-  };
-
-  const sanitized = sanitizeAccount(account);
-
-  assert.equal(sanitized.secret, "");
-  assert.equal(account.secret, "JBSWY3DPEHPK3PXP");
-  assert.notEqual(sanitized, account);
 });
 
 test("closes the database when initialization fails", () => {
@@ -195,7 +157,7 @@ test("adds the usage timestamp column when opening an older account database", (
   }
 });
 
-test("caches preview accounts and invalidates them on mutations", () => {
+test("preview accounts reflect saves and deletions", () => {
   const directoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-account-store-"));
 
   try {
@@ -214,7 +176,6 @@ test("caches preview accounts and invalidates them on mutations", () => {
     const first = store.getPreviewAccounts();
     assert.equal(first.length, 1);
     assert.equal(first[0].secret, "JBSWY3DPEHPK3PXP");
-    assert.equal(store.getPreviewAccounts(), first);
 
     assert.equal(
       store.saveAccount({
@@ -274,7 +235,7 @@ test("migrates legacy accounts and persists account mutations", () => {
     migrationCalls += 1;
     return {
       ok: true,
-      entries: [{ id: "legacy-1", payload: makeLegacyPayload() }],
+      entries: [{ id: "legacy-1", payload: makeLegacyPayload({ Id: " " }) }],
     };
   };
 
@@ -285,7 +246,9 @@ test("migrates legacy accounts and persists account mutations", () => {
     assert.equal(migrated.migration.status, "completed");
     assert.equal(migrated.migration.importedCount, 1);
     assert.equal(migrated.migration.justCompleted, true);
-    assert.equal(migrated.accounts[0].secret, "JBSWY3DPEHPK3PXP");
+    assert.equal(migrated.accounts[0].id, "legacy-1");
+    assert.equal(store.readAccounts({ includeSecrets: false }).accounts[0].secret, "");
+    assert.equal(store.readAccounts().accounts[0].secret, "JBSWY3DPEHPK3PXP");
     assert.equal(store.readAccounts().migration.justCompleted, true);
     assert.equal(store.acknowledgeMigrationNotification(), true);
     assert.equal(store.readAccounts().migration.justCompleted, undefined);

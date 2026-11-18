@@ -4,21 +4,11 @@ const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { SettingsStore, getDefaultSettings, getSettingsFilePath } = require("./settings-store.cjs");
+const { SettingsStore, getSettingsFilePath } = require("./settings-store.cjs");
 
 function createDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "winotp-settings-"));
 }
-
-test("gets new settings defaults from the Rust normalizer", () => {
-  const settings = getDefaultSettings();
-  assert.equal(settings.accountSortOption, "DateAddedDesc");
-  assert.equal(settings.autoLock, "5");
-  assert.equal(settings.updateOnStartup, true);
-  assert.equal(settings.webBridgeEnabled, false);
-  assert.equal(settings.webBridgeNoticeDismissed, false);
-  assert.equal(settings.theme, "dark");
-});
 
 test("uses the Electron settings file and normalizes saved values", () => {
   const directoryPath = createDirectory();
@@ -26,8 +16,6 @@ test("uses the Electron settings file and normalizes saved values", () => {
 
   try {
     const store = new SettingsStore(undefined, { filePath });
-    assert.equal(store.getSettings().autoLock, "5");
-
     const result = store.saveSettings({
       pinProtection: true,
       accountSortOption: "UsageBased",

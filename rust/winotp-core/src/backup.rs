@@ -192,61 +192,46 @@ pub fn serialize_envelope(envelope: &BackupEnvelope) -> Result<String, BackupErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::OtpAccount;
 
     fn random_test_password() -> String {
         BASE64.encode(random_bytes::<KEY_SIZE_BYTES>().unwrap())
     }
 
     #[test]
-    fn derived_key_preserves_existing_backups_and_depends_on_password_and_salt() {
-        let password = random_test_password();
-        let salt = random_bytes::<SALT_SIZE_BYTES>().unwrap();
-        let mut legacy_key = random_bytes::<KEY_SIZE_BYTES>().unwrap();
-        pbkdf2::pbkdf2_hmac::<Sha256>(
-            password.as_bytes(),
-            &salt,
-            PBKDF2_ITERATIONS,
-            &mut legacy_key,
-        );
-
-        let key = derive_key(&password, &salt);
-        assert_eq!(key, legacy_key);
-        assert_ne!(key, derive_key(&random_test_password(), &salt));
-        assert_ne!(
-            key,
-            derive_key(&password, &random_bytes::<SALT_SIZE_BYTES>().unwrap())
-        );
-    }
-
-    #[test]
-    fn validates_passwords_with_the_portable_policy() {
-        let valid_password = random_test_password();
-        let too_short_password = valid_password
-            .chars()
-            .take(MINIMUM_PASSWORD_LENGTH - 1)
-            .collect::<String>();
-        let whitespace_only_password = " ".repeat(MINIMUM_PASSWORD_LENGTH);
-
-        assert!(!is_valid_backup_password(&too_short_password));
-        assert!(!is_valid_backup_password(&whitespace_only_password));
-        assert!(is_valid_backup_password(&valid_password));
-    }
-
-    #[test]
-    fn encrypts_and_decrypts_the_legacy_compatible_envelope() {
-        let account = OtpAccount {
-            id: "account-1".to_string(),
-            issuer: "ACME".to_string(),
-            account_name: "jdoe@example.com".to_string(),
-            secret: "JBSWY3DPEHPK3PXP".to_string(),
-            ..Default::default()
+    fn opens_a_version_one_backup_created_outside_winotp() {
+        // This fixed envelope was produced with Node's PBKDF2 and AES-GCM APIs.
+        let envelope = serde_json::from_str(r#"
+        {
+          "format": "winotp-backup",
+          "version": 1,
+          "createdAtUtc": "2023-11-14T22:13:20.000Z",
+          "accountCount": 1,
+          "encryption": {
+            "scheme": "PBKDF2-SHA256-AES-256-GCM",
+            "iterations": 150000,
+            "salt": "MDEyMzQ1Njc4OWFiY2RlZg==",
+            "nonce": "MDEyMzQ1Njc4OWFi",
+            "tag": "AoTu2Oi0k9m7iMSDfdgOCA=="
+          },
+          "ciphertext": "qHhuAfpeHHxq8/DS4gdHnnla9LBYCDhoXyliqcZ31QyhQneYHz09o+YX4jZR/N/ZJM+QAoWCKYJQxQfuqRSb+KYtFBvNiOrYYulPNDTdAc98C0vJLLwemJLwiT+iYyBUcia4uhKAOCvVi7GUgKO6ORtHSetqvDuPdAo9Ci/708JNwba1bq/tGuu4Um/9DIJxi1CFnwXq3nlAxfNGPuZw7PaC0941lYMg3Lj83FL2HhepkdC0tRmFgphDdUxavB8SmHYdayZRxZpI1aE2vgd9qMkXqJR/Qro380UEANfGHs4GFKxIQq8ozBJ/HKdIG8vuKixw0prix2UWWEBf+h++/kmgz0NWOk/GNJFucSaktgJB"
+        }
+        "#).unwrap();
+        let payload = decrypt_payload(&envelope, "fixture password").unwrap();
+        let [account] = payload.accounts.as_slice() else {
+            panic!("Expected one account");
         };
-        let password = random_test_password();
-        let envelope = encrypt_payload(vec![account.clone()], &password, None).unwrap();
-        assert_eq!(envelope.encryption.scheme, BACKUP_SCHEME);
-        let payload = decrypt_payload(&envelope, &password).unwrap();
-        assert_eq!(payload.accounts, [account]);
+        assert_eq!(account.id, "legacy-1");
+        assert_eq!(account.issuer, "ACME");
+        assert_eq!(account.account_name, "jdoe@example.com");
+        assert_eq!(account.secret, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn rejects_short_and_blank_backup_passwords() {
+        let sample = random_test_password();
+        assert!(!is_valid_backup_password(&sample[..7]));
+        assert!(!is_valid_backup_password(&" ".repeat(8)));
+        assert!(is_valid_backup_password(&sample[..8]));
     }
 
     #[test]

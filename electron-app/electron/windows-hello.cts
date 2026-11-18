@@ -102,13 +102,4 @@ async function verifyWindowsHello(options: any = {}) {
   return { status: result.ok ? mapVerificationStatus(result.status) : "error" };
 }
 
-module.exports = {
-  DEFAULT_TIMEOUT_MS,
-  MAX_OUTPUT_BYTES,
-  getWindowsHelloAvailability,
-  mapAvailabilityStatus,
-  mapVerificationStatus,
-  runWindowsHelloOperation,
-  serializeWindowHandle,
-  verifyWindowsHello,
-};
+module.exports = { getWindowsHelloAvailability, verifyWindowsHello };

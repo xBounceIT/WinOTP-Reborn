@@ -9,10 +9,7 @@ const {
   FIREFOX_EXTENSION_ID,
   NATIVE_HOST_NAME,
   createNativeMessagingRegistration,
-  getBrowserBridgeBinaryCandidates,
   installPortableBrowserBridge,
-  nativeHostManifest,
-  registrationTargets,
   restrictWindowsPath,
   resolveBrowserBridgeBinary,
   writeJsonAtomically,
@@ -22,56 +19,26 @@ function createDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "winotp-browser-registration-"));
 }
 
-test("builds allow-listed Chrome and Firefox Native Messaging manifests", () => {
-  const executablePath = path.resolve("fixture", "winotp-browser-bridge");
-  assert.equal(CHROME_EXTENSION_ORIGIN, "chrome-extension://gomcpjbgmfdggpnbplajohjkjbbjijln/");
-  assert.equal(FIREFOX_EXTENSION_ID, "{250f3c41-cf5e-4c20-a07c-e99a8532436b}");
-  assert.deepEqual(nativeHostManifest("chrome", executablePath), {
-    name: NATIVE_HOST_NAME,
-    description: "WinOTP Reborn Browser Bridge",
-    path: executablePath,
-    type: "stdio",
-    allowed_origins: [CHROME_EXTENSION_ORIGIN],
-  });
-  assert.deepEqual(nativeHostManifest("firefox", executablePath), {
-    name: NATIVE_HOST_NAME,
-    description: "WinOTP Reborn Browser Bridge",
-    path: executablePath,
-    type: "stdio",
-    allowed_extensions: [FIREFOX_EXTENSION_ID],
-  });
-  assert.throws(() => nativeHostManifest("firefox", "relative-host"), /absolute/);
-});
+test("resolves a packaged Native Messaging host and honors only absolute overrides", (context) => {
+  const directory = createDirectory();
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const resourcesPath = path.join(directory, "resources");
+  const packagedHost = path.join(resourcesPath, "updater", "winotp-browser-bridge.exe");
+  const overrideHost = path.join(directory, "override.exe");
+  fs.mkdirSync(path.dirname(packagedHost), { recursive: true });
+  fs.writeFileSync(packagedHost, "fixture");
+  fs.writeFileSync(overrideHost, "fixture");
 
-test("finds the packaged browser bridge and honors path overrides", () => {
-  const resourcesPath = path.resolve("fixture-resources");
-  const candidates = getBrowserBridgeBinaryCandidates({
-    platform: "win32",
-    environment: { RESOURCES_PATH: resourcesPath },
-    dirname: path.resolve("electron-dist", "electron"),
-  });
-  assert.ok(candidates.includes(path.join(resourcesPath, "updater", "winotp-browser-bridge.exe")));
-  const isolatedDirectory = createDirectory();
-  try {
-    assert.equal(
-      resolveBrowserBridgeBinary({
-        platform: "win32",
-        environment: { WINOTP_BROWSER_BRIDGE_PATH: "package.json" },
-        dirname: isolatedDirectory,
-      }),
-      undefined,
-    );
-  } finally {
-    fs.rmSync(isolatedDirectory, { recursive: true, force: true });
-  }
-  assert.equal(
-    getBrowserBridgeBinaryCandidates({
+  const resolveHost = (override) =>
+    resolveBrowserBridgeBinary({
       platform: "win32",
-      environment: { WINOTP_BROWSER_BRIDGE_PATH: "relative-host.exe" },
-      dirname: path.resolve("electron-dist", "electron"),
-    })[0],
-    "relative-host.exe",
-  );
+      environment: { RESOURCES_PATH: resourcesPath, WINOTP_BROWSER_BRIDGE_PATH: override },
+      dirname: path.join(directory, "app.asar", "electron"),
+    });
+
+  assert.equal(resolveHost(undefined), packagedHost);
+  assert.equal(resolveHost("package.json"), packagedHost);
+  assert.equal(resolveHost(overrideHost), overrideHost);
 });
 
 test("applies a private Windows ACL before atomically publishing JSON", () => {
@@ -146,24 +113,25 @@ test("cleans a temporary portable host copy after a failed publish", () => {
   }
 });
 
-test("uses the documented per-user registration locations on Unix", () => {
-  const homeDirectory = path.resolve("fixture-home");
-  const linux = registrationTargets("linux", homeDirectory);
-  assert.ok(
-    linux.chrome.includes(path.join(homeDirectory, ".config/google-chrome/NativeMessagingHosts")),
-  );
-  assert.deepEqual(linux.firefox, [path.join(homeDirectory, ".mozilla/native-messaging-hosts")]);
-
-  const mac = registrationTargets("darwin", homeDirectory);
-  assert.ok(
-    mac.firefox.includes(
-      path.join(homeDirectory, "Library/Application Support/Mozilla/NativeMessagingHosts"),
-    ),
-  );
-});
-
 test("installs and removes the allow-listed per-user manifests on Unix", () => {
-  for (const platform of ["darwin", "linux"]) {
+  const manifestDirectories = {
+    darwin: {
+      chrome: [
+        "Library/Application Support/Google/Chrome/NativeMessagingHosts",
+        "Library/Application Support/Chromium/NativeMessagingHosts",
+      ],
+      firefox: ["Library/Application Support/Mozilla/NativeMessagingHosts"],
+    },
+    linux: {
+      chrome: [
+        ".config/google-chrome/NativeMessagingHosts",
+        ".config/chromium/NativeMessagingHosts",
+      ],
+      firefox: [".mozilla/native-messaging-hosts"],
+    },
+  };
+
+  for (const [platform, targets] of Object.entries(manifestDirectories)) {
     const directoryPath = createDirectory();
     const homeDirectory = path.join(directoryPath, "home");
     const executablePath = path.join(directoryPath, "winotp-browser-bridge");
@@ -178,23 +146,33 @@ test("installs and removes the allow-listed per-user manifests on Unix", () => {
       });
       registration.install();
 
-      const targets = registrationTargets(platform, homeDirectory);
-      for (const targetDirectory of targets.chrome) {
-        const manifestPath = path.join(targetDirectory, `${NATIVE_HOST_NAME}.json`);
-        assert.deepEqual(JSON.parse(fs.readFileSync(manifestPath, "utf8")).allowed_origins, [
-          CHROME_EXTENSION_ORIGIN,
-        ]);
-      }
-      for (const targetDirectory of targets.firefox) {
-        const manifestPath = path.join(targetDirectory, `${NATIVE_HOST_NAME}.json`);
-        assert.deepEqual(JSON.parse(fs.readFileSync(manifestPath, "utf8")).allowed_extensions, [
-          FIREFOX_EXTENSION_ID,
-        ]);
+      const manifests = [
+        ...targets.chrome.map((directory) => ({
+          directory,
+          allowList: { allowed_origins: ["chrome-extension://gomcpjbgmfdggpnbplajohjkjbbjijln/"] },
+        })),
+        ...targets.firefox.map((directory) => ({
+          directory,
+          allowList: { allowed_extensions: ["{250f3c41-cf5e-4c20-a07c-e99a8532436b}"] },
+        })),
+      ];
+      for (const { directory, allowList } of manifests) {
+        const manifestPath = path.join(homeDirectory, directory, "com.xbounceit.winotp.json");
+        const { description: _description, ...manifest } = JSON.parse(
+          fs.readFileSync(manifestPath, "utf8"),
+        );
+        assert.deepEqual(manifest, {
+          name: "com.xbounceit.winotp",
+          path: executablePath,
+          type: "stdio",
+          ...allowList,
+        });
       }
 
       registration.uninstall();
-      for (const targetDirectory of [...targets.chrome, ...targets.firefox]) {
-        assert.equal(fs.existsSync(path.join(targetDirectory, `${NATIVE_HOST_NAME}.json`)), false);
+      for (const { directory } of manifests) {
+        const manifestPath = path.join(homeDirectory, directory, "com.xbounceit.winotp.json");
+        assert.equal(fs.existsSync(manifestPath), false);
       }
     } finally {
       fs.rmSync(directoryPath, { recursive: true, force: true });

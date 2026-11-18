@@ -840,9 +840,7 @@ class AccountStore {
 
 module.exports = {
   AccountStore,
-  ACCOUNT_NORMALIZATION_BATCH_SIZE,
   getAppDataDirectory,
-  normalizeAccount,
   normalizeAccounts,
   sanitizeAccount,
   readLegacyCredentials,

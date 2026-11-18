@@ -447,7 +447,6 @@ module.exports = {
   UPDATE_STATUS,
   createUpdateService,
   defaultUpdateState,
-  getRepositoryRoot,
   getUpdaterCommand,
   getLinuxPackageType,
   isLinuxManualInstallReady,

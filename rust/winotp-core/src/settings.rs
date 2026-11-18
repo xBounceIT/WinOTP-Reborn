@@ -324,8 +324,14 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_empty_input_to_backend_defaults() {
-        assert_eq!(normalize_settings(&Value::Null), AppSettings::default());
+    fn starts_with_safe_defaults_when_no_settings_are_supplied() {
+        let settings = normalize_settings(&Value::Null);
+        assert_eq!(settings.account_sort_option, SortOption::DateAddedDesc);
+        assert_eq!(settings.auto_lock, "5");
+        assert_eq!(settings.theme, "dark");
+        assert!(!settings.web_bridge_enabled);
+        assert!(!settings.web_bridge_notice_dismissed);
+        assert!(settings.update_on_startup);
     }
 
     #[test]

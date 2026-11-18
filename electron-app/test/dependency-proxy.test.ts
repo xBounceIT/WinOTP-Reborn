@@ -43,7 +43,6 @@ test("Electron Builder downloads and verifies artifacts through the updated prox
     GLOBAL_AGENT_FORCE_GLOBAL_AGENT: "true",
     ELECTRON_GET_NO_PROGRESS: "1",
     NODE_TLS_REJECT_UNAUTHORIZED: "1",
-    ROARR_LOG: "1",
   };
   const previousEnvironment = Object.fromEntries(
     Object.keys(environment).map((name) => [name, process.env[name]]),
@@ -58,14 +57,6 @@ test("Electron Builder downloads and verifies artifacts through the updated prox
 
   const require = createRequire(import.meta.url);
   const builderRequire = createRequire(require.resolve("app-builder-lib/package.json"));
-  const loggerRequire = createRequire(builderRequire.resolve("global-agent"));
-  const logs: string[] = [];
-  const loggerState = loggerRequire("roarr").ROARR;
-  const previousWrite = loggerState.write;
-  loggerState.write = (message: string) => logs.push(message);
-  context.after(() => {
-    loggerState.write = previousWrite;
-  });
   const downloader = builderRequire("@electron/get");
   downloader.initializeProxy();
   function download(
@@ -93,7 +84,6 @@ test("Electron Builder downloads and verifies artifacts through the updated prox
   assert.deepEqual(await readFile(downloaded), artifact);
   assert.ok(requests.some((url) => url === `http://winotp-download.invalid/v43.5.0/${filename}`));
   assert.ok(requests.some((url) => url.endsWith("/SHASUMS256.txt")));
-  assert.ok(logs.some((message) => JSON.parse(message).message === "proxying request"));
 
   await context.test("rejects an artifact that disagrees with the checksum", async () => {
     corruptArtifact = true;

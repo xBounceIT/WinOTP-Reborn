@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   AccountImportFormatError,
   parseLegacyWinOtpJson,
-  parseWinAuthLine,
   parseWinAuthText,
 } from "../src/lib/account-import.ts";
 import type { OtpAccount } from "../src/lib/types.ts";
@@ -27,7 +26,7 @@ function installBridge(core: any) {
   (globalThis as any).window = { winotp: { core } };
 }
 
-test("delegates legacy JSON parsing to Rust and validates the result shape", async () => {
+test("preserves the selected file contents and exposes the parsed import summary", async () => {
   let received = "";
   installBridge({
     parseLegacyJson: async (content: string) => {
@@ -42,40 +41,16 @@ test("delegates legacy JSON parsing to Rust and validates the result shape", asy
   assert.equal(received, '{"legacy":{}}');
 });
 
-test("delegates WinAuth line and text parsing to Rust", async () => {
-  installBridge({
-    parseWinAuthLine: async () => account("line"),
-    parseWinAuthText: async () => ({ accounts: [account("text")], skippedCount: 1 }),
-  });
-
-  assert.equal((await parseWinAuthLine("otpauth://totp/example"))?.id, "line");
-  assert.deepEqual(await parseWinAuthText("export"), {
-    accounts: [account("text")],
-    skippedCount: 1,
-  });
-});
-
-test("does not invoke Rust for blank WinAuth lines", async () => {
-  let calls = 0;
-  installBridge({
-    parseWinAuthLine: async () => {
-      calls += 1;
-      return account("line");
-    },
-  });
-
-  assert.equal(await parseWinAuthLine("  "), undefined);
-  assert.equal(await parseWinAuthLine(null), undefined);
-  assert.equal(calls, 0);
-});
-
 test("converts malformed bridge responses into an import format error", async () => {
   installBridge({
     parseLegacyJson: async () => ({ accounts: [], skippedCount: -1 }),
+    parseWinAuthText: async () => ({ accounts: null, skippedCount: 0 }),
   });
 
-  await assert.rejects(
-    parseLegacyWinOtpJson("{}"),
-    (error) => error instanceof AccountImportFormatError && /invalid data/.test(error.message),
-  );
+  for (const parseImport of [parseLegacyWinOtpJson, parseWinAuthText]) {
+    await assert.rejects(
+      parseImport("selected file"),
+      (error) => error instanceof AccountImportFormatError && /invalid data/.test(error.message),
+    );
+  }
 });
