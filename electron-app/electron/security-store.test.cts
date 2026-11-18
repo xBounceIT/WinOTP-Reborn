@@ -34,16 +34,17 @@ test("stores credentials encrypted and verifies them after reopening", () => {
   const first = createStore(encryption);
 
   try {
-    first.store.setCredential("pin", "1234");
+    first.store.setCredential("pin", "01234567");
     first.store.setCredential("password", "correct horse");
+    first.store.setCredential("remotePin", "87654321");
 
     assert.deepEqual(first.store.getStatus(), {
       pinSet: true,
       passwordSet: true,
-      remotePinSet: false,
+      remotePinSet: true,
       remotePasswordSet: false,
     });
-    assert.deepEqual(first.store.verifyCredential("pin", "1234"), {
+    assert.deepEqual(first.store.verifyCredential("pin", "01234567"), {
       verified: true,
       credentialAvailable: true,
     });
@@ -55,14 +56,18 @@ test("stores credentials encrypted and verifies them after reopening", () => {
       verified: true,
       credentialAvailable: true,
     });
-    assert.equal(fs.readFileSync(first.filePath, "utf8").includes("1234"), false);
+    assert.equal(fs.readFileSync(first.filePath, "utf8").includes("01234567"), false);
     assert.equal(fs.readFileSync(first.filePath, "utf8").includes("correct horse"), false);
 
     const reopened = new SecurityStore(undefined, {
       encryption,
       filePath: first.filePath,
     });
-    assert.deepEqual(reopened.verifyCredential("pin", "1234"), {
+    assert.deepEqual(reopened.verifyCredential("pin", "01234567"), {
+      verified: true,
+      credentialAvailable: true,
+    });
+    assert.deepEqual(reopened.verifyCredential("remotePin", "87654321"), {
       verified: true,
       credentialAvailable: true,
     });
@@ -200,8 +205,11 @@ test("rejects invalid credentials before enabling protection", () => {
   const handle = createStore(createEncryption());
 
   try {
-    assert.throws(() => handle.store.setCredential("pin", "12"), /4-6 digits/);
-    assert.throws(() => handle.store.setCredential("pin", "12ab"), /4-6 digits/);
+    for (const kind of ["pin", "remotePin"]) {
+      assert.throws(() => handle.store.setCredential(kind, "123"), /4-8 digits/);
+      assert.throws(() => handle.store.setCredential(kind, "123456789"), /4-8 digits/);
+      assert.throws(() => handle.store.setCredential(kind, "12ab"), /4-8 digits/);
+    }
     assert.throws(() => handle.store.setCredential("password", "abc"), /at least 4/);
     assert.throws(() => handle.store.setCredential("password", "x".repeat(129)), /at most 128/);
     assert.throws(() => handle.store.setCredential("password", "    "), /required/);

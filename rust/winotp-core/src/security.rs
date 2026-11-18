@@ -441,10 +441,8 @@ pub fn validate_credential(kind: &str, secret: &str) -> Result<(), String> {
     }
 
     if matches!(kind, "pin" | "remotePin") {
-        if !secret.chars().all(|character| character.is_ascii_digit())
-            || !(4..=6).contains(&secret.chars().count())
-        {
-            return Err("PIN must contain 4-6 digits.".to_string());
+        if !(4..=8).contains(&secret.len()) || !secret.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err("PIN must contain 4-8 digits.".to_string());
         }
         return Ok(());
     }
@@ -763,6 +761,22 @@ mod tests {
             }),
             ["pin", "password", "remotePassword"]
         );
+    }
+
+    #[test]
+    fn validates_every_supported_pin_length_for_both_credential_kinds() {
+        for kind in ["pin", "remotePin"] {
+            for pin in ["0123", "01234", "012345", "0123456", "01234567"] {
+                assert_eq!(validate_credential(kind, pin), Ok(()), "{kind}: {pin:?}");
+            }
+            for pin in ["123", "012345678", "12ab", "١٢٣٤", " 1234"] {
+                assert_eq!(
+                    validate_credential(kind, pin),
+                    Err("PIN must contain 4-8 digits.".to_string()),
+                    "{kind}: {pin:?}"
+                );
+            }
+        }
     }
 
     #[test]
