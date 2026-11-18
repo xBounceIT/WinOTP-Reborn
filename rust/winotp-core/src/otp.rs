@@ -98,11 +98,6 @@ pub fn generate_totp_code_at(account: &OtpAccount, unix_seconds: i64) -> Result<
     ))
 }
 
-pub fn generate_totp_code(account: &OtpAccount, unix_seconds: i64) -> String {
-    generate_totp_code_at(account, unix_seconds)
-        .unwrap_or_else(|_| "0".repeat(if account.digits == 8 { 8 } else { 6 }))
-}
-
 pub fn remaining_seconds(account: &OtpAccount, unix_seconds: i64) -> i64 {
     if account.period == 0 || unix_seconds < 0 {
         return 0;
@@ -149,20 +144,20 @@ mod tests {
     }
 
     #[test]
-    fn invalid_secret_returns_zero_fallback() {
+    fn rejects_an_invalid_secret() {
         let account = OtpAccount {
             secret: "NOT-BASE32".to_string(),
             ..Default::default()
         };
-        assert_eq!(generate_totp_code(&account, 1_700_000_000), "000000");
+        assert!(generate_totp_code_at(&account, 1_700_000_000).is_err());
     }
 
     #[test]
-    fn invalid_digit_count_uses_the_six_digit_placeholder() {
+    fn rejects_an_invalid_digit_count() {
         let account = OtpAccount {
             digits: 4,
             ..rfc_account()
         };
-        assert_eq!(generate_totp_code(&account, 1_700_000_000), "000000");
+        assert!(generate_totp_code_at(&account, 1_700_000_000).is_err());
     }
 }

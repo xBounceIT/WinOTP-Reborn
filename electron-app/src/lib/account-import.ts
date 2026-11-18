@@ -1,4 +1,4 @@
-import type { OtpAccount, ParsedAccountImport } from "./types.ts";
+import type { ParsedAccountImport } from "./types.ts";
 
 export const MAX_IMPORT_FILE_SIZE_BYTES = 32 * 1024 * 1024;
 export const MAX_IMPORTED_ACCOUNT_COUNT = 1_000;
@@ -44,20 +44,6 @@ export async function parseLegacyWinOtpJson(content: string): Promise<ParsedAcco
     return result;
   } catch (error) {
     throw normalizeBridgeError(error);
-  }
-}
-
-export async function parseWinAuthLine(
-  rawLine: string | null | undefined,
-): Promise<OtpAccount | undefined> {
-  if (!rawLine?.trim()) {
-    return undefined;
-  }
-
-  try {
-    return await getCore().parseWinAuthLine(rawLine);
-  } catch {
-    return undefined;
   }
 }
 

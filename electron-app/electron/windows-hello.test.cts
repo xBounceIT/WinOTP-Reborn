@@ -1,110 +1,83 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const {
-  getWindowsHelloAvailability,
-  mapAvailabilityStatus,
-  mapVerificationStatus,
-  runWindowsHelloOperation,
-  serializeWindowHandle,
-  verifyWindowsHello,
-} = require("./windows-hello.cjs");
+const { getWindowsHelloAvailability, verifyWindowsHello } = require("./windows-hello.cjs");
 
-test("maps Windows Hello availability and verification outcomes", () => {
-  assert.equal(mapAvailabilityStatus("Available"), "available");
-  assert.equal(mapAvailabilityStatus("RemoteSession"), "remote-session");
-  assert.equal(mapAvailabilityStatus("DeviceNotPresent"), "unavailable");
-  assert.equal(mapAvailabilityStatus("unexpected"), "error");
-
-  assert.equal(mapVerificationStatus("Verified"), "verified");
-  assert.equal(mapVerificationStatus("Canceled"), "canceled");
-  assert.equal(mapVerificationStatus("RetriesExhausted"), "failed");
-  assert.equal(mapVerificationStatus("DeviceNotPresent"), "unavailable");
-  assert.equal(mapVerificationStatus("NotConfiguredForUser"), "unavailable");
-  assert.equal(mapVerificationStatus("RemoteSession"), "remote-session");
-  assert.equal(mapVerificationStatus("unexpected"), "error");
+test("maps native availability to the result shown in Windows Hello settings", async () => {
+  for (const [status, expected] of [
+    ["Available", "available"],
+    ["RemoteSession", "remote-session"],
+    ["DeviceNotPresent", "unavailable"],
+    ["unexpected", "error"],
+  ]) {
+    const result = await getWindowsHelloAvailability({
+      platform: "win32",
+      runOperation: async (operation, input) => {
+        assert.equal(operation, "windows-hello-availability");
+        assert.deepEqual(input, {});
+        return { status };
+      },
+    });
+    assert.deepEqual(result, { status: expected });
+  }
 });
 
-test("delegates Windows Hello availability to the Rust sidecar", async () => {
-  let invocation;
-  const result = await getWindowsHelloAvailability({
-    platform: "win32",
-    runOperation: async (operation, input, options) => {
-      invocation = { operation, input, options };
-      return { status: "Available" };
-    },
-  });
-
-  assert.deepEqual(result, { status: "available" });
-  assert.equal(invocation.operation, "windows-hello-availability");
-  assert.deepEqual(invocation.input, {});
-  assert.equal(invocation.options.timeoutMs, 120_000);
+test("verifies with the application's native window handle and maps the result", async () => {
+  for (const [status, expected] of [
+    ["Verified", "verified"],
+    ["Canceled", "canceled"],
+    ["RetriesExhausted", "failed"],
+    ["DeviceNotPresent", "unavailable"],
+    ["NotConfiguredForUser", "unavailable"],
+    ["RemoteSession", "remote-session"],
+    ["unexpected", "error"],
+  ]) {
+    const result = await verifyWindowsHello({
+      platform: "win32",
+      windowHandle: Buffer.from("7856341201000000", "hex"),
+      runOperation: async (operation, input) => {
+        assert.equal(operation, "windows-hello-verify");
+        assert.deepEqual(input, { windowHandle: "4600387192" });
+        return { status };
+      },
+    });
+    assert.deepEqual(result, { status: expected });
+  }
 });
 
-test("serializes only valid native window handles", () => {
-  assert.equal(serializeWindowHandle(Buffer.from([0x78, 0x56, 0x34, 0x12])), "305419896");
-  assert.equal(serializeWindowHandle(Buffer.alloc(8)), undefined);
-  assert.equal(serializeWindowHandle(Buffer.from([1, 2, 3])), undefined);
-  assert.equal(serializeWindowHandle(123), undefined);
-});
-
-test("delegates Windows Hello verification with the validated window handle", async () => {
-  let invocation;
-  const result = await verifyWindowsHello({
-    platform: "win32",
-    windowHandle: Buffer.from([0x78, 0x56, 0x34, 0x12]),
-    runOperation: async (operation, input, options) => {
-      invocation = { operation, input, options };
-      return { status: "Canceled" };
-    },
-  });
-
-  assert.deepEqual(result, { status: "canceled" });
-  assert.equal(invocation.operation, "windows-hello-verify");
-  assert.deepEqual(invocation.input, { windowHandle: "305419896" });
-  assert.equal(invocation.options.timeoutMs, 120_000);
-});
-
-test("does not launch verification without an application window handle", async () => {
+test("rejects missing or invalid native window handles without starting verification", async () => {
   let invoked = false;
-  const result = await verifyWindowsHello({
-    platform: "win32",
-    runOperation: async () => {
-      invoked = true;
-      return { status: "Verified" };
-    },
-  });
-
-  assert.deepEqual(result, { status: "error" });
+  for (const windowHandle of [undefined, Buffer.alloc(8), Buffer.from([1, 2, 3]), 123]) {
+    const result = await verifyWindowsHello({
+      platform: "win32",
+      windowHandle,
+      runOperation: async () => {
+        invoked = true;
+        return { status: "Verified" };
+      },
+    });
+    assert.deepEqual(result, { status: "error" });
+  }
   assert.equal(invoked, false);
 });
 
-test("fails safely for unavailable, invalid, or failed Rust operations", async () => {
-  const nonWindows = await getWindowsHelloAvailability({
-    platform: "linux",
-    runOperation: async () => ({ status: "Available" }),
-  });
-  assert.deepEqual(nonWindows, { status: "error" });
+test("reports Windows Hello as unavailable outside Windows and fails safely on bridge errors", async () => {
+  for (const platform of ["linux", "darwin"]) {
+    const result = await getWindowsHelloAvailability({
+      platform,
+      runOperation: async () => ({ status: "Available" }),
+    });
+    assert.deepEqual(result, { status: "error" });
+  }
 
-  const invalid = await runWindowsHelloOperation(
-    "windows-hello-availability",
-    {},
-    {
-      platform: "win32",
-      runOperation: async () => ({}),
+  for (const runOperation of [
+    async () => ({}),
+    async () => {
+      throw new Error("bridge failed");
     },
-  );
-  assert.equal(invalid.ok, false);
-
-  const failed = await runWindowsHelloOperation(
-    "windows-hello-availability",
-    {},
-    {
-      platform: "win32",
-      runOperation: async () => {
-        throw new Error("bridge failed");
-      },
-    },
-  );
-  assert.deepEqual(failed, { ok: false, error: "bridge failed" });
+  ]) {
+    assert.deepEqual(await getWindowsHelloAvailability({ platform: "win32", runOperation }), {
+      status: "error",
+    });
+  }
 });

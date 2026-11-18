@@ -131,7 +131,6 @@ declare global {
       completeScreenCapture: (result: ScreenCaptureResult) => void;
       core: {
         parseOtpUri: (uri: string) => Promise<OtpAccount | undefined>;
-        parseWinAuthLine: (line: string) => Promise<OtpAccount | undefined>;
         parseLegacyJson: (content: string) => Promise<ParsedAccountImport>;
         parseWinAuthText: (content: string) => Promise<ParsedAccountImport>;
         sortAccounts: (input: CoreSortInput) => Promise<OtpAccount[]>;

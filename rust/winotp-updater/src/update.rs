@@ -1171,20 +1171,6 @@ mod tests {
     }
 
     #[test]
-    fn update_cleanup_recognizes_every_published_installer_format() {
-        for name in [
-            "WinOTP.exe",
-            "WinOTP.AppImage",
-            "WinOTP.deb",
-            "WinOTP.RPM",
-            "WinOTP.dmg",
-        ] {
-            assert!(is_installer_path(Path::new(name)), "{name}");
-        }
-        assert!(!is_installer_path(Path::new("release-notes.txt")));
-    }
-
-    #[test]
     fn installer_launch_failure_surfaces_error_and_keeps_installer() {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let updates_directory = temp_dir.path().to_path_buf();

@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   autoLockTimeoutMs,
-  hasConfiguredProtection,
   normalizeAutoLockSetting,
   shouldMonitorAutoLock,
 } from "../src/lib/auto-lock.ts";
@@ -29,8 +28,6 @@ test("converts an enabled timeout to milliseconds", () => {
 });
 
 test("monitors only when protection and a timeout are active", () => {
-  assert.equal(hasConfiguredProtection({ ...baseSettings, pinProtection: true }), true);
-  assert.equal(hasConfiguredProtection(baseSettings), false);
   assert.equal(
     shouldMonitorAutoLock({ ...baseSettings, pinProtection: true }, true, true, false),
     true,

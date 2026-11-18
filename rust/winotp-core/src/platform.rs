@@ -55,7 +55,7 @@ mod windows_impl {
     use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::RemoteDesktop::{
-        WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
+        WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
     };
     use windows::Win32::System::WinRT::{
         IUserConsentVerifierInterop, RoGetActivationFactory, RoInitialize, RoUninitialize,
@@ -142,17 +142,6 @@ mod windows_impl {
             let verification = operation.join()?;
             Ok(verification_name(verification).to_string())
         })
-    }
-
-    pub fn register_session_notification(raw_window_handle: u64) -> Result<(), String> {
-        let hwnd = window_handle(raw_window_handle)?;
-        unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) }
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn unregister_session_notification(raw_window_handle: u64) -> Result<(), String> {
-        let hwnd = window_handle(raw_window_handle)?;
-        unsafe { WTSUnRegisterSessionNotification(hwnd) }.map_err(|error| error.to_string())
     }
 
     fn session_change_reason(code: u32) -> Option<&'static str> {
@@ -332,14 +321,6 @@ mod windows_impl {
         Err("Windows Hello is only available on Windows.".to_string())
     }
 
-    pub fn register_session_notification(_raw_window_handle: u64) -> Result<(), String> {
-        Err("Windows session notifications are only available on Windows.".to_string())
-    }
-
-    pub fn unregister_session_notification(_raw_window_handle: u64) -> Result<(), String> {
-        Err("Windows session notifications are only available on Windows.".to_string())
-    }
-
     pub fn read_legacy_credentials(
         _resources: &[String],
     ) -> Result<Vec<super::LegacyCredentialEntry>, String> {
@@ -347,10 +328,7 @@ mod windows_impl {
     }
 }
 
-pub use windows_impl::{
-    read_legacy_credentials, register_session_notification, unregister_session_notification,
-    windows_hello_availability, windows_hello_verify,
-};
+pub use windows_impl::{read_legacy_credentials, windows_hello_availability, windows_hello_verify};
 
 #[cfg(windows)]
 pub use windows_impl::run_session_notification_watch;

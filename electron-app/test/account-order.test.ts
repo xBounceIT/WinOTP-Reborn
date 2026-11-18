@@ -33,8 +33,7 @@ function installBridge() {
   (globalThis as any).window = {
     winotp: {
       core: {
-        sortAccounts: async ({ accounts: input }: any) =>
-          [...input].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+        sortAccounts: async () => [{ id: "acct-2" }, { id: "acct-3" }, { id: "acct-1" }],
         pruneCustomOrderIds: async () => ["acct-3", "acct-1"],
         orderProject: async () => ["acct-2", "acct-1", "acct-3"],
       },
@@ -45,28 +44,19 @@ function installBridge() {
 test("uses the Rust result to restore the original account objects", async () => {
   installBridge();
   const ordered = await sortAccountsWithCore(accounts, "DateAddedDesc");
-  assert.deepEqual(
-    ordered.map((item) => item.id),
-    ["acct-2", "acct-3", "acct-1"],
-  );
-  assert.equal(ordered[0].secret, accounts[1].secret);
+  assert.deepEqual(ordered, [accounts[1], accounts[2], accounts[0]]);
 });
 
 test("rejects duplicate or incomplete Rust order results", async () => {
-  (globalThis as any).window = {
-    winotp: {
-      core: {
-        sortAccounts: async () => [accounts[0], accounts[0], accounts[2]],
-      },
-    },
-  };
-
-  const ordered = await sortAccountsWithCore(accounts, "DateAddedDesc");
-
-  assert.deepEqual(
-    ordered.map((item) => item.id),
-    accounts.map((item) => item.id),
-  );
+  for (const malformedOrder of [
+    [{ id: "acct-3" }, { id: "acct-3" }, { id: "acct-1" }],
+    [{ id: "acct-3" }, { id: "acct-1" }],
+  ]) {
+    (globalThis as any).window = {
+      winotp: { core: { sortAccounts: async () => malformedOrder } },
+    };
+    assert.deepEqual(await sortAccountsWithCore(accounts, "DateAddedDesc"), accounts);
+  }
 });
 
 test("delegates persisted order projection and pruning to Rust", async () => {

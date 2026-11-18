@@ -9,7 +9,6 @@ const {
   createUpdateService,
   getLinuxPackageType,
   getUpdaterCommand,
-  getRepositoryRoot,
   isLinuxManualInstallReady,
   runUpdater,
   shouldQuitAfterUpdateInstall,
@@ -139,20 +138,13 @@ test("passes the detected Linux package format to the Rust updater", async () =>
   assert.equal(request.linuxPackageType, "rpm");
 });
 
-test("resolves the repository root from the compiled Electron layout", () => {
-  const repositoryRoot = getRepositoryRoot();
-
-  assert.equal(fs.existsSync(path.join(repositoryRoot, "rust", "Cargo.toml")), true);
-  assert.equal(repositoryRoot, path.resolve(process.cwd(), ".."));
-});
-
 test("uses the configured Rust updater path without shell execution", async () => {
   const response = { success: true, state: createState() };
   let request;
   const spawnProcess = (command, args, options) => {
     assert.equal(command, process.execPath);
     assert.deepEqual(args, []);
-    assert.equal(options.shell, undefined);
+    assert.ok(!options.shell);
     const child = createSpawnMock(response)();
     const originalEnd = child.stdin.end;
     child.stdin.end = (payload) => {
@@ -216,7 +208,8 @@ test("falls back to cargo in an unpackaged checkout and refuses a missing packag
   });
   assert.ok(command.command === "cargo" || command.command.includes("winotp-updater"));
   if (command.command === "cargo") {
-    assert.deepEqual(command.args.slice(0, 2), ["run", "--quiet"]);
+    const manifestPath = command.args[command.args.indexOf("--manifest-path") + 1];
+    assert.equal(manifestPath, path.resolve("..", "rust", "Cargo.toml"));
   }
 
   const packagedCommand = getUpdaterCommand({

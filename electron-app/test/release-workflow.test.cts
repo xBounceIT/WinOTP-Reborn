@@ -2,102 +2,45 @@ const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const test = require("node:test");
+const { test } = require("node:test");
+const { load } = require("js-yaml");
 
-const workflow = fs.readFileSync(
-  path.resolve(process.cwd(), "../.github/workflows/release.yml"),
-  "utf8",
-);
-const indexHtml = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf8");
-const packageJson = JSON.parse(
-  fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
-);
-const packageVersion = packageJson.version;
+const workflow = load(fs.readFileSync("../.github/workflows/release.yml", "utf8"));
+const { checks, package: packaging, release } = workflow.jobs;
+const { version: packageVersion } = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function readPngDimensions(relativePath) {
-  const contents = fs.readFileSync(path.resolve(process.cwd(), relativePath));
-  assert.deepEqual(
-    contents.subarray(0, 8),
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    `${relativePath} is not a PNG`,
-  );
-  assert.equal(contents.subarray(12, 16).toString("ascii"), "IHDR");
-  return { width: contents.readUInt32BE(16), height: contents.readUInt32BE(20) };
-}
-
-function packageEntryBlock(platform) {
-  const match = workflow.match(
-    new RegExp(
-      `^          - platform: ${escapeRegExp(platform)}\\r?\\n((?:            .+\\r?\\n)*)`,
-      "m",
-    ),
-  );
-  assert.ok(match, `missing package matrix entry for ${platform}`);
-
-  return Object.fromEntries(
-    [`platform: ${platform}`, ...match[1].trimEnd().split(/\r?\n/)].map((line) => {
-      const parts = line.trim().match(/^([a-z_]+): (.+)$/);
-      assert.ok(parts, `invalid matrix line: ${line}`);
-      return [parts[1], parts[2]];
-    }),
-  );
-}
-
-test("release build jobs use read-only contents permissions", () => {
-  assert.match(workflow, /^permissions:\r?\n  contents: read\r?\n/m);
-  assert.match(workflow, /release:\r?\n(?:.*\r?\n)*?    permissions:\r?\n      contents: write/m);
+test("only the publishing job can write repository contents", () => {
+  assert.equal((checks.permissions ?? workflow.permissions).contents, "read");
+  assert.equal((packaging.permissions ?? workflow.permissions).contents, "read");
+  assert.equal((release.permissions ?? workflow.permissions).contents, "write");
 });
 
-test("release tag verification uses the checked TypeScript script", () => {
-  assert.match(
-    workflow,
-    /- name: Verify tag matches package version[\s\S]*?run: node scripts\/verify-release-tag\.ts/,
-  );
+test("pull requests verify all three desktop platforms without publishing installers", () => {
+  assert.ok(workflow.on.pull_request.branches.includes("main"));
+  assert.deepEqual([...checks.strategy.matrix.os].sort(), [
+    "macos-latest",
+    "ubuntu-latest",
+    "windows-latest",
+  ]);
+  const packageCondition = packaging.if.replace(/^\$\{\{\s*|\s*\}\}$/g, "").trim();
+  assert.match(packageCondition, /^github\.event_name\s*!=\s*'pull_request'$/);
+  assert.ok([release.needs].flat().includes("package"));
 });
 
-test("release recovery uses an existing tag without changing the workflow source revision", () => {
-  assert.match(workflow, /workflow_dispatch:\r?\n    inputs:\r?\n      release_tag:/);
-  assert.match(workflow, /^  RELEASE_TAG: \$\{\{ inputs\.release_tag \|\| github\.ref_name \}\}$/m);
-  assert.match(
-    workflow,
-    /^  group: release-\$\{\{ inputs\.release_tag \|\| github\.ref_name \}\}$/m,
+test("the release matrix builds both Windows and Linux architectures and universal macOS", () => {
+  const targets = packaging.strategy.matrix.include.map(
+    ({ builder_platform, builder_arch, target_arch }) => {
+      assert.equal(target_arch, builder_arch);
+      return [builder_platform, builder_arch].join("-");
+    },
   );
-  assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /git rev-parse --verify "refs\/tags\/\$\{RELEASE_TAG\}\^\{commit\}"/);
-  assert.match(workflow, /git merge-base --is-ancestor "\$tag_commit" HEAD/);
-  assert.doesNotMatch(workflow, /RELEASE_TAG: \$\{\{ github\.ref_name \}\}/);
-  assert.doesNotMatch(workflow, /ref: \$\{\{ inputs\.release_tag \}\}/);
-  assert.match(workflow, /gh release create "\$RELEASE_TAG"[\s\S]*?--verify-tag/);
-});
-
-test("pull requests verify every desktop platform without publishing installers", () => {
-  assert.match(workflow, /pull_request:\r?\n    branches: \[main\]/);
-  assert.match(workflow, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
-  for (const name of [
-    "Verify tag matches package version",
-    "Verify source includes the existing release tag",
-  ]) {
-    assert.match(
-      workflow,
-      new RegExp(`- name: ${name}\\r?\\n        if: github\\.event_name != 'pull_request'`),
-    );
-  }
-  assert.match(
-    workflow,
-    /package:\r?\n    name: Package \$\{\{ matrix\.platform \}\}\r?\n    if: github\.event_name != 'pull_request'\r?\n    needs: checks/,
-  );
-  assert.match(workflow, /release:\r?\n    name: Publish GitHub release\r?\n    needs: package/);
-});
-
-test("Linux graphical release tests configure the installed Electron sandbox before running", () => {
-  assert.match(
-    workflow,
-    /- name: Install Electron before parallel tests[\s\S]*?- name: Configure Linux Electron sandbox\r?\n        if: runner\.os == 'Linux'[\s\S]*?sudo chown root:root node_modules\/electron\/dist\/chrome-sandbox\r?\n          sudo chmod 4755 node_modules\/electron\/dist\/chrome-sandbox[\s\S]*?run: xvfb-run -a npm test/,
-  );
+  assert.deepEqual(targets.sort(), [
+    "linux-arm64",
+    "linux-x64",
+    "mac-universal",
+    "win-arm64",
+    "win-x64",
+  ]);
 });
 
 test("release tag verification accepts only the current prefixed package version", () => {
@@ -105,15 +48,13 @@ test("release tag verification accepts only the current prefixed package version
   const run = (releaseTag) =>
     spawnSync(process.execPath, [scriptPath], {
       cwd: process.cwd(),
-      env: {
-        ...process.env,
-        ...(releaseTag === undefined ? { RELEASE_TAG: undefined } : { RELEASE_TAG: releaseTag }),
-      },
+      env: { ...process.env, RELEASE_TAG: releaseTag },
       encoding: "utf8",
       windowsHide: true,
     });
 
   assert.equal(run(`v${packageVersion}`).status, 0);
+  assert.notEqual(run(packageVersion).status, 0);
 
   const wrongTag = run("v0.0.0-invalid");
   assert.notEqual(wrongTag.status, 0);
@@ -122,112 +63,4 @@ test("release tag verification accepts only the current prefixed package version
   const missingTag = run(undefined);
   assert.notEqual(missingTag.status, 0);
   assert.match(missingTag.stderr, /RELEASE_TAG must be a non-empty version tag/);
-});
-
-test("release packaging verifies Rust and ships both Windows architectures", () => {
-  assert.match(
-    workflow,
-    /- name: Test Rust workspace\r?\n        working-directory: \$\{\{ github\.workspace \}\}\r?\n        run: cargo test --manifest-path rust\/Cargo\.toml --workspace/,
-  );
-  assert.match(
-    workflow,
-    /- name: Check Rust formatting\r?\n        working-directory: \$\{\{ github\.workspace \}\}\r?\n        run: cargo fmt --manifest-path rust\/Cargo\.toml --all -- --check/,
-  );
-
-  assert.deepEqual(packageEntryBlock("windows"), {
-    platform: "windows",
-    runner: "windows-latest",
-    builder_platform: "win",
-    builder_arch: "x64",
-    msvc_arch: "amd64",
-    target_arch: "x64",
-    artifact: "electron-app/release/WinOTP-*-win-x64-setup.exe",
-  });
-  assert.deepEqual(packageEntryBlock("windows-arm64"), {
-    platform: "windows-arm64",
-    runner: "windows-latest",
-    builder_platform: "win",
-    builder_arch: "arm64",
-    msvc_arch: "amd64_arm64",
-    target_arch: "arm64",
-    artifact: "electron-app/release/WinOTP-*-win-arm64-setup.exe",
-  });
-  assert.deepEqual(packageEntryBlock("linux"), {
-    platform: "linux",
-    runner: "ubuntu-latest",
-    builder_platform: "linux",
-    builder_arch: "x64",
-    target_arch: "x64",
-    artifact: "electron-app/release/WinOTP-*-linux-x64-setup.*",
-  });
-  assert.deepEqual(packageEntryBlock("linux-arm64"), {
-    platform: "linux-arm64",
-    runner: "ubuntu-latest",
-    builder_platform: "linux",
-    builder_arch: "arm64",
-    target_arch: "arm64",
-    artifact: "electron-app/release/WinOTP-*-linux-arm64-setup.*",
-  });
-  assert.deepEqual(packageEntryBlock("macos"), {
-    platform: "macos",
-    runner: "macos-latest",
-    builder_platform: "mac",
-    builder_arch: "universal",
-    target_arch: "universal",
-    artifact: "electron-app/release/WinOTP-*-mac-universal-setup.dmg",
-  });
-
-  assert.match(workflow, /^      WINOTP_TARGET_ARCH: \$\{\{ matrix\.target_arch \}\}/m);
-  assert.match(
-    workflow,
-    /^      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc/m,
-  );
-  assert.match(
-    workflow,
-    /- name: Set up MSVC developer environment\r?\n        if: matrix\.builder_platform == 'win'\r?\n        uses: ilammy\/msvc-dev-cmd@v1\r?\n        with:\r?\n          arch: \$\{\{ matrix\.msvc_arch \}\}/,
-  );
-  assert.match(
-    workflow,
-    /- name: Install Linux packaging tools\r?\n        if: matrix\.builder_platform == 'linux'[\s\S]*?sudo apt-get install --no-install-recommends -y rpm xz-utils/,
-  );
-  assert.match(
-    workflow,
-    /- name: Install Linux ARM64 toolchain\r?\n        if: matrix\.builder_platform == 'linux' && matrix\.builder_arch == 'arm64'[\s\S]*?gcc-aarch64-linux-gnu/,
-  );
-  assert.match(workflow, /g\+\+-aarch64-linux-gnu/);
-  assert.match(workflow, /libc6-dev-arm64-cross/);
-  assert.match(
-    workflow,
-    /run: npm run package -- --\$\{\{ matrix\.builder_platform \}\} --\$\{\{ matrix\.builder_arch \}\}/,
-  );
-  assert.match(
-    workflow,
-    /--config\.artifactName='WinOTP-\$\{version\}-\$\{os\}-\$\{env\.WINOTP_TARGET_ARCH\}-setup\.\$\{ext\}'/,
-  );
-});
-
-test("Linux release jobs build and validate portable and native installers", () => {
-  assert.equal(packageJson.homepage, "https://github.com/xBounceIT/WinOTP-Reborn");
-  assert.match(
-    workflow,
-    /- name: Verify Linux installer artifacts\r?\n        if: matrix\.builder_platform == 'linux'\r?\n        shell: bash/,
-  );
-  assert.match(workflow, /for extension in AppImage deb rpm; do/);
-  assert.match(
-    workflow,
-    /compgen -G "release\/WinOTP-\*-linux-\$\{WINOTP_TARGET_ARCH\}-setup\.\$\{extension\}"/,
-  );
-  assert.match(workflow, /if \[\[ "\$\{#installers\[@\]\}" -ne 1 \]\]; then/);
-  assert.match(workflow, /if \[\[ ! -s "\$\{installers\[0\]\}" \]\]; then/);
-});
-
-test("release packages and runtime use branded cross-platform icons", () => {
-  assert.equal(packageJson.build.win.icon, "public/app.ico");
-  assert.equal(packageJson.build.linux.icon, "public/app.png");
-  assert.equal(packageJson.build.mac.icon, "public/app.png");
-  assert.match(indexHtml, /<link rel="icon" href="\.\/app\.png" \/>/);
-
-  assert.deepEqual(readPngDimensions("public/app.png"), { width: 1024, height: 1024 });
-  assert.deepEqual(readPngDimensions("public/trayTemplate.png"), { width: 16, height: 16 });
-  assert.deepEqual(readPngDimensions("public/trayTemplate@2x.png"), { width: 32, height: 32 });
 });

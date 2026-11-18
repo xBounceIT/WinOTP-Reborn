@@ -135,10 +135,6 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
                     .unwrap(),
             )
         }
-        "parse-winauth-line" => {
-            import::parse_winauth_line(input.get("line").and_then(Value::as_str))
-                .map(|account| serde_json::to_value(account).unwrap())
-        }
         "parse-legacy-account" => import::parse_legacy_account(
             input
                 .get("entryId")
@@ -255,22 +251,6 @@ fn dispatch_inner(request: Value) -> Result<Value, String> {
         "windows-hello-verify" => {
             let window_handle = parse_window_handle(input.get("windowHandle"))?;
             platform::windows_hello_verify(window_handle).map(|status| json!({ "status": status }))
-        }
-        "session-notification-register" => {
-            let window_handle = parse_window_handle(input.get("windowHandle"))?;
-            platform::register_session_notification(window_handle).map(|()| {
-                json!({
-                    "status": "registered"
-                })
-            })
-        }
-        "session-notification-unregister" => {
-            let window_handle = parse_window_handle(input.get("windowHandle"))?;
-            platform::unregister_session_notification(window_handle).map(|()| {
-                json!({
-                    "status": "unregistered"
-                })
-            })
         }
         "read-legacy-credentials" => {
             let resources = input

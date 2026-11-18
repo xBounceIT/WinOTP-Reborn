@@ -34,4 +34,4 @@ pub use ordering::{
     apply_custom_order, get_drop_insertion_index, project_order, prune_custom_order_ids,
     sort_accounts, ItemBounds,
 };
-pub use otp::{decode_base32, generate_totp_code, generate_totp_code_at, remaining_seconds};
+pub use otp::{decode_base32, generate_totp_code_at, remaining_seconds};

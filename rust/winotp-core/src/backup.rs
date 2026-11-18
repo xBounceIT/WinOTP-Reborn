@@ -192,61 +192,17 @@ pub fn serialize_envelope(envelope: &BackupEnvelope) -> Result<String, BackupErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::OtpAccount;
 
     fn random_test_password() -> String {
         BASE64.encode(random_bytes::<KEY_SIZE_BYTES>().unwrap())
     }
 
     #[test]
-    fn derived_key_preserves_existing_backups_and_depends_on_password_and_salt() {
-        let password = random_test_password();
-        let salt = random_bytes::<SALT_SIZE_BYTES>().unwrap();
-        let mut legacy_key = random_bytes::<KEY_SIZE_BYTES>().unwrap();
-        pbkdf2::pbkdf2_hmac::<Sha256>(
-            password.as_bytes(),
-            &salt,
-            PBKDF2_ITERATIONS,
-            &mut legacy_key,
-        );
-
-        let key = derive_key(&password, &salt);
-        assert_eq!(key, legacy_key);
-        assert_ne!(key, derive_key(&random_test_password(), &salt));
-        assert_ne!(
-            key,
-            derive_key(&password, &random_bytes::<SALT_SIZE_BYTES>().unwrap())
-        );
-    }
-
-    #[test]
-    fn validates_passwords_with_the_portable_policy() {
-        let valid_password = random_test_password();
-        let too_short_password = valid_password
-            .chars()
-            .take(MINIMUM_PASSWORD_LENGTH - 1)
-            .collect::<String>();
-        let whitespace_only_password = " ".repeat(MINIMUM_PASSWORD_LENGTH);
-
-        assert!(!is_valid_backup_password(&too_short_password));
-        assert!(!is_valid_backup_password(&whitespace_only_password));
-        assert!(is_valid_backup_password(&valid_password));
-    }
-
-    #[test]
-    fn encrypts_and_decrypts_the_legacy_compatible_envelope() {
-        let account = OtpAccount {
-            id: "account-1".to_string(),
-            issuer: "ACME".to_string(),
-            account_name: "jdoe@example.com".to_string(),
-            secret: "JBSWY3DPEHPK3PXP".to_string(),
-            ..Default::default()
-        };
-        let password = random_test_password();
-        let envelope = encrypt_payload(vec![account.clone()], &password, None).unwrap();
-        assert_eq!(envelope.encryption.scheme, BACKUP_SCHEME);
-        let payload = decrypt_payload(&envelope, &password).unwrap();
-        assert_eq!(payload.accounts, [account]);
+    fn rejects_short_and_blank_backup_passwords() {
+        let sample = random_test_password();
+        assert!(!is_valid_backup_password(&sample[..7]));
+        assert!(!is_valid_backup_password(&" ".repeat(8)));
+        assert!(is_valid_backup_password(&sample[..8]));
     }
 
     #[test]

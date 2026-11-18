@@ -3,78 +3,9 @@ const { EventEmitter } = require("node:events");
 const test = require("node:test");
 
 const {
-  SESSION_CHANGE_WINDOW_MESSAGE,
-  SESSION_NOTIFICATION_FLAGS,
-  MAX_SESSION_WATCH_OUTPUT_BYTES,
-  getSessionChangeCode,
-  getSessionChangeReason,
-  isRelevantSessionChangeCode,
-  parseSessionWatchMessage,
-  registerSessionNotification,
   shouldStartSessionChangeWatcher,
   startSessionChangeWatcher,
-  unregisterSessionNotification,
 } = require("./session-monitor.cjs");
-
-test("maps all Windows session transitions to renderer reasons", () => {
-  assert.equal(SESSION_CHANGE_WINDOW_MESSAGE, 0x02b1);
-
-  for (const [name, code] of Object.entries(SESSION_NOTIFICATION_FLAGS)) {
-    assert.equal(isRelevantSessionChangeCode(code), true);
-    assert.equal(getSessionChangeReason(code), name.replace(/([A-Z])/g, "-$1").toLowerCase());
-  }
-});
-
-test("ignores unrelated or malformed Windows messages", () => {
-  assert.equal(isRelevantSessionChangeCode(0), false);
-  assert.equal(isRelevantSessionChangeCode(5), false);
-  assert.equal(getSessionChangeCode(Buffer.from([0x03, 0x00, 0x00, 0x00])), 3);
-  assert.equal(getSessionChangeCode(Buffer.from([0x01, 0x00])), undefined);
-  assert.equal(getSessionChangeCode("3"), undefined);
-});
-
-test("registers and unregisters through the Rust sidecar", async () => {
-  const calls = [];
-  const runOperation = async (operation, input, options) => {
-    calls.push({ operation, input, options });
-    return {
-      status: operation === "session-notification-register" ? "registered" : "unregistered",
-    };
-  };
-  const windowHandle = Buffer.from("78563412", "hex");
-
-  const registered = await registerSessionNotification(windowHandle, {
-    platform: "win32",
-    runOperation,
-  });
-  const unregistered = await unregisterSessionNotification(windowHandle, {
-    platform: "win32",
-    runOperation,
-  });
-
-  assert.equal(registered.ok, true);
-  assert.equal(unregistered.ok, true);
-  assert.deepEqual(
-    calls.map(({ operation }) => operation),
-    ["session-notification-register", "session-notification-unregister"],
-  );
-  assert.deepEqual(calls[0].input, { windowHandle: "305419896" });
-  assert.equal(calls[0].options.timeoutMs, 5_000);
-});
-
-test("rejects invalid handles and non-Windows session registration", async () => {
-  const invalid = await registerSessionNotification(Buffer.alloc(0), {
-    platform: "win32",
-    runOperation: async () => ({ status: "registered" }),
-  });
-  assert.equal(invalid.ok, false);
-
-  const nonWindows = await registerSessionNotification(Buffer.from("78563412", "hex"), {
-    platform: "linux",
-    runOperation: async () => ({ status: "registered" }),
-  });
-  assert.equal(nonWindows.ok, false);
-});
 
 function createFakeWatcherChild() {
   const child = new EventEmitter();
@@ -91,28 +22,6 @@ function createFakeWatcherChild() {
   };
   return child;
 }
-
-test("parses Rust session watcher events", () => {
-  assert.deepEqual(
-    parseSessionWatchMessage(
-      JSON.stringify({ ok: true, event: { code: 3, reason: "remote-connect" } }),
-    ),
-    { reason: "remote-connect", snapshot: false },
-  );
-  assert.deepEqual(
-    parseSessionWatchMessage(
-      JSON.stringify({
-        ok: true,
-        event: { code: 1, reason: "console-connect", snapshot: true },
-      }),
-    ),
-    { reason: "console-connect", snapshot: true },
-  );
-  assert.deepEqual(parseSessionWatchMessage(JSON.stringify({ ok: false, error: "denied" })), {
-    error: "denied",
-  });
-  assert.deepEqual(parseSessionWatchMessage("not-json"), {});
-});
 
 test("preserves UTF-8 watcher errors split across chunks", (context) => {
   const errors = [];
@@ -251,7 +160,7 @@ test("terminates a watcher that exceeds its output boundary", (context) => {
   });
   context.after(() => watcher.stop());
 
-  child.stdout.emit("data", "x".repeat(MAX_SESSION_WATCH_OUTPUT_BYTES + 1));
+  child.stdout.emit("data", "x".repeat(64 * 1024 + 1));
 
   assert.equal(child.killed, true);
   assert.equal(errors.length, 1);

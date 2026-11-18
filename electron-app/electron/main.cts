@@ -1408,14 +1408,6 @@ function registerCoreIpc() {
       uri: boundedCoreText(uri, 8 * 1024, "The OTP URI"),
     }),
   );
-  ipcMain.handle("core:parse-winauth-line", (event, line) =>
-    runCoreFromRenderer(event, "parse-winauth-line", {
-      line:
-        line === null || line === undefined
-          ? line
-          : boundedCoreText(line, 8 * 1024, "The WinAuth line"),
-    }),
-  );
   ipcMain.handle("core:parse-legacy-json", (event, content) =>
     runCoreFromRenderer(
       event,

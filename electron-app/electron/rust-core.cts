@@ -2,7 +2,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 
-const CORE_BINARY_NAME = process.platform === "win32" ? "winotp-core.exe" : "winotp-core";
 const DEFAULT_MAX_INPUT_BYTES = 64 * 1024 * 1024;
 
 class RustCoreUnavailableError extends Error {
@@ -269,14 +268,10 @@ function tryRunRustCore(operation, input = {}, options: any = {}) {
 }
 
 module.exports = {
-  CORE_BINARY_NAME,
-  DEFAULT_MAX_INPUT_BYTES,
   RustCoreUnavailableError,
-  getCoreBinaryCandidates,
   hasRustCoreBinary,
   resolveRustCoreBinary,
   runRustCore,
   runRustCoreAsync,
-  serializeRustCoreRequest,
   tryRunRustCore,
 };
