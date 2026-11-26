@@ -79,6 +79,6 @@ npm run package -- --win --x64
 
 ## Project status
 
-The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging is now handled by `.github/workflows/release.yml`, which builds Windows NSIS setups, Linux AppImage, DEB, and RPM packages for x64 and arm64, and a universal macOS DMG for version tags such as `v2.2.0`.
+The former XAML frontend, native application manifest, and native installer pipeline have been retired. Electron packaging is now handled by `.github/workflows/release.yml`, which builds Windows NSIS setups, Linux AppImage, DEB, and RPM packages for x64 and arm64, and a universal macOS DMG for version tags such as `v2.2.0`. The app version is derived from the pushed tag (`vX.Y.Z`) at build time via `electron-app/scripts/apply-release-tag.ts`, so publishing a release does not require a separate version-bump PR in `package.json`.
 
 WinOTP is licensed under the MIT License.
