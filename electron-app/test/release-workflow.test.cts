@@ -61,6 +61,16 @@ test("package.json keeps a valid semver fallback version for development builds"
   assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
 });
 
+test("the publish step marks prerelease tags as GitHub prereleases", () => {
+  const publish = release.steps.find((step) => String(step.name ?? "").includes("Publish release"));
+  const run = String(publish.run);
+  // The flag is derived from the tag's prerelease suffix (vX.Y.Z-<suffix>).
+  assert.match(run, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+/);
+  assert.match(run, /prerelease_flag="--prerelease"/);
+  // Both gh release edit and gh release create receive the flag.
+  assert.ok(run.split("$prerelease_flag").length - 1 >= 2);
+});
+
 test("the release tag becomes the app version in package.json and the lockfile", (t) => {
   const scriptPath = path.resolve(process.cwd(), "scripts/apply-release-tag.ts");
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "winotp-release-tag-"));

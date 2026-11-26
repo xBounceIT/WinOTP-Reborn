@@ -236,6 +236,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Prerelease tags (vX.Y.Z-<suffix>) must be published as GitHub prereleases,
+          # otherwise the updater's stable-channel filter would offer them to stable users.
+          prerelease_flag=""
+          if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
           if release_json="$(gh release view "$RELEASE_TAG" --repo "$REPOSITORY" --json isDraft,assets 2>/dev/null)"; then
             is_draft="$(jq -r '.isDraft' <<<"$release_json")"
             existing_assets="$(jq -r '.assets[].name' <<<"$release_json")"
@@ -254,11 +261,13 @@ jobs:
             gh release edit "$RELEASE_TAG" \
               --repo "$REPOSITORY" \
               --verify-tag \
-              --draft=false
+              --draft=false \
+              $prerelease_flag
           else
             gh release create "$RELEASE_TAG" \
               --repo "$REPOSITORY" \
               --verify-tag \
               --generate-notes \
+              $prerelease_flag \
               dist/*
           fi
